@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>原神 移动端渲染技术要点总结</title>
+<style>
+  :root{--bg:#0f1419;--bg-card:#1a2028;--border:#2a3441;--text:#e6edf3;--text-dim:#9aa5b1;--text-mute:#6b7684;--accent:#64b5f6;--accent-2:#ba68c8;--accent-3:#81c784;--accent-4:#ef5350;--accent-5:#ffb74d;--code-bg:#0d1117;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.7}
+  .container{max-width:1180px;margin:0 auto;padding:32px 28px 80px}
+  header{background:linear-gradient(135deg,#1e3a5a 0%,#3b1b4e 100%);padding:48px 28px 56px;margin-bottom:32px}
+  header .inner{max-width:1180px;margin:0 auto}
+  h1{font-size:32px;margin:0 0 12px;font-weight:700;background:linear-gradient(90deg,#64b5f6,#ba68c8);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .subtitle{color:var(--text-dim);font-size:16px;margin:0}
+  .meta{margin-top:18px;display:flex;gap:16px;flex-wrap:wrap}
+  .meta-item{font-size:13px;color:var(--text-mute)}
+  .meta-item strong{color:var(--accent);margin-right:6px}
+  h2{font-size:22px;margin:40px 0 18px;padding-left:14px;border-left:4px solid var(--accent);line-height:1.3}
+  h3{font-size:17px;margin:24px 0 12px;color:var(--accent-2);font-weight:600}
+  h4{font-size:15px;margin:16px 0 8px;color:var(--accent-3);font-weight:600}
+  p{margin:10px 0}
+  ul,ol{padding-left:22px;margin:10px 0}
+  li{margin:5px 0}
+  code{background:var(--code-bg);color:#ffb74d;padding:2px 7px;border-radius:4px;font-family:Consolas,monospace;font-size:13px;border:1px solid var(--border)}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:16px 0}
+  .grid{display:grid;gap:16px}
+  .grid-2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .grid-3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .pill{display:inline-block;padding:3px 10px;background:rgba(100,181,246,.12);border:1px solid rgba(100,181,246,.4);color:var(--accent);border-radius:12px;font-size:12px;font-family:Consolas,monospace}
+  .pill.warn{background:rgba(255,183,77,.12);border-color:rgba(255,183,77,.4);color:var(--accent-5)}
+  .pill.green{background:rgba(129,199,132,.12);border-color:rgba(129,199,132,.4);color:var(--accent-3)}
+  .pill.red{background:rgba(239,83,80,.12);border-color:rgba(239,83,80,.4);color:var(--accent-4)}
+  .pill.purple{background:rgba(186,104,200,.14);border-color:rgba(186,104,200,.4);color:var(--accent-2)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border)}
+  th{background:rgba(100,181,246,.08);color:var(--accent);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .stage{background:var(--bg-card);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:16px 20px;margin-bottom:8px;position:relative}
+  .stage h4{margin:6px 0 8px;color:var(--accent);font-size:16px}
+  .callout{background:linear-gradient(135deg,rgba(100,181,246,.08),rgba(186,104,200,.06));border:1px solid rgba(100,181,246,.25);border-radius:8px;padding:14px 18px;margin:16px 0;font-size:14px}
+  .callout-title{font-weight:600;color:var(--accent);margin-bottom:6px;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+  .callout.warn{background:linear-gradient(135deg,rgba(255,183,77,.08),rgba(239,83,80,.06));border-color:rgba(255,183,77,.3)}
+  .callout.warn .callout-title{color:var(--accent-5)}
+  .toc{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px 22px;margin-bottom:30px}
+  .toc-title{font-size:13px;color:var(--text-dim);margin-bottom:8px;letter-spacing:1px}
+  .toc ol{padding-left:20px;margin:0}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  footer{text-align:center;color:var(--text-mute);font-size:12px;padding:20px 0 0;margin-top:40px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <h1>原神 · 移动端渲染技术要点总结</h1>
+    <p class="subtitle">开放世界 NPR · 跨平台一致性 · Unity 深度定制 · 卡通渲染工业化</p>
+    <div class="meta">
+      <div class="meta-item"><strong>引擎</strong>Unity（重度定制 SRP）</div>
+      <div class="meta-item"><strong>风格</strong>NPR / 二次元卡通</div>
+      <div class="meta-item"><strong>分辨率</strong>720P~1440P 自适应</div>
+      <div class="meta-item"><strong>API</strong>Vulkan / Metal / OpenGL ES 3.1</div>
+      <div class="meta-item"><strong>跨平台</strong>iOS / Android / PC / PS / Switch</div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ol>
+    <li><a href="#summary">一、核心结论速览</a></li>
+    <li><a href="#srp">二、SRP 自定义管线</a></li>
+    <li><a href="#npr">三、NPR 卡通渲染体系</a></li>
+    <li><a href="#world">四、开放世界场景渲染</a></li>
+    <li><a href="#weather">五、天气与时间</a></li>
+    <li><a href="#water">六、水体与流体</a></li>
+    <li><a href="#post">七、后处理与色彩管理</a></li>
+    <li><a href="#opt">八、移动端性能策略</a></li>
+    <li><a href="#takeaway">九、关键启示</a></li>
+    <li><a href="#refs">十、参考资料</a></li>
+  </ol>
+</div>
+
+<h2 id="summary">一、核心结论速览</h2>
+<div class="grid grid-3">
+  <div class="card"><h4>渲染策略</h4><ul>
+    <li>移动端 <strong>前向渲染 + 自定义 SRP</strong></li>
+    <li>角色 <strong>NPR</strong>，场景 <strong>半 PBR</strong></li>
+    <li>跨平台共享美术资产（差异在档位参数）</li>
+  </ul></div>
+  <div class="card"><h4>核心技术</h4><ul>
+    <li>角色：Ramp 贴图卡通光照 + 多层描边</li>
+    <li>地形：Tessellation + Triplanar + Virtual Texture（高档）</li>
+    <li>植被：风场 + GPU Instancing + Imposter（远）</li>
+  </ul></div>
+  <div class="card"><h4>预算/Format</h4><ul>
+    <li>SceneColor <code>R11G11B10</code> 移动端 HDR</li>
+    <li>角色 RT 单独 1 张（Outline 用）</li>
+    <li>Shadow 2~3 级 CSM <code>1024²</code></li>
+  </ul></div>
+</div>
+
+<div class="callout">
+  <div class="callout-title">总体取舍</div>
+  原神最大的工程挑战不是单帧画质，而是 <strong>跨设备一致性</strong>——同一个角色在 PS5 和小米 11 上看起来要"是同一个 Lumi"。这驱动了它在 NPR 体系上做<strong>逻辑参数化</strong>，而不是平台手写一份。
+</div>
+
+<h2 id="srp">二、SRP 自定义管线</h2>
+<div class="callout warn">
+  <div class="callout-title">为什么不用 URP</div>
+  Unity URP（轻量管线）对 NPR 描边、Ramp 光照、跨平台档位的支持很弱。原神团队选择 <strong>SRP（可编程渲染管线）</strong> 自己写，这样阴影、Pass 顺序、RT 格式都可以精确控制。
+</div>
+
+<table>
+  <thead><tr><th>Pass</th><th>用途</th><th>RT</th><th>特殊点</th></tr></thead>
+  <tbody>
+    <tr><td>Shadow</td><td>2~3 级 CSM</td><td>D24 1024²×N</td><td>角色单独投阴影通道</td></tr>
+    <tr><td>Depth Prepass</td><td>地形 + 主要建筑</td><td>D24</td><td>用于后续 Soft Particle</td></tr>
+    <tr><td>Opaque BasePass</td><td>地形 → 建筑 → 植被 → 角色</td><td>SceneColor R11G11B10</td><td>角色 NPR 与场景 PBR 同一 Pass 但不同 Shader</td></tr>
+    <tr><td>Outline</td><td>角色描边</td><td>SceneColor</td><td>背面外扩法、Mesh 内勾边混合</td></tr>
+    <tr><td>Sky</td><td>天空 / 大气</td><td>SceneColor</td><td>含云层、太阳光晕</td></tr>
+    <tr><td>Transparent</td><td>水、特效、毛发</td><td>SceneColor</td><td>水分独立 Pass，含反射混合</td></tr>
+    <tr><td>PostProcess</td><td>Bloom / Tonemap / Color Grading</td><td>BackBuffer R10G10B10A2</td><td>移动端禁用 SSAO/SSR</td></tr>
+  </tbody>
+</table>
+
+<h2 id="npr">三、NPR 卡通渲染体系</h2>
+<h3>角色光照模型</h3>
+<div class="card">
+<p>原神角色光照核心公式（伪代码）：</p>
+<pre style="background:var(--code-bg);border:1px solid var(--border);border-radius:6px;padding:14px;color:#abb2bf;font-family:Consolas,monospace;font-size:13px;line-height:1.6;overflow-x:auto;margin:0;">
+half NdotL = dot(N, L) * 0.5 + 0.5;
+half rampU = NdotL * shadowMask;            // <span style="color:#64b5f6">用 ShadowMap 调制</span>
+half3 diffuse = tex2D(rampMap, float2(rampU, materialID)).rgb;
+
+// <span style="color:#ba68c8">高光：阶梯式 cutoff，不连续插值</span>
+half spec = step(specThreshold, NdotH);
+half3 specColor = spec * specIntensity * matSpec.rgb;
+
+// <span style="color:#81c784">边缘光（Rim）增强立体感</span>
+half rim = pow(1.0 - NdotV, rimPower) * rimMask;
+
+color = diffuse * baseColor + specColor + rim * rimColor;
+</pre>
+</div>
+
+<h3>多层描边</h3>
+<ul>
+  <li><strong>背面外扩法</strong>：模型背面沿法线外扩 0.005~0.02 米，绘制纯色，构成主轮廓</li>
+  <li><strong>顶点色控制描边宽度</strong>：脸颊/手指等区域用顶点色 R 通道压低粗细，避免肉饼脸</li>
+  <li><strong>内勾线</strong>：法线贴图 + 屏幕空间梯度判别（不开 SSAO 时用此简化版）</li>
+  <li>移动端低档位：仅做背面外扩，不做内勾线</li>
+</ul>
+
+<h3>面部分区控制</h3>
+<div class="card">
+<p>原神角色脸部使用 <strong>世界空间方向参考贴图</strong>，避免角色脸朝任何方向都不出现"过曝鼻子"。</p>
+<ul>
+  <li>SDF 面部贴图 R 通道：左半脸到右半脸的 SDF</li>
+  <li>采样时根据光源方向计算面部光暗分界，强行 cutoff</li>
+  <li>结果：阴影边界稳定，不会随头部 yaw 变化产生鬼影</li>
+</ul>
+</div>
+
+<h2 id="world">四、开放世界场景渲染</h2>
+<div class="grid grid-2">
+  <div class="card">
+    <h4>地形</h4>
+    <ul>
+      <li>高档：Tessellation + 多层 Splat + Triplanar 砾石</li>
+      <li>移动端：去 Tessellation，2~4 层贴图混合</li>
+      <li>使用 <strong>SVT</strong>（Streaming Virtual Texture）解决多层贴图 sample 数过多</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>植被</h4>
+    <ul>
+      <li>近：完整 Mesh，GPU Instancing</li>
+      <li>中：LOD 简化模型 + Billboard 树叶簇</li>
+      <li>远：<strong>Imposter</strong>（多角度烘焙的预渲染图）</li>
+      <li>风场：CPU 高度图 + Vertex Shader 偏移</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>建筑/室内</h4>
+    <ul>
+      <li>整套 PBR Material，移动端关闭 Detail Map</li>
+      <li>室内用 <strong>Reflection Probe + Light Probe Volume</strong></li>
+      <li>窗内"假室内"用 Interior Mapping（Cubemap 视差）</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>HLOD / 远景</h4>
+    <ul>
+      <li>整片区域 baked 成单 Mesh + 单 Texture（HLOD）</li>
+      <li>远景仍保留剪影特征，弱化贴图细节</li>
+      <li>切换距离按机型分档</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="weather">五、天气与时间</h2>
+<ul>
+  <li><strong>实时时间循环</strong>（约 24 分钟一天）：太阳/月亮 elevation 实时变，影响 Ramp 上的 shadow 区域</li>
+  <li><strong>天空盒</strong>：分层云（Volumetric Cloud 简化版） + 大气散射 LUT</li>
+  <li><strong>雨</strong>：粒子 + 屏幕空间湿度（高档）/ 仅角色头顶 splash（低档）</li>
+  <li><strong>雪</strong>：地表覆盖度通过 World Y + Normal Y 计算，实时切换不烘焙</li>
+  <li>BGM 与天气联动通过事件总线，不在渲染层触发</li>
+</ul>
+
+<h2 id="water">六、水体与流体</h2>
+<div class="card">
+<ul>
+  <li><strong>主世界水面</strong>：法线动画 + 屏幕空间反射（高档）/ Cubemap 反射（中低档）</li>
+  <li><strong>水边发白</strong>：Depth Buffer 差值，浅水显白沫</li>
+  <li><strong>角色入水波纹</strong>：动态 RT 写入水面 displacement，PS5 用 Compute Shader，移动端简化</li>
+  <li>枫丹版本（4.0）的 <strong>水下渲染</strong>：扭曲 + 蓝色调 + 焦散投影（Caustics 贴图 UV 滚动）</li>
+</ul>
+</div>
+
+<h2 id="post">七、后处理与色彩管理</h2>
+<table>
+  <thead><tr><th>后处理</th><th>移动低档</th><th>移动高档</th><th>主机/PC</th></tr></thead>
+  <tbody>
+    <tr><td>Bloom</td><td>关</td><td>3 级金字塔</td><td>5 级</td></tr>
+    <tr><td>Tonemap</td><td>ACES 简化</td><td>ACES</td><td>ACES + Color Grading</td></tr>
+    <tr><td>SSAO</td><td>关</td><td>关</td><td>开</td></tr>
+    <tr><td>SSR</td><td>关</td><td>关</td><td>开（仅水/玻璃）</td></tr>
+    <tr><td>DOF</td><td>关</td><td>过场动画时开</td><td>战斗+过场</td></tr>
+    <tr><td>Motion Blur</td><td>关</td><td>关</td><td>可选</td></tr>
+  </tbody>
+</table>
+
+<h2 id="opt">八、移动端性能策略</h2>
+<h3>分档策略</h3>
+<div class="card">
+<ul>
+  <li>4 档：极低/低/中/高，自动检测（含 GPU 型号、温度、电池）</li>
+  <li><strong>分档不重做美术</strong>，只调：分辨率、Shadow 级数、CSM 分辨率、植被密度、特效粒子上限、Imposter 切换距离</li>
+  <li>新版本上线前会用机型样本跑性能回归</li>
+</ul>
+</div>
+
+<h3>带宽优化</h3>
+<ul>
+  <li>SceneColor 用 R11G11B10 而非 RGBA16F，节省 50% 带宽</li>
+  <li>Shadow 与 BasePass 之间使用 <strong>RenderPass 合并</strong>（Vulkan/Metal）</li>
+  <li>Tile-based GPU 上严格遵守 Load/Store Action（如 Don't Care）</li>
+</ul>
+
+<h3>内存压力</h3>
+<ul>
+  <li>5.0 之后地图扩张严重，开启 <strong>分块加载（Chunk Streaming）</strong></li>
+  <li>角色资源 LRU 缓存：常用 12 个角色 + 队伍 4 个常驻</li>
+  <li>纹理压缩：Android ASTC 6×6 / iOS ASTC 4×4 + Sliced Texture（mip biased loading）</li>
+</ul>
+
+<h2 id="takeaway">九、关键启示</h2>
+<div class="grid grid-2">
+  <div class="card">
+    <h4>对 NPR 项目的启示</h4>
+    <ol>
+      <li>面部 SDF 是脸部光影稳定性的关键</li>
+      <li>描边方案要分档，不要一刀切背面外扩</li>
+      <li>NPR 不等于"低成本"，工业化体系成本比 PBR 还高</li>
+    </ol>
+  </div>
+  <div class="card">
+    <h4>对开放世界手游的启示</h4>
+    <ol>
+      <li>SVT/Triplanar 是地形多层贴图的必经之路</li>
+      <li>Imposter 是远景植被性价比之王</li>
+      <li>HLOD 不只是远景优化，也是内存优化的核心</li>
+      <li>跨平台一致性要靠"参数化"，不要平台分支多套代码</li>
+    </ol>
+  </div>
+</div>
+
+<h2 id="refs">十、参考资料</h2>
+<ul>
+  <li>GDC 2021《Modular Cel Shading in Genshin Impact》</li>
+  <li>UWA《原神角色面部渲染解析》</li>
+  <li>米哈游招聘公开演讲：开放世界资源调度</li>
+  <li>知乎技术文章：原神描边、Ramp Shading 复刻</li>
+  <li>个人截帧（设备：iPhone 15 Pro / 红米 K70）</li>
+</ul>
+
+<footer>原神移动端技术要点总结 · 内部研究文档 · 信息基于公开演讲与截帧分析整理</footer>
+
+</div>
+</body>
+</html>

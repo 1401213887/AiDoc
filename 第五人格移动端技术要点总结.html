@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第五人格 移动端渲染技术要点总结</title>
+<style>
+  :root{--bg:#0f1419;--bg-card:#1a2028;--border:#2a3441;--text:#e6edf3;--text-dim:#9aa5b1;--text-mute:#6b7684;--accent:#bca0dc;--accent-2:#eaa6c2;--accent-3:#9fc5e8;--accent-4:#ef5350;--accent-5:#ffd54f;--code-bg:#0d1117;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.7}
+  .container{max-width:1180px;margin:0 auto;padding:32px 28px 80px}
+  header{background:linear-gradient(135deg,#2a1e3a 0%,#3a1e2a 100%);padding:48px 28px 56px;margin-bottom:32px}
+  header .inner{max-width:1180px;margin:0 auto}
+  h1{font-size:32px;margin:0 0 12px;font-weight:700;background:linear-gradient(90deg,#bca0dc,#eaa6c2);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .subtitle{color:var(--text-dim);font-size:16px;margin:0}
+  .meta{margin-top:18px;display:flex;gap:16px;flex-wrap:wrap}
+  .meta-item{font-size:13px;color:var(--text-mute)}
+  .meta-item strong{color:var(--accent);margin-right:6px}
+  h2{font-size:22px;margin:40px 0 18px;padding-left:14px;border-left:4px solid var(--accent);line-height:1.3}
+  h3{font-size:17px;margin:24px 0 12px;color:var(--accent-2);font-weight:600}
+  h4{font-size:15px;margin:16px 0 8px;color:var(--accent-3);font-weight:600}
+  p{margin:10px 0}
+  ul,ol{padding-left:22px;margin:10px 0}
+  li{margin:5px 0}
+  code{background:var(--code-bg);color:#ffb74d;padding:2px 7px;border-radius:4px;font-family:Consolas,monospace;font-size:13px;border:1px solid var(--border)}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:16px 0}
+  .grid{display:grid;gap:16px}
+  .grid-2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .grid-3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .pill{display:inline-block;padding:3px 10px;background:rgba(188,160,220,.12);border:1px solid rgba(188,160,220,.4);color:var(--accent);border-radius:12px;font-size:12px;font-family:Consolas,monospace}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border)}
+  th{background:rgba(188,160,220,.08);color:var(--accent);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .stage{background:var(--bg-card);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:16px 20px;margin-bottom:8px}
+  .stage h4{margin:6px 0 8px;color:var(--accent);font-size:16px}
+  .callout{background:linear-gradient(135deg,rgba(188,160,220,.08),rgba(234,166,194,.06));border:1px solid rgba(188,160,220,.25);border-radius:8px;padding:14px 18px;margin:16px 0;font-size:14px}
+  .callout-title{font-weight:600;color:var(--accent);margin-bottom:6px;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+  .toc{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px 22px;margin-bottom:30px}
+  .toc-title{font-size:13px;color:var(--text-dim);margin-bottom:8px;letter-spacing:1px}
+  .toc ol{padding-left:20px;margin:0}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  footer{text-align:center;color:var(--text-mute);font-size:12px;padding:20px 0 0;margin-top:40px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <h1>第五人格 · 移动端渲染技术要点总结</h1>
+    <p class="subtitle">非对称对抗 · 哥特暗黑美学 · 7 年长线运营 · 风格化 NPR</p>
+    <div class="meta">
+      <div class="meta-item"><strong>引擎</strong>Unity（深度风格化）</div>
+      <div class="meta-item"><strong>风格</strong>哥特漫画 / 蒂姆·伯顿风</div>
+      <div class="meta-item"><strong>玩法</strong>1v4 非对称对抗</div>
+      <div class="meta-item"><strong>API</strong>OpenGL ES 3.0 / Vulkan / Metal</div>
+      <div class="meta-item"><strong>覆盖</strong>iOS / Android / Switch</div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ol>
+    <li><a href="#summary">一、核心结论速览</a></li>
+    <li><a href="#style">二、哥特风格的工程实现</a></li>
+    <li><a href="#pipeline">三、Pass 顺序与 RT</a></li>
+    <li><a href="#character">四、角色风格化</a></li>
+    <li><a href="#map">五、地图与道具</a></li>
+    <li><a href="#fx">六、技能与状态特效</a></li>
+    <li><a href="#asym">七、非对称对抗的渲染挑战</a></li>
+    <li><a href="#opt">八、长线运营的优化</a></li>
+    <li><a href="#takeaway">九、关键启示</a></li>
+    <li><a href="#refs">十、参考资料</a></li>
+  </ol>
+</div>
+
+<h2 id="summary">一、核心结论速览</h2>
+<div class="grid grid-3">
+  <div class="card"><h4>渲染策略</h4><ul>
+    <li>Unity <strong>前向渲染</strong>，长期未升级到 SRP（兼容性优先）</li>
+    <li>大量 <strong>烘焙 Lightmap</strong>，运行时几乎无动态 GI</li>
+    <li>静态相机 + 部分动态相机视角</li>
+  </ul></div>
+  <div class="card"><h4>核心技术</h4><ul>
+    <li>哥特美学：高对比 + 紫色调 + 描边</li>
+    <li>角色 NPR：Ramp + 描边 + 简化 PBR</li>
+    <li>地图 Atlas + Mesh Instancing</li>
+  </ul></div>
+  <div class="card"><h4>预算/Format</h4><ul>
+    <li>SceneColor RGBA8 LDR（多数档位）</li>
+    <li>Shadow 1 级 CSM 或 Blob</li>
+    <li>分辨率 480P~720P 自适应</li>
+  </ul></div>
+</div>
+
+<div class="callout">
+  <div class="callout-title">第五人格的特别之处</div>
+  作为 7 年长线运营的产品，第五的渲染压力<strong>不在画质上限</strong>（图形 API 也未升 Vulkan 主流），而在<strong>主题/赛季/联动皮肤的快速产出</strong>。视觉品牌"哥特暗黑"<strong>已成为产品资产</strong>，技术决策围绕这套美学服务。
+</div>
+
+<h2 id="style">二、哥特风格的工程实现</h2>
+<table>
+  <thead><tr><th>视觉元素</th><th>实现</th></tr></thead>
+  <tbody>
+    <tr><td>整体偏暗</td><td>Lightmap 全局压低亮度 + Tonemap 偏冷紫</td></tr>
+    <tr><td>高对比剪影</td><td>角色描边强 + 远景"剪影化"贴图</td></tr>
+    <tr><td>纸娃娃质感</td><td>角色面部立体感降低，类似平面绘画</td></tr>
+    <tr><td>烟雾 / 蒸汽</td><td>大量粒子 + 屏幕空间扰动（高档）</td></tr>
+    <tr><td>哥特建筑</td><td>尖顶教堂、马戏团、医院、庄园主题</td></tr>
+  </tbody>
+</table>
+
+<h2 id="pipeline">三、Pass 顺序与 RT</h2>
+<div class="card">
+<div class="stage"><h4>Pass 1 · ShadowMap（中档及以上）</h4>
+<p>1 级 CSM 或 Blob，分辨率 512²。</p></div>
+
+<div class="stage"><h4>Pass 2 · BasePass（前向）</h4>
+<p>地形 → 建筑 → 道具 → 角色。Lightmap 直采。</p></div>
+
+<div class="stage"><h4>Pass 3 · Outline</h4>
+<p>角色描边，以及部分关键道具（板/窗/密码机）描边。</p></div>
+
+<div class="stage"><h4>Pass 4 · Transparent</h4>
+<p>烟雾、雨滴、技能特效、UI 前粒子。</p></div>
+
+<div class="stage"><h4>Pass 5 · UI</h4>
+<p>1v4 信息密度高（队友状态、任务进度、技能 CD），UI 单独优化。</p></div>
+
+<div class="stage"><h4>Pass 6 · PostProcess（条件）</h4>
+<p>Bloom + 紫色调 Tonemap，低档关。</p></div>
+</div>
+
+<h2 id="character">四、角色风格化</h2>
+<h3>风格化 PBR</h3>
+<div class="card">
+<ul>
+  <li><strong>Half-PBR</strong>：BaseColor + Mask（Metallic/Smoothness/AO）</li>
+  <li>Ramp 调制 NdotL，制造卡通明暗分界</li>
+  <li>Emissive 通道用于发光部位（眼睛、技能标志）</li>
+  <li>描边背面外扩，宽度按距离衰减</li>
+</ul>
+</div>
+
+<h3>面部</h3>
+<ul>
+  <li>面部贴图为主，几乎无 SSS</li>
+  <li>大量"面具"角色：面具是独立 Mesh，与脸部分离</li>
+  <li>表情用 Blend Shape，约 20 个</li>
+</ul>
+
+<h3>皮肤系统</h3>
+<ul>
+  <li>主线皮肤、赛季皮肤、联动皮肤（与 IP 合作）</li>
+  <li>每个皮肤<strong>可改 Material + 部分骨骼</strong>，无需重做模型</li>
+  <li>典型皮肤升级：BaseColor + Emissive + 局部 Mesh 替换</li>
+</ul>
+
+<h2 id="map">五、地图与道具</h2>
+<h3>地图设计</h3>
+<ul>
+  <li>地图主题：庄园、医院、马戏团、月亮河公园、罗夏教堂等</li>
+  <li>每个主题独立 Lightmap，运行时不混光照</li>
+  <li>地图大小约 100m × 100m，比开放世界小很多</li>
+</ul>
+
+<h3>关键道具</h3>
+<table>
+  <thead><tr><th>道具</th><th>渲染特点</th></tr></thead>
+  <tbody>
+    <tr><td>密码机</td><td>多个高复用模型，状态切换通过 Material 参数</td></tr>
+    <tr><td>板</td><td>Mesh 简单，命中判定与渲染解耦</td></tr>
+    <tr><td>窗</td><td>翻越动作高复用，Mesh 简单</td></tr>
+    <tr><td>地下室/狂欢之椅</td><td>剧情交互，重要场景，特效预算高</td></tr>
+    <tr><td>大门</td><td>胜利通关点，离场动画用全屏遮罩</td></tr>
+  </tbody>
+</table>
+
+<h2 id="fx">六、技能与状态特效</h2>
+<ul>
+  <li><strong>监管者技能</strong>：每个监管者有专属 5~8 个技能特效，主题感强</li>
+  <li><strong>求生者状态</strong>：受伤、濒死、起身——通过角色 Material 调色和 Emissive 表达</li>
+  <li><strong>恐惧震慑</strong>：屏幕空间紫色 Vignette + 心跳声同步</li>
+  <li><strong>密码机进度</strong>：进度条用屏幕空间圆环，悬浮于密码机上方</li>
+</ul>
+
+<h2 id="asym">七、非对称对抗的渲染挑战</h2>
+<div class="callout">
+  <div class="callout-title">非对称玩法的特殊点</div>
+  1 监管者 + 4 求生者，<strong>视角不对等</strong>——监管者第一人称视角，求生者第三人称背后视角。<br>这要求渲染管线对两套视角同时优化，且<strong>裁剪/LOD 决策完全不同</strong>。
+</div>
+
+<table>
+  <thead><tr><th>视角</th><th>视野</th><th>优化重点</th></tr></thead>
+  <tbody>
+    <tr><td>监管者第一人称</td><td>FOV 90°，向前</td><td>近距离手部细节、技能特效</td></tr>
+    <tr><td>求生者第三人称</td><td>FOV 70°，背后跟随</td><td>角色背面、左右遮挡物体</td></tr>
+    <tr><td>队友视角（旁观）</td><td>切给其他求生者</td><td>简化精度，主要看进度</td></tr>
+  </tbody>
+</table>
+
+<h2 id="opt">八、长线运营的优化</h2>
+<h3>Shader 变体治理</h3>
+<ul>
+  <li>7 年皮肤/赛季积累，shader 变体可达数千</li>
+  <li>新皮肤 Material 走"模板系统"，不允许新增 shader 变体</li>
+  <li>变体 dump 在每次发版前自动检查，超阈值需评审</li>
+</ul>
+
+<h3>包体与 AB</h3>
+<ul>
+  <li>核心包瘦身，皮肤/赛季均 AB 化</li>
+  <li>赛季活动用动态下载，活动结束自动清理</li>
+  <li>跨赛季资源做"档案归档"管理</li>
+</ul>
+
+<h3>分档</h3>
+<ul>
+  <li>低/中/高，目标机型从 SD615 ~ SD8 Gen3</li>
+  <li>低档关 Bloom/Shadow/SSAO，分辨率降到 480P</li>
+  <li>高档：720P + Bloom + Shadow CSM 1 级</li>
+</ul>
+
+<h3>性能瓶颈</h3>
+<ul>
+  <li>5 玩家同屏 + 大量动效（板、窗、密码机），CPU 是瓶颈</li>
+  <li>UI 渲染开销显著，尤其是大量 HUD 元素</li>
+  <li>烟雾/雨等粒子系统是 GPU 主开销</li>
+</ul>
+
+<h2 id="takeaway">九、关键启示</h2>
+<div class="grid grid-2">
+  <div class="card">
+    <h4>对长线风格化产品</h4>
+    <ol>
+      <li>美术品牌一旦确立，技术决策应"加固品牌"，而非追新</li>
+      <li>皮肤系统是营收核心，必须做到 Material 模板化</li>
+      <li>Shader 变体治理是 5+ 年项目必修课</li>
+    </ol>
+  </div>
+  <div class="card">
+    <h4>对非对称竞技</h4>
+    <ol>
+      <li>不对等视角需要分别优化</li>
+      <li>UI 信息密度高，UI 渲染要专项优化</li>
+      <li>5 人同屏 ≠ 5 角色全 LOD0，远程队友可大幅简化</li>
+    </ol>
+  </div>
+</div>
+
+<h2 id="refs">十、参考资料</h2>
+<ul>
+  <li>网易第五人格官方技术分享</li>
+  <li>Unite Asia 演讲：第五人格风格化渲染</li>
+  <li>知乎技术博客：第五人格哥特风 Tonemap 复刻</li>
+  <li>个人截帧（设备：iPhone 15 Pro）</li>
+</ul>
+
+<footer>第五人格移动端技术要点总结 · 内部研究文档 · 信息基于公开演讲与截帧分析整理</footer>
+
+</div>
+</body>
+</html>

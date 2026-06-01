@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>崩坏 星穹铁道 移动端渲染技术要点总结</title>
+<style>
+  :root{--bg:#0f1419;--bg-card:#1a2028;--border:#2a3441;--text:#e6edf3;--text-dim:#9aa5b1;--text-mute:#6b7684;--accent:#9c8aff;--accent-2:#ffab40;--accent-3:#4dd0e1;--accent-4:#ef5350;--accent-5:#f06292;--code-bg:#0d1117;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.7}
+  .container{max-width:1180px;margin:0 auto;padding:32px 28px 80px}
+  header{background:linear-gradient(135deg,#2a1e5a 0%,#4e1b3e 100%);padding:48px 28px 56px;margin-bottom:32px}
+  header .inner{max-width:1180px;margin:0 auto}
+  h1{font-size:32px;margin:0 0 12px;font-weight:700;background:linear-gradient(90deg,#9c8aff,#f06292);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .subtitle{color:var(--text-dim);font-size:16px;margin:0}
+  .meta{margin-top:18px;display:flex;gap:16px;flex-wrap:wrap}
+  .meta-item{font-size:13px;color:var(--text-mute)}
+  .meta-item strong{color:var(--accent);margin-right:6px}
+  h2{font-size:22px;margin:40px 0 18px;padding-left:14px;border-left:4px solid var(--accent);line-height:1.3}
+  h3{font-size:17px;margin:24px 0 12px;color:var(--accent-2);font-weight:600}
+  h4{font-size:15px;margin:16px 0 8px;color:var(--accent-3);font-weight:600}
+  p{margin:10px 0}
+  ul,ol{padding-left:22px;margin:10px 0}
+  li{margin:5px 0}
+  code{background:var(--code-bg);color:#ffb74d;padding:2px 7px;border-radius:4px;font-family:Consolas,monospace;font-size:13px;border:1px solid var(--border)}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:16px 0}
+  .grid{display:grid;gap:16px}
+  .grid-2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .grid-3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .pill{display:inline-block;padding:3px 10px;background:rgba(156,138,255,.12);border:1px solid rgba(156,138,255,.4);color:var(--accent);border-radius:12px;font-size:12px;font-family:Consolas,monospace}
+  .pill.green{background:rgba(77,208,225,.12);border-color:rgba(77,208,225,.4);color:var(--accent-3)}
+  .pill.warn{background:rgba(255,171,64,.12);border-color:rgba(255,171,64,.4);color:var(--accent-2)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border)}
+  th{background:rgba(156,138,255,.08);color:var(--accent);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .stage{background:var(--bg-card);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:16px 20px;margin-bottom:8px}
+  .stage h4{margin:6px 0 8px;color:var(--accent);font-size:16px}
+  .callout{background:linear-gradient(135deg,rgba(156,138,255,.08),rgba(240,98,146,.06));border:1px solid rgba(156,138,255,.25);border-radius:8px;padding:14px 18px;margin:16px 0;font-size:14px}
+  .callout-title{font-weight:600;color:var(--accent);margin-bottom:6px;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+  .toc{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px 22px;margin-bottom:30px}
+  .toc-title{font-size:13px;color:var(--text-dim);margin-bottom:8px;letter-spacing:1px}
+  .toc ol{padding-left:20px;margin:0}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  footer{text-align:center;color:var(--text-mute);font-size:12px;padding:20px 0 0;margin-top:40px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <h1>崩坏：星穹铁道 · 移动端渲染技术要点总结</h1>
+    <p class="subtitle">回合制 RPG · 半开放场景 · 高规格 NPR · 镜头叙事工业化</p>
+    <div class="meta">
+      <div class="meta-item"><strong>引擎</strong>Unity（基于原神 NPR 体系演进）</div>
+      <div class="meta-item"><strong>风格</strong>NPR 卡通 + 科幻金属质感</div>
+      <div class="meta-item"><strong>玩法</strong>3D 探索 + 回合战斗</div>
+      <div class="meta-item"><strong>API</strong>Vulkan / Metal</div>
+      <div class="meta-item"><strong>跨平台</strong>iOS / Android / PC / PS5</div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ol>
+    <li><a href="#summary">一、核心结论速览</a></li>
+    <li><a href="#scene">二、场景架构（探索 vs 战斗）</a></li>
+    <li><a href="#pipeline">三、渲染管线与 Pass 顺序</a></li>
+    <li><a href="#character">四、角色 NPR 升级版</a></li>
+    <li><a href="#combat">五、战斗镜头与特效</a></li>
+    <li><a href="#scene-asset">六、场景资产规格</a></li>
+    <li><a href="#post">七、后处理与电影感</a></li>
+    <li><a href="#opt">八、移动端性能与内存</a></li>
+    <li><a href="#takeaway">九、关键启示</a></li>
+    <li><a href="#refs">十、参考资料</a></li>
+  </ol>
+</div>
+
+<h2 id="summary">一、核心结论速览</h2>
+<div class="grid grid-3">
+  <div class="card"><h4>渲染策略</h4><ul>
+    <li>移动端 <strong>前向渲染 + 自定义 SRP</strong>（与原神同源）</li>
+    <li>战斗场景 <strong>固定相机</strong> → 渲染开销可预测</li>
+    <li>探索场景类似原神，但场景体量更小</li>
+  </ul></div>
+  <div class="card"><h4>核心技术</h4><ul>
+    <li>角色 NPR 在原神基础上加强 <strong>金属/科幻质感</strong></li>
+    <li>战斗 UI 为 <strong>立绘 + 3D 模型混合</strong></li>
+    <li>大量 <strong>预渲染过场</strong> 与实时镜头无缝混剪</li>
+  </ul></div>
+  <div class="card"><h4>预算/Format</h4><ul>
+    <li>SceneColor <code>R11G11B10</code></li>
+    <li>战斗专用 <strong>Composition RT</strong>（角色描边/技能光效层）</li>
+    <li>Shadow 1~2 级 CSM</li>
+  </ul></div>
+</div>
+
+<div class="callout">
+  <div class="callout-title">星穹与原神的关键差异</div>
+  星铁是 <strong>回合制 + 半开放</strong>，相机不像原神那样自由旋转。这给了它两个工程红利：<br>
+  ① 战斗时相机轨道固定，<strong>剔除 / LOD 决策可预先烘焙</strong>；<br>
+  ② 探索场景规模可控，可以塞更多<strong>静态烘焙细节</strong>而不付带宽代价。
+</div>
+
+<h2 id="scene">二、场景架构（探索 vs 战斗）</h2>
+<table>
+  <thead><tr><th>模式</th><th>相机</th><th>环境</th><th>渲染重点</th><th>预算分配</th></tr></thead>
+  <tbody>
+    <tr><td>探索</td><td>第三人称自由</td><td>半开放区域</td><td>角色 + 静态场景 + 装饰</td><td>角色 30% / 场景 50% / 后处理 20%</td></tr>
+    <tr><td>战斗</td><td>固定轨道</td><td>简化环境（半透明 vignette）</td><td>4 角色 + 敌人 + 技能特效</td><td>角色 40% / 特效 40% / 场景 20%</td></tr>
+    <tr><td>过场</td><td>预制镜头</td><td>专属舞台</td><td>电影级镜头 + DOF + 后处理</td><td>角色 30% / 后处理 40% / 镜头 30%</td></tr>
+  </tbody>
+</table>
+
+<h2 id="pipeline">三、渲染管线与 Pass 顺序</h2>
+<div class="card">
+<div class="stage"><h4>Pass 1 · ShadowMap（1~2 级 CSM）</h4>
+<p>战斗场景常用 1 级，探索常用 2 级。Shadow Bias 与角色独立设置，避免角色脚下"飘"。</p></div>
+
+<div class="stage"><h4>Pass 2 · Depth Prepass（仅探索）</h4>
+<p>战斗模式跳过，因为角色数量少且相机固定，完整 Z-Cull 收益不大。</p></div>
+
+<div class="stage"><h4>Pass 3 · Opaque BasePass</h4>
+<p>地表 → 建筑 → 静态道具 → 敌人 → 我方角色。每类有自己的 Material 模板，<strong>角色一定最后绘制</strong>，便于后续角色专用 Composition。</p></div>
+
+<div class="stage"><h4>Pass 4 · Outline 描边</h4>
+<p>战斗模式下，描边可以做到<strong>分类型染色</strong>（火属性偏红、冰属性偏蓝），通过 Material ID 控制。</p></div>
+
+<div class="stage"><h4>Pass 5 · Sky / Atmosphere</h4>
+<p>探索模式启用，战斗模式常用静态 Cubemap 替代以省 GPU。</p></div>
+
+<div class="stage"><h4>Pass 6 · Transparent / Effects</h4>
+<p>技能光效、能量场、屏幕空间扭曲。星铁的技能特效是 GPU 大头，移动端高档可达单个技能 80~120 ms 渲染时间峰值。</p></div>
+
+<div class="stage"><h4>Pass 7 · PostProcess</h4>
+<p>Bloom + 色调映射。战斗胜利动画时叠加电影级 DOF + Vignette。</p></div>
+</div>
+
+<h2 id="character">四、角色 NPR 升级版</h2>
+<h3>金属与发光质感强化</h3>
+<div class="card">
+<ul>
+  <li>角色身上大量金属/能量/科幻贴片：MatCap + Anisotropic 高光近似</li>
+  <li><strong>Emissive 流光</strong>：贴图 UV 滚动 + Noise 调制，常用于"星轨"流光线</li>
+  <li>战斗待机姿态下的 Pulse 光效：屏幕空间 sin 函数 + 时间偏移</li>
+</ul>
+</div>
+
+<h3>面部刻画</h3>
+<ul>
+  <li>沿用 SDF 面部贴图（与原神同思路）</li>
+  <li>瞳孔高光：单独 Mesh 顶点，放大 emissive 通道</li>
+  <li>眉毛/睫毛：开启 Z-Test 可穿透前发显示（高档）/ 直接显示（低档）</li>
+</ul>
+
+<h3>头发 anisotropic 高光</h3>
+<div class="card">
+<p>星铁角色头发常带霓虹色高光带（开拓者/银狼/卡夫卡的发尾染色），实现：</p>
+<ul>
+  <li>沿头发 tangent 方向的 Anisotropic 计算</li>
+  <li>2 层高光：主色（白）+ 次色（角色专属调色）</li>
+  <li>Ramp 贴图调整高光位置，让其位于"发型最美的位置"，不是物理正确位置</li>
+</ul>
+</div>
+
+<h2 id="combat">五、战斗镜头与特效</h2>
+<h3>大招演出</h3>
+<ul>
+  <li>"大招演出"是星铁特效预算最高的部分，常占用整帧 60%+ 时间</li>
+  <li>采用 <strong>多层 RT 合成</strong>：背景虚化 + 主角 + 屏幕空间几何切割 + UI 文字</li>
+  <li>临时切相机至专属"舞台"空间，<strong>只渲染该角色和必要环境元素</strong></li>
+  <li>移动端高档可保持 60 fps，低档允许降至 30 fps 但分辨率降到 720P</li>
+</ul>
+
+<h3>属性色调</h3>
+<table>
+  <thead><tr><th>属性</th><th>主色调</th><th>典型特效</th></tr></thead>
+  <tbody>
+    <tr><td>物理</td><td>白/灰</td><td>武器轨迹 Trail</td></tr>
+    <tr><td>火</td><td>橙红</td><td>体积光 + Emissive 燃烧贴图</td></tr>
+    <tr><td>冰</td><td>青蓝</td><td>结晶 Mesh + 半透明 + Refract</td></tr>
+    <tr><td>雷</td><td>黄紫</td><td>程序化电弧 + 屏幕闪光</td></tr>
+    <tr><td>风</td><td>淡绿</td><td>羽毛/枫叶粒子 + 风场扰动</td></tr>
+    <tr><td>量子</td><td>紫粉</td><td>UV 镜像 + Glitch 后处理</td></tr>
+    <tr><td>虚数</td><td>金</td><td>体积金属粒子 + Bloom 增强</td></tr>
+  </tbody>
+</table>
+
+<h2 id="scene-asset">六、场景资产规格</h2>
+<div class="grid grid-2">
+  <div class="card"><h4>地形</h4>
+  <ul>
+    <li>不像原神那样开放，使用 <strong>预制 Tile 拼接</strong></li>
+    <li>4~6 层 Splat + 顶点色控制</li>
+    <li>不使用 SVT，而是 Atlas + Mesh Streaming</li>
+  </ul>
+  </div>
+  <div class="card"><h4>静态物件</h4>
+  <ul>
+    <li>BaseColor 1024~2048 + Mask</li>
+    <li>大量场景使用 <strong>Mesh Decal</strong> 增加细节，避免高分贴图</li>
+    <li>Lightmap 烘焙 1024² 区块，分块加载</li>
+  </ul>
+  </div>
+  <div class="card"><h4>角色</h4>
+  <ul>
+    <li>面数 30~40k（高于原神探索模式角色）</li>
+    <li>骨骼 80~120 根</li>
+    <li>表情用 Blend Shape，约 30 个 morph 目标</li>
+  </ul>
+  </div>
+  <div class="card"><h4>UI</h4>
+  <ul>
+    <li>大量动态布局 + 角色立绘渲染</li>
+    <li>立绘有 <strong>实时光照模拟</strong>（光源跟随手指或鼠标）</li>
+    <li>主菜单是 3D 场景实时渲染，非视频</li>
+  </ul>
+  </div>
+</div>
+
+<h2 id="post">七、后处理与电影感</h2>
+<div class="callout">
+  <div class="callout-title">电影感是产品定位</div>
+  星铁的探索/战斗与原神画风同源，但<strong>战斗演出强调电影感</strong>——这意味着 DOF/Bloom/Vignette/Color Grading 不能砍。
+</div>
+<table>
+  <thead><tr><th>后处理</th><th>探索</th><th>战斗</th><th>大招演出</th></tr></thead>
+  <tbody>
+    <tr><td>Bloom</td><td>开</td><td>开</td><td>开（强）</td></tr>
+    <tr><td>Tonemap</td><td>ACES</td><td>ACES</td><td>ACES + 局部色调</td></tr>
+    <tr><td>DOF</td><td>关</td><td>关</td><td>开（虚化背景）</td></tr>
+    <tr><td>Vignette</td><td>关</td><td>关</td><td>开</td></tr>
+    <tr><td>Chromatic Aberration</td><td>关</td><td>关</td><td>视技能开</td></tr>
+    <tr><td>Lens Flare</td><td>关</td><td>关</td><td>视技能开</td></tr>
+  </tbody>
+</table>
+
+<h2 id="opt">八、移动端性能与内存</h2>
+<h3>战斗专用优化</h3>
+<ul>
+  <li>战斗开始前预加载所有出战角色 + 敌人技能资源（避免战中 hitch）</li>
+  <li>固定相机意味着可<strong>预先剔除场景</strong>——不在视野内的物件根本不上 GPU</li>
+  <li>大招特效 RT 复用：分配一组 4 张 Composition RT，按需调度，避免重复创建</li>
+</ul>
+
+<h3>探索内存策略</h3>
+<ul>
+  <li>分块 Streaming，每块 50~80MB 资源</li>
+  <li>角色队伍：4 个出战 + 缓存 4 个备用，超出走 LRU</li>
+  <li>纹理压缩：ASTC 6×6 普及，关键贴图 ASTC 4×4</li>
+</ul>
+
+<h3>分档</h3>
+<ul>
+  <li>极低/低/中/高/超高，自适应分辨率 540P~1080P</li>
+  <li>低档关 SSAO/SSR/Bloom，仅保留 Tonemap</li>
+  <li>"超高"档对标 PC，旗舰机才开放</li>
+</ul>
+
+<h2 id="takeaway">九、关键启示</h2>
+<div class="grid grid-2">
+  <div class="card">
+    <h4>对回合制 / 半开放产品</h4>
+    <ol>
+      <li>固定相机 = 大量预计算和 baked 优化的契机</li>
+      <li>战斗与探索的渲染管线可以"差异化"，不必一套通吃</li>
+      <li>过场镜头是炫技舞台，应允许它"超过帧预算"换取观感</li>
+    </ol>
+  </div>
+  <div class="card">
+    <h4>对 NPR 二代项目</h4>
+    <ol>
+      <li>金属/科幻质感可以靠 MatCap + Anisotropic 实现，不必上 PBR</li>
+      <li>属性色调系统化（统一 LUT/调色板）能极大提升美术效率</li>
+      <li>立绘的 UI 实时光照是低成本但高观感的爆款元素</li>
+    </ol>
+  </div>
+</div>
+
+<h2 id="refs">十、参考资料</h2>
+<ul>
+  <li>米哈游公开技术分享：星穹铁道 NPR 角色管线</li>
+  <li>UWA 技术博客：星铁战斗演出渲染拆解</li>
+  <li>个人截帧（设备：iPhone 15 Pro / 红米 K70 / 高档）</li>
+  <li>知乎：星铁大招演出 RT 调度分析</li>
+</ul>
+
+<footer>崩坏星穹铁道移动端技术要点总结 · 内部研究文档 · 信息基于公开演讲与截帧分析整理</footer>
+
+</div>
+</body>
+</html>

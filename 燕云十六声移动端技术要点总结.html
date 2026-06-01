@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>燕云十六声 移动端渲染技术要点总结</title>
+<style>
+  :root{--bg:#0f1419;--bg-card:#1a2028;--border:#2a3441;--text:#e6edf3;--text-dim:#9aa5b1;--text-mute:#6b7684;--accent:#d4a574;--accent-2:#a67b5b;--accent-3:#81c784;--accent-4:#ef5350;--accent-5:#90caf9;--code-bg:#0d1117;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.7}
+  .container{max-width:1180px;margin:0 auto;padding:32px 28px 80px}
+  header{background:linear-gradient(135deg,#3a2818 0%,#1e2c3a 100%);padding:48px 28px 56px;margin-bottom:32px}
+  header .inner{max-width:1180px;margin:0 auto}
+  h1{font-size:32px;margin:0 0 12px;font-weight:700;background:linear-gradient(90deg,#d4a574,#90caf9);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .subtitle{color:var(--text-dim);font-size:16px;margin:0}
+  .meta{margin-top:18px;display:flex;gap:16px;flex-wrap:wrap}
+  .meta-item{font-size:13px;color:var(--text-mute)}
+  .meta-item strong{color:var(--accent);margin-right:6px}
+  h2{font-size:22px;margin:40px 0 18px;padding-left:14px;border-left:4px solid var(--accent);line-height:1.3}
+  h3{font-size:17px;margin:24px 0 12px;color:var(--accent-2);font-weight:600}
+  h4{font-size:15px;margin:16px 0 8px;color:var(--accent-3);font-weight:600}
+  p{margin:10px 0}
+  ul,ol{padding-left:22px;margin:10px 0}
+  li{margin:5px 0}
+  code{background:var(--code-bg);color:#ffb74d;padding:2px 7px;border-radius:4px;font-family:Consolas,monospace;font-size:13px;border:1px solid var(--border)}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:16px 0}
+  .grid{display:grid;gap:16px}
+  .grid-2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .grid-3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .pill{display:inline-block;padding:3px 10px;background:rgba(212,165,116,.12);border:1px solid rgba(212,165,116,.4);color:var(--accent);border-radius:12px;font-size:12px;font-family:Consolas,monospace}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border)}
+  th{background:rgba(212,165,116,.08);color:var(--accent);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .stage{background:var(--bg-card);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:16px 20px;margin-bottom:8px}
+  .stage h4{margin:6px 0 8px;color:var(--accent);font-size:16px}
+  .callout{background:linear-gradient(135deg,rgba(212,165,116,.08),rgba(144,202,249,.06));border:1px solid rgba(212,165,116,.25);border-radius:8px;padding:14px 18px;margin:16px 0;font-size:14px}
+  .callout-title{font-weight:600;color:var(--accent);margin-bottom:6px;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+  .toc{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px 22px;margin-bottom:30px}
+  .toc-title{font-size:13px;color:var(--text-dim);margin-bottom:8px;letter-spacing:1px}
+  .toc ol{padding-left:20px;margin:0}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  footer{text-align:center;color:var(--text-mute);font-size:12px;padding:20px 0 0;margin-top:40px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <h1>燕云十六声 · 移动端渲染技术要点总结</h1>
+    <p class="subtitle">大世界武侠 · 写实风格 · 网易自研引擎 · 异步开放世界</p>
+    <div class="meta">
+      <div class="meta-item"><strong>引擎</strong>网易自研 Messiah 引擎</div>
+      <div class="meta-item"><strong>风格</strong>水墨写实 + 中国风</div>
+      <div class="meta-item"><strong>玩法</strong>开放世界武侠 ARPG</div>
+      <div class="meta-item"><strong>API</strong>Vulkan / Metal / DX12</div>
+      <div class="meta-item"><strong>跨平台</strong>iOS / Android / PC</div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ol>
+    <li><a href="#summary">一、核心结论速览</a></li>
+    <li><a href="#engine">二、Messiah 引擎</a></li>
+    <li><a href="#pipeline">三、Pass 顺序与 RT</a></li>
+    <li><a href="#world">四、大世界场景</a></li>
+    <li><a href="#weather">五、天气与时间系统</a></li>
+    <li><a href="#water">六、水体与笔触感</a></li>
+    <li><a href="#combat">七、武侠战斗特效</a></li>
+    <li><a href="#opt">八、移动端性能策略</a></li>
+    <li><a href="#takeaway">九、关键启示</a></li>
+    <li><a href="#refs">十、参考资料</a></li>
+  </ol>
+</div>
+
+<h2 id="summary">一、核心结论速览</h2>
+<div class="grid grid-3">
+  <div class="card"><h4>渲染策略</h4><ul>
+    <li>移动端 <strong>Mobile Deferred + Subpass</strong>（Vulkan）</li>
+    <li>低端机回退 Forward</li>
+    <li>大世界异步流送，无明显 loading</li>
+  </ul></div>
+  <div class="card"><h4>核心技术</h4><ul>
+    <li>水墨美学：色彩偏柔，描边细而不锐利</li>
+    <li>地形 GPU Driven + Virtual Texture</li>
+    <li>大量自然要素（雨、雪、雾、风）</li>
+  </ul></div>
+  <div class="card"><h4>预算/Format</h4><ul>
+    <li>SceneColor <code>R11G11B10</code></li>
+    <li>G-Buffer 仅在 tile memory（Subpass）</li>
+    <li>Shadow 2~3 级 CSM</li>
+  </ul></div>
+</div>
+
+<div class="callout">
+  <div class="callout-title">燕云的工程定位</div>
+  网易 Messiah 引擎是为"<strong>跨端开放世界</strong>"准备的，目标对标手游、PC、主机统一发版。燕云十六声是 Messiah 在大世界品类的代表作之一，<strong>移动端走 Mobile Deferred 路径</strong> 是关键决策——这与三角洲移动端的高端档思路一致。
+</div>
+
+<h2 id="engine">二、Messiah 引擎</h2>
+<table>
+  <thead><tr><th>模块</th><th>能力</th></tr></thead>
+  <tbody>
+    <tr><td>渲染管线</td><td>跨端 Deferred + 移动 Mobile Deferred Subpass</td></tr>
+    <tr><td>地形</td><td>GPU Driven Heightmap，远近统一</td></tr>
+    <tr><td>VT</td><td>Streaming Virtual Texture（地形 + 大型建筑表面）</td></tr>
+    <tr><td>植被</td><td>GPU Instancing + Imposter</td></tr>
+    <tr><td>动画</td><td>Motion Matching + Mocap 动作池</td></tr>
+    <tr><td>水体</td><td>FFT 海面（PC）/ Gerstner（移动）+ Caustics</td></tr>
+    <tr><td>天气</td><td>体积云 + 雨雪 + 大气散射 LUT</td></tr>
+    <tr><td>资源</td><td>分块 streaming，高度异步化</td></tr>
+  </tbody>
+</table>
+
+<h2 id="pipeline">三、Pass 顺序与 RT</h2>
+<div class="card">
+<div class="stage"><h4>Pass 1 · ShadowMap</h4>
+<p>3 级 CSM（高档），分辨率 1024² ~ 2048²。低档 2 级 1024²。</p></div>
+
+<div class="stage"><h4>Pass 2 · GBuffer（tile memory）</h4>
+<p>Mobile Deferred 在 Subpass 内写 GBuffer 不写主存。GBuffer Format 高度精简（B8G8R8A8 + R10G10B10A2）。</p></div>
+
+<div class="stage"><h4>Pass 3 · Lighting（tile memory 直读）</h4>
+<p>主光 + 静态局部光。无 SSAO / SSR（移动端）。</p></div>
+
+<div class="stage"><h4>Pass 4 · Sky / Atmosphere</h4>
+<p>大气散射 LUT，远景体积云。</p></div>
+
+<div class="stage"><h4>Pass 5 · Translucency</h4>
+<p>水、特效、雨/雪粒子。</p></div>
+
+<div class="stage"><h4>Pass 6 · PostProcess</h4>
+<p>Bloom + Tonemap + 色调（中国风偏柔的色彩曲线）。</p></div>
+</div>
+
+<h2 id="world">四、大世界场景</h2>
+<h3>地形</h3>
+<ul>
+  <li>GPU Driven Heightmap，所有地形 Patch 由 GPU 决定 LOD</li>
+  <li>SVT 多层贴图（草、土、石、雪等 6+ 层）</li>
+  <li>Decal 大量使用，地表脚印/痕迹/血迹</li>
+  <li>移动端低档退化为静态 Mesh Patch + 单层贴图</li>
+</ul>
+
+<h3>建筑</h3>
+<ul>
+  <li>古风木构建筑，多 Mesh 拼接</li>
+  <li>Atlas 共享贴图，大量复用</li>
+  <li>室内"假"光影：Light Probe + 局部 Cubemap，无实时 GI</li>
+</ul>
+
+<h3>植被</h3>
+<ul>
+  <li>近：完整 Mesh + 风动顶点偏移</li>
+  <li>中：LOD 简化 + Billboard 树叶</li>
+  <li>远：Imposter（多角度烘焙）</li>
+  <li>"竹林"是燕云特色，密集竹竿用 Mesh Instancing 大批量绘制</li>
+</ul>
+
+<h3>HLOD</h3>
+<ul>
+  <li>整片山谷烘焙为单 Mesh + 4K Atlas</li>
+  <li>切换距离按机型分档</li>
+  <li>HLOD 之间过渡用 dither fade</li>
+</ul>
+
+<h2 id="weather">五、天气与时间系统</h2>
+<div class="callout">
+  <div class="callout-title">天气是核心卖点</div>
+  燕云十六声主打"国风四时风物"，天气 + 季节 + 时间是核心体验。技术上需要大量动态系统。
+</div>
+
+<table>
+  <thead><tr><th>系统</th><th>实现</th><th>移动端代价</th></tr></thead>
+  <tbody>
+    <tr><td>大气散射</td><td>预计算 LUT，运行时采样</td><td>低</td></tr>
+    <tr><td>体积云</td><td>Ray March（PC）/ 贴图近似（移动）</td><td>中</td></tr>
+    <tr><td>雨</td><td>粒子 + 屏幕空间湿度（高档）</td><td>中</td></tr>
+    <tr><td>雪</td><td>地表覆盖度（World Y + Normal Y） + 粒子</td><td>中</td></tr>
+    <tr><td>雾</td><td>Distance Fog + Volumetric Light Shaft（高档）</td><td>高</td></tr>
+    <tr><td>季节切换</td><td>植被 Material 切换调色板 + 地表覆盖度参数</td><td>低</td></tr>
+  </tbody>
+</table>
+
+<h2 id="water">六、水体与笔触感</h2>
+<div class="card">
+<ul>
+  <li><strong>湖面</strong>：Gerstner 波 + 屏幕空间反射（高档）</li>
+  <li><strong>河流</strong>：Flow Map 控制水流方向</li>
+  <li><strong>水墨笔触</strong>：水边 Foam 用噪声贴图模拟"晕染"，与一般 SSR 水边白沫不同</li>
+  <li><strong>角色入水</strong>：动态 RT 写入 displacement，移动端简化为单点扰动</li>
+</ul>
+</div>
+
+<h2 id="combat">七、武侠战斗特效</h2>
+<ul>
+  <li><strong>剑光 Trail</strong>：Mesh Trail + 流光贴图，飘逸感是核心，避免硬边</li>
+  <li><strong>气功 / 内力</strong>：屏幕空间扭曲 + 浅色调 Glow，类似"内功波"</li>
+  <li><strong>轻功</strong>：高速移动时全屏 Vignette 扩张 + 速度线（轻量，非绝区零式漫画风）</li>
+  <li><strong>命中冲击</strong>：屏幕震动 + Bloom 暴增，配合武侠"击中要害"的爽感</li>
+</ul>
+
+<h2 id="opt">八、移动端性能策略</h2>
+<h3>分档</h3>
+<ul>
+  <li>低/中/高/超高，旗舰机推 60/120 fps</li>
+  <li>低档关 SSR/SSAO/体积云/动态雪 → 改为静态贴图</li>
+  <li>超高档对标 PC 中档</li>
+</ul>
+
+<h3>开放世界 streaming</h3>
+<ul>
+  <li>分块 1km × 1km，前后各 2 块预读</li>
+  <li>角色队伍 + NPC 资源 LRU 缓存</li>
+  <li>纹理 Mip Streaming，距离决定 Mip 上限</li>
+</ul>
+
+<h3>带宽与发热</h3>
+<ul>
+  <li>SceneColor R11G11B10 + GBuffer 不写主存（Subpass）</li>
+  <li>RDG Pass 合并，减少切换次数</li>
+  <li>5 分钟后温度高自动降分辨率（DRS）</li>
+</ul>
+
+<h2 id="takeaway">九、关键启示</h2>
+<div class="grid grid-2">
+  <div class="card">
+    <h4>对开放世界手游</h4>
+    <ol>
+      <li>Mobile Deferred + Subpass 是高画质开放世界的最优解</li>
+      <li>SVT + GPU Driven 地形是大世界标配</li>
+      <li>Imposter + HLOD 解决远景植被和建筑</li>
+    </ol>
+  </div>
+  <div class="card">
+    <h4>对国风/写实项目</h4>
+    <ol>
+      <li>水墨美学的关键是"边缘晕染"，不是高分辨率</li>
+      <li>天气系统应分档实现，避免低端机被"四时风物"压垮</li>
+      <li>战斗特效要"飘"不要"硬"，Trail 与 Glow 是核心</li>
+    </ol>
+  </div>
+</div>
+
+<h2 id="refs">十、参考资料</h2>
+<ul>
+  <li>网易 Messiah 引擎技术分享（GAD/UWA 公开演讲）</li>
+  <li>网易雷火工作室分享：燕云开放世界技术</li>
+  <li>个人截帧（设备：iPhone 15 Pro）</li>
+  <li>知乎技术博客：燕云水墨美术技术</li>
+</ul>
+
+<footer>燕云十六声移动端技术要点总结 · 内部研究文档 · 信息基于公开演讲与截帧分析整理</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>三角洲手游 移动端技术要点总结</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --bg-card: #1a2028;
+    --bg-card-hover: #232a35;
+    --border: #2a3441;
+    --text: #e6edf3;
+    --text-dim: #9aa5b1;
+    --text-mute: #6b7684;
+    --accent: #4fc3f7;
+    --accent-2: #ffa726;
+    --accent-3: #66bb6a;
+    --accent-4: #ef5350;
+    --accent-5: #ab47bc;
+    --code-bg: #0d1117;
+    --tag-bg: rgba(79,195,247,0.12);
+    --tag-border: rgba(79,195,247,0.35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    padding: 0;
+  }
+  .container { max-width: 1180px; margin: 0 auto; padding: 32px 28px 80px; }
+  header {
+    background: linear-gradient(135deg, #1e3c5a 0%, #2d1b4e 100%);
+    padding: 48px 28px 56px;
+    margin-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  header .inner { max-width: 1180px; margin: 0 auto; }
+  h1 {
+    font-size: 32px; margin: 0 0 12px; font-weight: 700;
+    background: linear-gradient(90deg, #4fc3f7, #ab47bc);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .subtitle { color: var(--text-dim); font-size: 16px; margin: 0; }
+  .meta { margin-top: 18px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .meta-item { font-size: 13px; color: var(--text-mute); }
+  .meta-item strong { color: var(--accent); margin-right: 6px; }
+
+  h2 {
+    font-size: 22px;
+    margin: 40px 0 18px;
+    padding-left: 14px;
+    border-left: 4px solid var(--accent);
+    line-height: 1.3;
+  }
+  h3 {
+    font-size: 17px;
+    margin: 24px 0 12px;
+    color: var(--accent-2);
+    font-weight: 600;
+  }
+  h4 {
+    font-size: 15px;
+    margin: 16px 0 8px;
+    color: var(--accent-3);
+    font-weight: 600;
+  }
+  p { margin: 10px 0; }
+  ul, ol { padding-left: 22px; margin: 10px 0; }
+  li { margin: 5px 0; }
+  code {
+    background: var(--code-bg);
+    color: #ffb74d;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 13px;
+    border: 1px solid var(--border);
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin: 16px 0;
+    transition: border-color 0.2s;
+  }
+  .card:hover { border-color: #3a4759; }
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+  .pill {
+    display: inline-block;
+    padding: 3px 10px;
+    background: var(--tag-bg);
+    border: 1px solid var(--tag-border);
+    color: var(--accent);
+    border-radius: 12px;
+    font-size: 12px;
+    font-family: Consolas, monospace;
+  }
+  .pill.warn { background: rgba(255,167,38,0.12); border-color: rgba(255,167,38,0.4); color: var(--accent-2); }
+  .pill.green { background: rgba(102,187,106,0.12); border-color: rgba(102,187,106,0.4); color: var(--accent-3); }
+  .pill.red { background: rgba(239,83,80,0.12); border-color: rgba(239,83,80,0.4); color: var(--accent-4); }
+  .pill.purple { background: rgba(171,71,188,0.14); border-color: rgba(171,71,188,0.4); color: var(--accent-5); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 14px;
+  }
+  th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: rgba(79,195,247,0.08);
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .pipeline-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 20px 0;
+    counter-reset: stage;
+  }
+  .stage {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 8px;
+    position: relative;
+  }
+  .stage::before {
+    counter-increment: stage;
+    content: "Pass " counter(stage);
+    position: absolute;
+    top: -10px;
+    left: 14px;
+    background: var(--accent);
+    color: var(--bg);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 10px;
+    border-radius: 10px;
+    letter-spacing: 0.5px;
+  }
+  .stage h4 { margin: 6px 0 8px; color: var(--accent); font-size: 16px; }
+  .stage:nth-child(2) { border-left-color: var(--accent-2); }
+  .stage:nth-child(2)::before { background: var(--accent-2); }
+  .stage:nth-child(3) { border-left-color: var(--accent-3); }
+  .stage:nth-child(3)::before { background: var(--accent-3); }
+  .stage:nth-child(4) { border-left-color: var(--accent-5); }
+  .stage:nth-child(4)::before { background: var(--accent-5); }
+  .stage:nth-child(5) { border-left-color: var(--accent-4); }
+  .stage:nth-child(5)::before { background: var(--accent-4); }
+
+  .callout {
+    background: linear-gradient(135deg, rgba(79,195,247,0.08), rgba(171,71,188,0.06));
+    border: 1px solid rgba(79,195,247,0.25);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+  .callout-title {
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 6px;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .callout.warn { background: linear-gradient(135deg, rgba(255,167,38,0.08), rgba(239,83,80,0.06)); border-color: rgba(255,167,38,0.3); }
+  .callout.warn .callout-title { color: var(--accent-2); }
+
+  .kv-list {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0;
+  }
+  .kv-list li {
+    display: flex;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .kv-list li:last-child { border-bottom: none; }
+  .kv-list .k {
+    color: var(--text-dim);
+    min-width: 130px;
+    font-size: 13px;
+  }
+  .kv-list .v { color: var(--text); font-family: Consolas, monospace; font-size: 13px; }
+
+  .toc {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 22px;
+    margin-bottom: 30px;
+  }
+  .toc-title { font-size: 13px; color: var(--text-dim); margin-bottom: 8px; letter-spacing: 1px; }
+  .toc ol { padding-left: 20px; margin: 0; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 30px 0; }
+
+  footer {
+    text-align: center;
+    color: var(--text-mute);
+    font-size: 12px;
+    padding: 20px 0 0;
+    margin-top: 40px;
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <h1>三角洲手游 · 移动端渲染技术要点总结</h1>
+    <p class="subtitle">截帧分析 + GDC/UFSH 公开演讲整理 · 双管线架构 / 资产规格 / OnePass 优化</p>
+    <div class="meta">
+      <div class="meta-item"><strong>测试设备</strong>iQoo 11 / 骁龙 8 Gen2（前向档位）</div>
+      <div class="meta-item"><strong>渲染分辨率</strong>1080P</div>
+      <div class="meta-item"><strong>图形 API</strong>Vulkan</div>
+      <div class="meta-item"><strong>引擎</strong>UE4 + 自研改造</div>
+      <div class="meta-item"><strong>分级架构</strong>前向 + 延迟 双管线</div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ol>
+    <li><a href="#summary">一、核心结论速览</a></li>
+    <li><a href="#dual-pipeline">二、双管线架构（GDC 2024 披露）</a></li>
+    <li><a href="#pipeline">三、前向管线截帧详解（5 Pass）</a></li>
+    <li><a href="#vt-onepass">四、VT Pass 通道重排（OnePass / Subpass 优化）</a></li>
+    <li><a href="#vegetation">五、植被资产规格</a></li>
+    <li><a href="#scene">六、场景物件 & 公共贴图</a></li>
+    <li><a href="#terrain">七、地形（SVT / Clipmap）</a></li>
+    <li><a href="#character">八、角色 & 枪械</a></li>
+    <li><a href="#sky-fx">九、天空盒 / 特效 / 反射</a></li>
+    <li><a href="#takeaway">十、关键启示与可借鉴方向</a></li>
+    <li><a href="#refs">十一、参考资料与出处</a></li>
+  </ol>
+</div>
+
+<!-- ============ 1. 核心结论 ============ -->
+<h2 id="summary">一、核心结论速览</h2>
+
+<div class="grid grid-3">
+  <div class="card">
+    <h4>渲染策略</h4>
+    <ul>
+      <li><strong>前向渲染</strong>，画质切换不改管线</li>
+      <li>仅 5 个 Pass，<strong>无 SSR/SSAO/Bloom/DOF</strong></li>
+      <li>Vulkan <strong>PreRotation</strong> 优化（竖屏物理朝向）</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>资产策略</h4>
+    <ul>
+      <li>4K Atlas <strong>共用</strong>所有场景物件贴图</li>
+      <li>角色/武器: <strong>BaseColor + Normal + RMA</strong></li>
+      <li>地形使用 <strong>SVT</strong>（非 RVT）</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>预算/Format</h4>
+    <ul>
+      <li>SceneColor <code>R11G11B10</code> HDR</li>
+      <li>BackBuffer <code>R10G10B10A2</code></li>
+      <li>ShadowDepth 3 级 CSM <code>1024²</code></li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout">
+  <div class="callout-title">总体取舍</div>
+  1080P 渲染分辨率对带宽和后处理压力很大，三角洲的策略是<strong>砍掉绝大部分后处理</strong>，仅保留 EyeAdaptation + Tonemap，把性能预算让给场景密度与角色精度。
+</div>
+
+<!-- ============ 2. 双管线架构 ============ -->
+<h2 id="dual-pipeline">二、双管线架构（GDC 2024 披露）</h2>
+
+<div class="callout warn">
+  <div class="callout-title">重要修正</div>
+  本文档前面"前向渲染管线"的描述对应的是<strong>截帧设备所在的档位</strong>（iQoo 11 上当时跑的就是前向档）。根据 GDC 2024 官方演讲，三角洲实际是 <strong>多平台分级管线</strong>：高端走延迟，其他走前向。画质等级切换<strong>不会跨管线切换</strong>，只在同一管线内调参数。
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>平台档位</th>
+      <th>渲染管线</th>
+      <th>关键技术</th>
+      <th>说明</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>PC</td>
+      <td><span class="pill purple">Deferred</span></td>
+      <td>G-Buffer + GTAO + DFAO</td>
+      <td>多光源 / 屏幕空间特效自由</td>
+    </tr>
+    <tr>
+      <td>高端移动设备（旗舰机）</td>
+      <td><span class="pill purple">Mobile Deferred</span></td>
+      <td>Vulkan Subpass + On-chip G-Buffer</td>
+      <td>G-Buffer 全程留在 tile memory，不写主存</td>
+    </tr>
+    <tr>
+      <td>中低端移动设备</td>
+      <td><span class="pill green">Forward</span></td>
+      <td>PreZ + Forward Basepass</td>
+      <td>本文档截帧分析对应此档位</td>
+    </tr>
+    <tr>
+      <td>极低配设备</td>
+      <td><span class="pill warn">Forward + 退化路径</span></td>
+      <td>不用 VT / 不用贴花 / 1m → 2m 地形</td>
+      <td>splat map 简化为顶点单层，回退 ID Map 方法</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>统一资产、不重做美术 —— 虚拟材质系统</h3>
+<div class="card">
+  <p>为了让美术一份资源跑全平台，团队实现了 <strong>虚拟材质系统（Virtual Material System）</strong>：</p>
+  <ul>
+    <li>编辑器中存储不同平台/不同质量级别的基础材质模板</li>
+    <li>实例化为 <strong>虚拟材质实例</strong>，分配给共享模型组件的材质槽</li>
+    <li>提供 <strong>解耦资源与着色器</strong>、<strong>纹理通道重映射</strong>、<strong>多平台多画质资源配置</strong>能力</li>
+    <li>批处理前自动检查参数、纹理格式、Lightmap、阴影投射、IBL 一致性</li>
+  </ul>
+</div>
+
+<h3>Mobile Deferred 的核心：Subpass 让 G-Buffer 不离开 tile memory</h3>
+<div class="card">
+<pre style="background:var(--code-bg);border:1px solid var(--border);border-radius:6px;padding:14px;color:#abb2bf;font-family:Consolas,monospace;font-size:13px;line-height:1.6;overflow-x:auto;margin:0;">
+RenderPass {
+    Subpass 1 (Geometry):
+        ✏️  写 G-Buffer 到 <span style="color:#4fc3f7">on-chip tile memory</span>
+        ❌  <span style="color:#ef5350">不写回 DRAM</span>
+
+    Subpass 2 (Lighting):
+        📥  从 on-chip <span style="color:#4fc3f7">直接读 G-Buffer</span>
+        ✅  <span style="color:#66bb6a">零带宽</span>
+        📤  输出最终 SceneColor
+}</pre>
+</div>
+<p><strong>限制</strong>：Subpass 只能读<strong>当前像素</strong>的 G-Buffer，不能采邻域 → SSAO/SSR 这类需要邻域的特效要么单独 Pass，要么干脆不做。这也解释了为什么三角洲移动端后处理这么少。</p>
+
+<h3>📊 双管线分级示意图</h3>
+<div class="card" style="padding: 8px;">
+<svg viewBox="0 0 1100 360" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;background:#0d1117;border-radius:6px;">
+  <defs>
+    <linearGradient id="d-pc" x1="0" x2="1"><stop offset="0" stop-color="#ab47bc"/><stop offset="1" stop-color="#7b1fa2"/></linearGradient>
+    <linearGradient id="d-high" x1="0" x2="1"><stop offset="0" stop-color="#ab47bc"/><stop offset="1" stop-color="#5e35b1"/></linearGradient>
+    <linearGradient id="d-mid" x1="0" x2="1"><stop offset="0" stop-color="#66bb6a"/><stop offset="1" stop-color="#388e3c"/></linearGradient>
+    <linearGradient id="d-low" x1="0" x2="1"><stop offset="0" stop-color="#ffa726"/><stop offset="1" stop-color="#ef5350"/></linearGradient>
+  </defs>
+  <text x="550" y="30" fill="#e6edf3" font-size="18" font-weight="700" text-anchor="middle" font-family="sans-serif">三角洲 · 多平台分级管线</text>
+
+  <!-- PC -->
+  <rect x="40" y="70" width="240" height="220" rx="10" fill="#1a2028" stroke="#ab47bc" stroke-width="2"/>
+  <rect x="40" y="70" width="240" height="34" rx="10" fill="url(#d-pc)"/>
+  <text x="160" y="92" fill="#fff" font-size="14" font-weight="700" text-anchor="middle" font-family="sans-serif">PC 桌面端</text>
+  <text x="160" y="130" fill="#ab47bc" font-size="13" font-weight="700" text-anchor="middle" font-family="Consolas,monospace">Deferred Renderer</text>
+  <text x="160" y="160" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">G-Buffer 完整存主存</text>
+  <text x="160" y="180" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">GTAO + DFAO</text>
+  <text x="160" y="200" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">SSR / 屏幕空间特效</text>
+  <text x="160" y="220" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">多光源自由</text>
+  <text x="160" y="265" fill="#66bb6a" font-size="12" font-weight="700" text-anchor="middle" font-family="sans-serif">画质 ★★★★★</text>
+
+  <!-- High-end mobile -->
+  <rect x="300" y="70" width="240" height="220" rx="10" fill="#1a2028" stroke="#ab47bc" stroke-width="2"/>
+  <rect x="300" y="70" width="240" height="34" rx="10" fill="url(#d-high)"/>
+  <text x="420" y="92" fill="#fff" font-size="14" font-weight="700" text-anchor="middle" font-family="sans-serif">高端手机（旗舰）</text>
+  <text x="420" y="130" fill="#ab47bc" font-size="13" font-weight="700" text-anchor="middle" font-family="Consolas,monospace">Mobile Deferred</text>
+  <text x="420" y="160" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">Vulkan Subpass</text>
+  <text x="420" y="180" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">G-Buffer 留 on-chip</text>
+  <text x="420" y="200" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">零带宽读 G-Buffer</text>
+  <text x="420" y="220" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">无邻域采样限制</text>
+  <text x="420" y="265" fill="#66bb6a" font-size="12" font-weight="700" text-anchor="middle" font-family="sans-serif">画质 ★★★★</text>
+
+  <!-- Mid mobile -->
+  <rect x="560" y="70" width="240" height="220" rx="10" fill="#1a2028" stroke="#66bb6a" stroke-width="2"/>
+  <rect x="560" y="70" width="240" height="34" rx="10" fill="url(#d-mid)"/>
+  <text x="680" y="92" fill="#fff" font-size="14" font-weight="700" text-anchor="middle" font-family="sans-serif">中低端手机</text>
+  <text x="680" y="130" fill="#66bb6a" font-size="13" font-weight="700" text-anchor="middle" font-family="Consolas,monospace">Forward Renderer</text>
+  <text x="680" y="160" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">PreZ + Forward Basepass</text>
+  <text x="680" y="180" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">SceneColor R11G11B10</text>
+  <text x="680" y="200" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">Tonemap 直写 BackBuffer</text>
+  <text x="680" y="220" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">↑ iQoo 11 截帧档位</text>
+  <text x="680" y="265" fill="#ffa726" font-size="12" font-weight="700" text-anchor="middle" font-family="sans-serif">画质 ★★★</text>
+
+  <!-- Low end -->
+  <rect x="820" y="70" width="240" height="220" rx="10" fill="#1a2028" stroke="#ffa726" stroke-width="2"/>
+  <rect x="820" y="70" width="240" height="34" rx="10" fill="url(#d-low)"/>
+  <text x="940" y="92" fill="#fff" font-size="14" font-weight="700" text-anchor="middle" font-family="sans-serif">极低配设备</text>
+  <text x="940" y="130" fill="#ffa726" font-size="13" font-weight="700" text-anchor="middle" font-family="Consolas,monospace">Forward + 退化路径</text>
+  <text x="940" y="160" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">不用 VT</text>
+  <text x="940" y="180" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">不用贴花</text>
+  <text x="940" y="200" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">地形精度 1m → 2m</text>
+  <text x="940" y="220" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">回退 ID Map 方法</text>
+  <text x="940" y="265" fill="#ef5350" font-size="12" font-weight="700" text-anchor="middle" font-family="sans-serif">画质 ★★</text>
+
+  <!-- Bottom: virtual material -->
+  <line x1="40" y1="310" x2="1060" y2="310" stroke="#2a3441" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="550" y="335" fill="#4fc3f7" font-size="13" font-weight="700" text-anchor="middle" font-family="sans-serif">⬆ 美术只做一份资源 · 通过虚拟材质系统映射到不同管线 ⬆</text>
+</svg>
+</div>
+
+<h3>📊 Mobile Deferred Subpass 数据流图</h3>
+<div class="card" style="padding: 8px;">
+<svg viewBox="0 0 1100 320" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;background:#0d1117;border-radius:6px;">
+  <text x="550" y="28" fill="#e6edf3" font-size="16" font-weight="700" text-anchor="middle" font-family="sans-serif">Mobile Deferred · G-Buffer 不离开 Tile Memory</text>
+
+  <!-- Tile Memory background -->
+  <rect x="80" y="60" width="940" height="180" rx="8" fill="#0a1320" stroke="#4fc3f7" stroke-width="2" stroke-dasharray="6,4"/>
+  <text x="100" y="80" fill="#4fc3f7" font-size="13" font-weight="700" font-family="Consolas,monospace">📦 GPU On-Chip Tile Memory（不写主存）</text>
+
+  <!-- Subpass 1 -->
+  <rect x="110" y="100" width="280" height="120" rx="8" fill="#1a2028" stroke="#66bb6a" stroke-width="2"/>
+  <rect x="110" y="100" width="280" height="28" rx="8" fill="#388e3c"/>
+  <text x="250" y="119" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" font-family="sans-serif">Subpass 1 · Geometry</text>
+  <text x="250" y="150" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">渲染所有几何</text>
+  <text x="250" y="170" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">写 G-Buffer (Albedo/Normal/MRA/Depth)</text>
+  <text x="250" y="195" fill="#ef5350" font-size="12" font-weight="700" text-anchor="middle" font-family="Consolas,monospace">❌ 不写回 DRAM</text>
+
+  <!-- Arrow -->
+  <path d="M 400 160 L 460 160" stroke="#4fc3f7" stroke-width="3" fill="none" marker-end="url(#arr-d)"/>
+  <text x="430" y="150" fill="#4fc3f7" font-size="11" text-anchor="middle" font-family="sans-serif">tile</text>
+
+  <!-- Subpass 2 -->
+  <rect x="470" y="100" width="280" height="120" rx="8" fill="#1a2028" stroke="#ab47bc" stroke-width="2"/>
+  <rect x="470" y="100" width="280" height="28" rx="8" fill="#7b1fa2"/>
+  <text x="610" y="119" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" font-family="sans-serif">Subpass 2 · Lighting</text>
+  <text x="610" y="150" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">从 on-chip 读 G-Buffer</text>
+  <text x="610" y="170" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="sans-serif">直接计算光照</text>
+  <text x="610" y="195" fill="#66bb6a" font-size="12" font-weight="700" text-anchor="middle" font-family="Consolas,monospace">✅ 零带宽 + 零延迟</text>
+
+  <!-- Arrow out -->
+  <path d="M 760 160 L 820 160" stroke="#4fc3f7" stroke-width="3" fill="none" marker-end="url(#arr-d)"/>
+
+  <!-- SceneColor -->
+  <rect x="830" y="120" width="160" height="80" rx="8" fill="#1a2028" stroke="#ffa726" stroke-width="2"/>
+  <text x="910" y="155" fill="#ffa726" font-size="13" font-weight="700" text-anchor="middle" font-family="sans-serif">SceneColor</text>
+  <text x="910" y="175" fill="#9aa5b1" font-size="11" text-anchor="middle" font-family="sans-serif">写回主存（最终）</text>
+
+  <defs>
+    <marker id="arr-d" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,4 L0,8 z" fill="#4fc3f7"/>
+    </marker>
+  </defs>
+
+  <!-- Note -->
+  <text x="550" y="280" fill="#ef5350" font-size="13" text-anchor="middle" font-family="sans-serif" font-weight="600">⚠️ 限制：Subpass 只能读「当前像素」G-Buffer，不能采邻域 → SSAO/SSR 必须独立 Pass</text>
+</svg>
+</div>
+
+<!-- ============ 3. 渲染管线 ============ -->
+<h2 id="pipeline">三、前向管线截帧详解（5 Pass）</h2>
+
+<p style="color:var(--text-dim);font-size:14px;">下文为<strong>前向档位</strong>（iQoo 11 截帧）的实际渲染流程，高端机的延迟管线流程见上一节。</p>
+
+<div class="pipeline-flow">
+
+  <div class="stage">
+    <h4>ShadowDepth · 阴影深度</h4>
+    <div class="pill-row">
+      <span class="pill">3 级 CSM</span>
+      <span class="pill">1024 × 1024 / 级</span>
+    </div>
+    <ul>
+      <li>第 1 级覆盖 <strong>15–20m</strong>（近景细节）</li>
+      <li>第 2 级覆盖 <strong>80–100m</strong>（中景）</li>
+      <li>第 3 级 <strong>200m+</strong>，<strong>仅大型物体</strong>投影</li>
+    </ul>
+  </div>
+
+  <div class="stage">
+    <h4>Forward Basepass · 主着色</h4>
+    <div class="pill-row">
+      <span class="pill warn">PreZPass + Basepass</span>
+      <span class="pill warn">SceneColor R11G11B10 HDR</span>
+    </div>
+    <p><strong>PreZPass</strong>：只画 Masked 材质（主要是植被），减少后续 Basepass 的 OverDraw。</p>
+    <p><strong>Basepass 渲染顺序</strong>（前到后，借助早期 Z 拒绝）：</p>
+    <ol>
+      <li>1P 枪械（最近，最先写 Z）</li>
+      <li>1P 人物</li>
+      <li>场景物件 Opaque → Masked</li>
+      <li>半透明（最后画）</li>
+    </ol>
+  </div>
+
+  <div class="stage">
+    <h4>EyeAdaptation · PS 阶段</h4>
+    <div class="pill-row">
+      <span class="pill green">下采样 → 198 × 90</span>
+    </div>
+    <p>把 SceneColor 下采样到 198×90 的小图，作为下一 Pass 计算亮度的输入。</p>
+  </div>
+
+  <div class="stage">
+    <h4>EyeAdaptation · CS 阶段</h4>
+    <div class="pill-row">
+      <span class="pill purple">Compute Shader</span>
+    </div>
+    <p>基于上一阶段的小图，用 CS 计算场景亮度系数（曝光值），供 Tonemap 使用。</p>
+  </div>
+
+  <div class="stage">
+    <h4>Tonemap + UI · 直出 BackBuffer</h4>
+    <div class="pill-row">
+      <span class="pill red">BackBuffer R10G10B10A2</span>
+      <span class="pill red">Tonemap 与 UI 混合</span>
+    </div>
+    <p>Tonemap 直接写到 BackBuffer，<strong>跳过中间 RT</strong>；之后逐个绘制 UI。</p>
+  </div>
+
+</div>
+
+<div class="callout warn">
+  <div class="callout-title">值得关注的工程取舍</div>
+  Tonemap 直接写入 BackBuffer = 省一次全屏 RT 拷贝，是移动端非常激进的省带宽手法；代价是 UI 必须严格画在 Tonemap 之后，无法再做基于 SceneColor 的后处理。
+</div>
+
+<!-- ============ 4. VT Pass OnePass ============ -->
+<h2 id="vt-onepass">四、VT Pass 通道重排（OnePass / Subpass 优化）</h2>
+
+<p>三角洲<strong>没有把主管线做成 OnePass</strong>，但在地形 VT (Virtual Texture) 的 Page 绘制阶段，<strong>狠用了 Subpass / FrameBuffer Fetch 思想</strong>做通道重排，是这套技术体系最有亮点的工程创新之一。</p>
+
+<h3>原始问题：3 张 RT 才装得下 8 通道数据</h3>
+<div class="card">
+  <p>地形 VT 的 Page 需要：<code>BaseColor RGB</code> + <code>Normal XY</code> + <code>Roughness</code> + <code>Metallic</code> + <code>AO</code> = <strong>8 通道</strong>。</p>
+  <p>按理 2 张 RGBA RT 就够，但<strong>贴花要 Alpha Blend</strong> → A 通道被透明度占用 → 实际数据只能放 RGB → <strong>必须 3 张 RT</strong>。</p>
+  <ul>
+    <li>绘制阶段：<span class="pill red">3 张 RT</span> 内存大、带宽高、写入次数多</li>
+    <li>压缩阶段：<span class="pill red">3 次采样</span> 读取带宽高</li>
+  </ul>
+</div>
+
+<h3>Combine Pass 优化（基于 OnePass / Subpass 思想）</h3>
+<div class="card">
+<pre style="background:var(--code-bg);border:1px solid var(--border);border-radius:6px;padding:14px;color:#abb2bf;font-family:Consolas,monospace;font-size:13px;line-height:1.6;overflow-x:auto;margin:0;">
+绘制阶段 (Subpass 1):
+    3 张 RT 写到 <span style="color:#4fc3f7">on-chip tile memory</span>
+        ↓
+Combine Pass (Subpass 2) — <span style="color:#ffa726">关键创新点</span>
+    通过 <span style="color:#66bb6a">GL_EXT_shader_framebuffer_fetch / Vulkan input attachment</span>
+    从 on-chip 读 3 张 RT
+    通道重排：<span style="color:#ab47bc">释放 A 通道，每张 RT 装满 RGBA</span>
+    输出 2 张 RT
+        ↓
+压缩阶段:
+    读 <span style="color:#66bb6a">2 张 RT</span> → <span style="color:#66bb6a">2 次采样</span>
+</pre>
+</div>
+
+<h3>📊 通道布局可视化（直观对照）</h3>
+<div class="card" style="padding: 8px;">
+<svg viewBox="0 0 1100 460" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;background:#0d1117;border-radius:6px;">
+  <text x="550" y="28" fill="#e6edf3" font-size="16" font-weight="700" text-anchor="middle" font-family="sans-serif">VT Page 通道重排：3 RT → 2 RT</text>
+
+  <!-- LEFT: Original 3 RT -->
+  <text x="220" y="60" fill="#ef5350" font-size="14" font-weight="700" text-anchor="middle" font-family="sans-serif">绘制阶段（3 张 RT，A 通道被 Opacity 占用）</text>
+
+  <!-- RT1 -->
+  <g transform="translate(60,80)">
+    <rect width="320" height="48" fill="#1a2028" stroke="#ef5350" stroke-width="2" rx="4"/>
+    <rect x="0"   y="0" width="80" height="48" fill="#ff6b6b" opacity="0.85"/>
+    <rect x="80"  y="0" width="80" height="48" fill="#51cf66" opacity="0.85"/>
+    <rect x="160" y="0" width="80" height="48" fill="#4fc3f7" opacity="0.85"/>
+    <rect x="240" y="0" width="80" height="48" fill="#ffa726" opacity="0.85"/>
+    <text x="40"  y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">R</text>
+    <text x="40"  y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">BC.R</text>
+    <text x="120" y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">G</text>
+    <text x="120" y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">BC.G</text>
+    <text x="200" y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">B</text>
+    <text x="200" y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">BC.B</text>
+    <text x="280" y="20" fill="#000" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">A 🔒</text>
+    <text x="280" y="36" fill="#000" font-size="10" text-anchor="middle" font-family="Consolas,monospace">Opacity</text>
+    <text x="-30" y="30" fill="#9aa5b1" font-size="13" text-anchor="end" font-family="Consolas,monospace">RT1</text>
+  </g>
+
+  <!-- RT2 -->
+  <g transform="translate(60,140)">
+    <rect width="320" height="48" fill="#1a2028" stroke="#ef5350" stroke-width="2" rx="4"/>
+    <rect x="0"   y="0" width="80" height="48" fill="#9775fa" opacity="0.85"/>
+    <rect x="80"  y="0" width="80" height="48" fill="#9775fa" opacity="0.85"/>
+    <rect x="160" y="0" width="80" height="48" fill="#cc5de8" opacity="0.85"/>
+    <rect x="240" y="0" width="80" height="48" fill="#ffa726" opacity="0.85"/>
+    <text x="40"  y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">R</text>
+    <text x="40"  y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">N.X</text>
+    <text x="120" y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">G</text>
+    <text x="120" y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">N.Y</text>
+    <text x="200" y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">B</text>
+    <text x="200" y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">Rough</text>
+    <text x="280" y="20" fill="#000" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">A 🔒</text>
+    <text x="280" y="36" fill="#000" font-size="10" text-anchor="middle" font-family="Consolas,monospace">Opacity</text>
+    <text x="-30" y="30" fill="#9aa5b1" font-size="13" text-anchor="end" font-family="Consolas,monospace">RT2</text>
+  </g>
+
+  <!-- RT3 -->
+  <g transform="translate(60,200)">
+    <rect width="320" height="48" fill="#1a2028" stroke="#ef5350" stroke-width="2" rx="4"/>
+    <rect x="0"   y="0" width="80" height="48" fill="#ffd43b" opacity="0.85"/>
+    <rect x="80"  y="0" width="80" height="48" fill="#82c91e" opacity="0.85"/>
+    <rect x="160" y="0" width="80" height="48" fill="#495057"/>
+    <rect x="240" y="0" width="80" height="48" fill="#ffa726" opacity="0.85"/>
+    <text x="40"  y="20" fill="#000" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">R</text>
+    <text x="40"  y="36" fill="#000" font-size="10" text-anchor="middle" font-family="Consolas,monospace">Metallic</text>
+    <text x="120" y="20" fill="#000" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">G</text>
+    <text x="120" y="36" fill="#000" font-size="10" text-anchor="middle" font-family="Consolas,monospace">AO</text>
+    <text x="200" y="20" fill="#9aa5b1" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">B</text>
+    <text x="200" y="36" fill="#9aa5b1" font-size="10" text-anchor="middle" font-family="Consolas,monospace">空</text>
+    <text x="280" y="20" fill="#000" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">A 🔒</text>
+    <text x="280" y="36" fill="#000" font-size="10" text-anchor="middle" font-family="Consolas,monospace">Opacity</text>
+    <text x="-30" y="30" fill="#9aa5b1" font-size="13" text-anchor="end" font-family="Consolas,monospace">RT3</text>
+  </g>
+
+  <!-- Bandwidth bar -->
+  <text x="220" y="295" fill="#ef5350" font-size="13" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">浪费率：3 张 RT × 3 个 A 锁定 = 25% 浪费</text>
+
+  <!-- ARROW -->
+  <path d="M 410 180 L 480 180" stroke="#4fc3f7" stroke-width="3" fill="none" marker-end="url(#arr-vt)"/>
+  <text x="445" y="170" fill="#4fc3f7" font-size="11" text-anchor="middle" font-family="Consolas,monospace">Combine Pass</text>
+  <text x="445" y="200" fill="#4fc3f7" font-size="11" text-anchor="middle" font-family="Consolas,monospace">on-chip 重排</text>
+
+  <defs>
+    <marker id="arr-vt" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M0,0 L6,4 L0,8 z" fill="#4fc3f7"/>
+    </marker>
+  </defs>
+
+  <!-- RIGHT: Combined 2 RT -->
+  <text x="780" y="60" fill="#66bb6a" font-size="14" font-weight="700" text-anchor="middle" font-family="sans-serif">Combine 后（2 张 RT，全通道塞满数据）</text>
+
+  <!-- RT_out1 -->
+  <g transform="translate(620,110)">
+    <rect width="320" height="48" fill="#1a2028" stroke="#66bb6a" stroke-width="2" rx="4"/>
+    <rect x="0"   y="0" width="80" height="48" fill="#ff6b6b" opacity="0.85"/>
+    <rect x="80"  y="0" width="80" height="48" fill="#51cf66" opacity="0.85"/>
+    <rect x="160" y="0" width="80" height="48" fill="#4fc3f7" opacity="0.85"/>
+    <rect x="240" y="0" width="80" height="48" fill="#9775fa" opacity="0.85"/>
+    <text x="40"  y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">R</text>
+    <text x="40"  y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">BC.R</text>
+    <text x="120" y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">G</text>
+    <text x="120" y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">BC.G</text>
+    <text x="200" y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">B</text>
+    <text x="200" y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">BC.B</text>
+    <text x="280" y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">A ✓</text>
+    <text x="280" y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">N.X</text>
+    <text x="-30" y="30" fill="#66bb6a" font-size="13" text-anchor="end" font-family="Consolas,monospace">RT_out1</text>
+  </g>
+
+  <!-- RT_out2 -->
+  <g transform="translate(620,170)">
+    <rect width="320" height="48" fill="#1a2028" stroke="#66bb6a" stroke-width="2" rx="4"/>
+    <rect x="0"   y="0" width="80" height="48" fill="#9775fa" opacity="0.85"/>
+    <rect x="80"  y="0" width="80" height="48" fill="#cc5de8" opacity="0.85"/>
+    <rect x="160" y="0" width="80" height="48" fill="#ffd43b" opacity="0.85"/>
+    <rect x="240" y="0" width="80" height="48" fill="#82c91e" opacity="0.85"/>
+    <text x="40"  y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">R</text>
+    <text x="40"  y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">N.Y</text>
+    <text x="120" y="20" fill="#fff" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">G</text>
+    <text x="120" y="36" fill="#fff" font-size="10" text-anchor="middle" font-family="Consolas,monospace">Rough</text>
+    <text x="200" y="20" fill="#000" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">B</text>
+    <text x="200" y="36" fill="#000" font-size="10" text-anchor="middle" font-family="Consolas,monospace">Metal</text>
+    <text x="280" y="20" fill="#000" font-size="11" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">A ✓</text>
+    <text x="280" y="36" fill="#000" font-size="10" text-anchor="middle" font-family="Consolas,monospace">AO</text>
+    <text x="-30" y="30" fill="#66bb6a" font-size="13" text-anchor="end" font-family="Consolas,monospace">RT_out2</text>
+  </g>
+
+  <!-- Empty placeholder for 3rd row alignment -->
+  <text x="780" y="265" fill="#66bb6a" font-size="13" text-anchor="middle" font-family="Consolas,monospace" font-weight="700">8 通道塞 8 数据 = 0% 浪费</text>
+
+  <!-- Stats -->
+  <line x1="40" y1="320" x2="1060" y2="320" stroke="#2a3441" stroke-width="1"/>
+
+  <g transform="translate(40,340)">
+    <rect width="240" height="100" rx="8" fill="#1a2028" stroke="#ef5350" stroke-width="1"/>
+    <text x="120" y="22" fill="#ef5350" font-size="13" font-weight="700" text-anchor="middle" font-family="sans-serif">原始方案</text>
+    <text x="120" y="48" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="Consolas,monospace">3 张 RT 写入</text>
+    <text x="120" y="68" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="Consolas,monospace">压缩阶段读 3 次采样</text>
+    <text x="120" y="88" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="Consolas,monospace">25% 内存浪费</text>
+  </g>
+
+  <g transform="translate(310,340)">
+    <rect width="440" height="100" rx="8" fill="#0a1320" stroke="#4fc3f7" stroke-width="2"/>
+    <text x="220" y="22" fill="#4fc3f7" font-size="13" font-weight="700" text-anchor="middle" font-family="sans-serif">⚡ Combine Pass 关键</text>
+    <text x="220" y="48" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="Consolas,monospace">利用 GL_EXT_shader_framebuffer_fetch</text>
+    <text x="220" y="68" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="Consolas,monospace">/ Vulkan input attachment</text>
+    <text x="220" y="88" fill="#66bb6a" font-size="12" font-weight="700" text-anchor="middle" font-family="Consolas,monospace">on-chip 读取 = 零带宽</text>
+  </g>
+
+  <g transform="translate(780,340)">
+    <rect width="240" height="100" rx="8" fill="#1a2028" stroke="#66bb6a" stroke-width="1"/>
+    <text x="120" y="22" fill="#66bb6a" font-size="13" font-weight="700" text-anchor="middle" font-family="sans-serif">优化后</text>
+    <text x="120" y="48" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="Consolas,monospace">2 张 RT 写入 (-33%)</text>
+    <text x="120" y="68" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="Consolas,monospace">压缩阶段 2 次采样 (-33%)</text>
+    <text x="120" y="88" fill="#9aa5b1" font-size="12" text-anchor="middle" font-family="Consolas,monospace">代价：失去原生 Alpha Blend</text>
+  </g>
+</svg>
+</div>
+
+<h3>收益与代价</h3>
+<table>
+  <thead><tr><th>阶段</th><th>原始方案</th><th>优化后</th><th>收益</th></tr></thead>
+  <tbody>
+    <tr><td>绘制阶段</td><td>3 张 RT</td><td>2 张 RT</td><td>内存 -33%、写入次数和带宽降低</td></tr>
+    <tr><td>压缩阶段</td><td>读 3 RT × 3 采样</td><td>读 2 RT × 2 采样</td><td>读取带宽 -33%、采样次数降低</td></tr>
+    <tr><td>支持的混合方式</td><td>Opaque / Mask / Blend</td><td>仅 Opaque + Alpha Mask</td><td>失去原生半透明支持</td></tr>
+  </tbody>
+</table>
+
+<h3>⚠️ 容易混淆的关键点：失去的是哪一层"半透明"？</h3>
+
+<div class="callout warn">
+  <div class="callout-title">最常见的误解</div>
+  看到"失去半透明支持"很容易以为：<strong>Combine Pass 让 Decal 之间的边缘变硬</strong>。<br>
+  <span style="color:var(--accent-3);font-weight:600;">这是错的。</span>VT 体系里其实有两层 Alpha 语义，被打掉的不是你以为的那一层。
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h4 style="color: var(--accent-3);">✅ 没失去：Decal 之间的内部混合</h4>
+    <p>道路 → 水渍叠加 → 裂纹叠加，这些贴花层之间的 Alpha Blend <strong>完全保留</strong>。</p>
+    <p><strong>原因</strong>：所有 Decal 都是在 <em>绘制阶段</em>（Combine Pass 之前）正常用硬件 Alpha Blend 画进 RT 的，A 通道一直在当透明度用。Decal 之间的过渡是平滑的。</p>
+  </div>
+  <div class="card">
+    <h4 style="color: var(--accent-4);">❌ 失去了：VT Page 整体 vs 地形原始材质的混合</h4>
+    <p>Combine Pass 把 A 通道腾出来塞数据后，VT Page 对外<strong>不再带 Alpha 通道</strong>。</p>
+    <p><strong>后果</strong>：地形 Basepass 采样这张 VT Page 时，无法通过 Alpha 知道"这块 VT 区域应该 30% 覆盖度透出地形"，只能用 Alpha Mask（<code>discard</code>）做 0/1 二值判断 → <strong>VT 覆盖区域和非覆盖区域的边界变硬</strong>。</p>
+  </div>
+</div>
+
+<h4>两层 Alpha 的完整流程图</h4>
+<div class="card">
+<pre style="background:var(--code-bg);border:1px solid var(--border);border-radius:6px;padding:14px;color:#abb2bf;font-family:Consolas,monospace;font-size:13px;line-height:1.6;overflow-x:auto;margin:0;">
+─────────────────────────────────────────────────────────
+阶段 1：VT Page 内部绘制（Render 阶段）
+─────────────────────────────────────────────────────────
+  Step1.1  画地形底层材质（草/土/岩）
+  Step1.2  画 Decal 1（道路）— <span style="color:#66bb6a">Alpha Blend ✅</span>
+  Step1.3  画 Decal 2（水渍叠加）— <span style="color:#66bb6a">Alpha Blend ✅</span>
+  Step1.4  画 Decal 3...
+
+  最终 RT 状态：
+    RT1 = [BC.R | BC.G | BC.B | <span style="color:#ffa726">A=Page整体不透明度</span>]
+    RT2 = [N.X  | N.Y  | Ro   | <span style="color:#ffa726">A=Page整体不透明度</span>]
+    RT3 = [Me   | AO   | -    | <span style="color:#ffa726">A=Page整体不透明度</span>]
+
+─────────────────────────────────────────────────────────
+阶段 2：Combine Pass — 通道重排（关键变化点）
+─────────────────────────────────────────────────────────
+  ❗ <span style="color:#ef5350">把 A 通道里的"VT Page 整体不透明度"丢弃</span>
+  把 8 个数据通道塞满 2 张 RT 的所有 RGBA：
+
+    RT_out1 = [BC.R | BC.G | BC.B | <span style="color:#4fc3f7">N.X</span>]   ← A 通道塞数据
+    RT_out2 = [N.Y  | Ro   | Me   | <span style="color:#4fc3f7">AO</span>]    ← A 通道塞数据
+
+─────────────────────────────────────────────────────────
+阶段 3：地形 Basepass 采样 VT Page
+─────────────────────────────────────────────────────────
+  采样到 (BC, N, Ro, Me, AO) — <span style="color:#ef5350">没有 Alpha</span>
+  ↓
+  无法做 lerp(地形原始, VT采样, A) 的平滑混合
+  ↓
+  只能用 Alpha Mask (discard) 二值判断 VT 覆盖区域 → <span style="color:#ef5350">边界变硬</span>
+</pre>
+</div>
+
+<div class="callout">
+  <div class="callout-title">举例理解</div>
+  <p>假设 VT Page 中间画了一个圆形水坑，圆外是"空"：</p>
+  <ul>
+    <li><strong>原始流程</strong>：Page 圆外 A=0 → 地形 Basepass lerp 时透出地形原始材质 ✅</li>
+    <li><strong>Combine Pass 后</strong>：A 被数据占用 → 圆外的"空"也被当合法 RGB 数据 ❌ → 必须用 discard 告诉 GPU "这区域走地形原始材质" → discard 是 0/1 二值 → 圆形边界一刀切硬边</li>
+  </ul>
+</div>
+
+<div class="callout">
+  <div class="callout-title">如何弥补：Stipple Alpha Mask 软化"VT 覆盖边界"</div>
+  在<strong>纹理空间</strong>上用 0/1 分布密度的 Alpha Mask 模拟透明度：覆盖度高的像素 1 多、覆盖度低的像素 0 多。<br>
+  <strong>注意范围</strong>：补的是"VT Page 整体覆盖区域 vs 非覆盖区域"的边界（也就是 VT Page 边缘），<strong>不是补 Decal 之间的过渡</strong>。Decal 内部混合一直是真正的 Alpha Blend，本来就平滑。<br>
+  因为 VT Page 像素密度高，stipple 颗粒肉眼几乎看不出，足以替代绝大部分半透明需求。
+</div>
+
+<div class="callout warn">
+  <div class="callout-title">保底方案：极少数确实需要半透时</div>
+  保留优化版原始方案，利用移动端低成本的 <strong>On-Chip Fetch</strong>（片上读取，不走外部带宽）把 3 张 RT 在片上合成 2 张 RT 后再送入压缩阶段，<strong>压缩阶段读取带宽仍然降低 33%</strong>。
+</div>
+
+<h3>GDC 2024 原文引用</h3>
+<div class="card" style="font-style:italic;color:var(--text-dim);">
+"针对移动端，我们可以对虚拟纹理通道中使用的渲染目标进行优化。我们希望在虚拟纹理中使用 2 张纹理，并将通道进行合并，以此减少基础通道中的采样次数。但由于我们对贴花使用了阿尔法混合，所以在渲染虚拟纹理页面时，仍然需要将不透明度作为阿尔法通道。<strong style="color:var(--accent-2);font-style:normal;">在此之后，我们使用一个子通道(sub pass)或者帧缓冲区提取(frame buffer fetch)操作，将通道重新排列成理想的形式。</strong>"
+<div style="text-align:right;margin-top:8px;font-size:12px;color:var(--text-mute);">— GDC 2024《三角洲行动》跨平台技术演讲</div>
+</div>
+
+<!-- ============ 5. 植被 ============ -->
+<h2 id="vegetation">五、植被资产规格</h2>
+
+<div class="card">
+  <p><strong>截帧统计</strong>：18 个 Drawcall（9 Depth + 9 Shading），渲染 <strong>1326 个 Instance</strong>，其中 <strong>2 面 Billboard 占 663 个</strong>（约 50%）。</p>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>类别</th>
+      <th>面数</th>
+      <th>BaseColor</th>
+      <th>Normal</th>
+      <th>说明</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>树木</td>
+      <td>900 / 297（LOD0/1）</td>
+      <td>2048×1024 ASTC_SRGB</td>
+      <td>2048×1024 ASTC_UNORM</td>
+      <td>Alpha 标记叶区域 / Mask；Normal 4 通道：A=Mask, RG=法线, B 疑似 Roughness</td>
+    </tr>
+    <tr>
+      <td>灌木</td>
+      <td>144</td>
+      <td>512×512 ASTC_SRGB</td>
+      <td>256×256 ASTC_UNORM</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>草（17 面）</td>
+      <td>17</td>
+      <td>512×512</td>
+      <td>512×512</td>
+      <td>近距离精细模型</td>
+    </tr>
+    <tr>
+      <td>草（Billboard）</td>
+      <td>2</td>
+      <td>256×256（Opacity 在 A 通道）</td>
+      <td>256×256</td>
+      <td>远距离量产，使用最多</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <div class="callout-title">通道复用技巧</div>
+  Normal 贴图把 Mask、Roughness 和切线空间法线 XY 全部塞进 4 通道 —— 移动端典型的"<strong>1 张图打 3 个工</strong>"做法，省纹理内存和带宽。
+</div>
+
+<h3>石头分级（典型 LOD 阶梯）</h3>
+<table>
+  <thead><tr><th>面数</th><th>距离档</th><th>制作细节</th></tr></thead>
+  <tbody>
+    <tr><td>722</td><td>中距离</td><td>底部未闭合（减面）</td></tr>
+    <tr><td>600</td><td>较远距离</td><td>底部闭合（远景看不到底）</td></tr>
+    <tr><td>1500</td><td>中远距离 · 石头组</td><td>用 1024 Atlas，最大 Tile 512</td></tr>
+    <tr><td>70</td><td>近距离</td><td>—</td></tr>
+  </tbody>
+</table>
+<p>部分石头切换 Normal 但保留其他贴图 —— 省了一组 BaseColor 出处。</p>
+
+<!-- ============ 6. 场景物件 ============ -->
+<h2 id="scene">六、场景物件 & 公共贴图</h2>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h4>共用贴图 Atlas（核心）</h4>
+    <ul class="kv-list">
+      <li><span class="k">通用 Atlas</span><span class="v">2 张 4096 × 4096</span></li>
+      <li><span class="k">POI 室内 LightMap</span><span class="v">4096 × 4096</span></li>
+      <li><span class="k">POI 外部 PRT</span><span class="v">128 × 128 × 32 PackedPRTRadianceTexture</span></li>
+      <li><span class="k">反射贴图</span><span class="v">64 × 64 × 6（Cubemap）</span></li>
+      <li><span class="k">地板专用 Atlas</span><span class="v">2048 × 2048（每 512² 一种地板）</span></li>
+    </ul>
+    <p>大量场景物件（房屋、车辆、广告牌、围墙、地基）<strong>共用同一张 4K Atlas</strong>，最大限度复用，减少 SetTexture/绑定切换。</p>
+  </div>
+
+  <div class="card">
+    <h4>典型物件 DC 优化案例</h4>
+    <ul>
+      <li><strong>整栋房屋 3000 面，仅 4 个 Drawcall</strong> 搞定（外墙/阳台/栏杆/窗户）</li>
+      <li>外墙 2731 面 — 不做内墙</li>
+      <li>窗户 170 面 — <strong>自发光材质</strong>，BaseColor + Normal 复用外墙图</li>
+      <li>破车 2725 面 — <strong>不做玻璃</strong></li>
+      <li>11 个 POI 地基模型共 12788 面，全部走公共 Atlas，无新贴图</li>
+      <li>广告牌远景 LOD 最大显示精度只到 512²</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 7. 地形 ============ -->
+<h2 id="terrain">七、地形（SVT / Clipmap）</h2>
+
+<div class="card">
+  <p><strong>方案选择</strong>：使用 <span class="pill purple">SVT (Sampler Virtual Texture)</span>，<strong>未使用 RVT</strong>（截帧未发现 RVT 相关 DC）。</p>
+  <p><strong>规模</strong>：40 块地形 × 2048 面 = 约 <strong>8 万面</strong>，精度 <strong>约 1 米 / 格</strong>。</p>
+</div>
+
+<table>
+  <thead>
+    <tr><th>资源</th><th>规格</th><th>用途</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>地形高度图 + 法线 SVT</td>
+      <td>1024 × 1024，32 × 32 个 Tile，R8G8B8A8_UNORM</td>
+      <td><strong>仅在 VS 中使用</strong>（顶点偏移 + 法线）</td>
+    </tr>
+    <tr>
+      <td>LandscapeLightMap</td>
+      <td>2048 × 2048 ASTC_UNORM</td>
+      <td>全地图烘焙好的 AO + Shadow</td>
+    </tr>
+    <tr>
+      <td>PageTable</td>
+      <td>1024 × 1024 R16_UINT</td>
+      <td>SVT 主页表</td>
+    </tr>
+    <tr>
+      <td>PageTable Indirection</td>
+      <td>8 × 8 R16G16B16A16</td>
+      <td>间接采样 PageTable，标识自适应材质层 ID</td>
+    </tr>
+    <tr>
+      <td>PhysicalTexture × 2</td>
+      <td>5544 × 5544（21 × 21 个 Page，ASTC_UNORM）</td>
+      <td>SVT 的实际像素仓库</td>
+    </tr>
+    <tr>
+      <td>远景地形 HLOD</td>
+      <td>整块 3000 面</td>
+      <td>替代远处 SVT 计算</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  <div class="callout-title">隐藏巧思</div>
+  <strong>路面没有独立 Mesh —— 直接用地形渲染</strong>。这意味着路面纹理混合也走地形材质层，省下大量 Drawcall。
+</div>
+
+<h3>GDC 2025 续作：Clipmap + 自适应动态纹理数组</h3>
+<div class="card">
+  <ul>
+    <li><strong>Clipmap Splat ID Map</strong>：根据相机位置动态加载周边高精度，远处用低精度</li>
+    <li><strong>自适应动态纹理数组</strong>：32 种材质入库，运行时只占 8 种内存（按需加载，填充数组空隙）</li>
+    <li><strong>Clipmap Texture Streaming</strong>：把大纹理内存从 <strong>133MB → 不到 2MB</strong>（约 1%）</li>
+    <li><strong>Whole Scene VT Renderer</strong>：取代每区块独立 VT renderer，减少 Actor 数量、缓解卡顿</li>
+    <li><strong>3D Decal 立体贴花</strong>：模仿 Fortnite 思路，用 Z-Scale 远→近从 0 渐变到 1，<strong>移动端低成本 Tessellation 替代方案</strong></li>
+  </ul>
+</div>
+
+<!-- ============ 8. 角色 & 枪械 ============ -->
+<h2 id="character">八、角色 & 枪械</h2>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h4>1P 角色</h4>
+    <ul class="kv-list">
+      <li><span class="k">部件数</span><span class="v">5 个</span></li>
+      <li><span class="k">总面数</span><span class="v">31252（1934 / 2922 / 11614 / 11848 / 2934）</span></li>
+      <li><span class="k">Drawcall</span><span class="v">5 DC</span></li>
+      <li><span class="k">贴图组</span><span class="v">BaseColor + Normal + RMA × 5</span></li>
+      <li><span class="k">主贴图尺寸</span><span class="v">1024² × 3 组 + 512² × 2 组</span></li>
+      <li><span class="k">额外资源</span><span class="v">1 张 512² 噪声贴图（用途未明）</span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>武器（枪械 / 倍镜 / 配件）</h4>
+    <ul class="kv-list">
+      <li><span class="k">部件数</span><span class="v">11 个</span></li>
+      <li><span class="k">总面数</span><span class="v">22970（最大 7814 + 6069）</span></li>
+      <li><span class="k">Drawcall</span><span class="v">11 DC</span></li>
+      <li><span class="k">贴图档位</span><span class="v">高精度 1024²；次级 512² / 256²</span></li>
+      <li><span class="k">特殊情况</span><span class="v">刀具 PS 输入最高 9 张贴图（贴花/ID）</span></li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout">
+  <div class="callout-title">反射策略</div>
+  角色与枪械<strong>不使用 IBL</strong>，统一使用实时 Capture 的 <code>ReflectionCaptureTexture</code>（64×64×6 Cubemap），且帧内未见捕获绘制，<strong>有缓存机制</strong>。
+</div>
+
+<!-- ============ 9. 天空盒 / 特效 ============ -->
+<h2 id="sky-fx">九、天空盒 / 特效</h2>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h4>天空盒</h4>
+    <ul>
+      <li>仅 <strong>1 张 2048 × 1024</strong> 输入贴图（全景）</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>特效</h4>
+    <ul>
+      <li>自发光贴图 最大 256²</li>
+      <li>帧动画 最大 512²，最多 64 组</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 10. 启示 ============ -->
+<h2 id="takeaway">十、关键启示与可借鉴方向</h2>
+
+<div class="card">
+  <h4>① 后处理的极端节流</h4>
+  <p>1080P 移动端跑前向渲染，只保留 EyeAdaptation+Tonemap，<strong>无 SSR / SSAO / Bloom / DOF / Motion Blur</strong>。Tonemap 直写 BackBuffer 又省一次全屏拷贝。<br>
+  <strong>启示</strong>：在带宽约束下，可考虑用更高质量的 Material/Lightmap 工作流来"假装"后处理效果（贴花 AO、烘焙 Bloom）。</p>
+</div>
+
+<div class="card">
+  <h4>② 阴影预算严苛分级</h4>
+  <p>3 级 CSM 1024²，第 3 级仅大型物体投影 —— <strong>明确按距离裁掉小物件投影</strong>。<br>
+  <strong>启示</strong>：远景阴影投影列表通过物件 Bounds + Tag 过滤即可大幅省时。</p>
+</div>
+
+<div class="card">
+  <h4>③ 共用 Atlas 是 Drawcall 杀手锏</h4>
+  <p>整栋房屋 4 DC、11 个 POI 地基零新贴图、大部分场景物件共享 2 张 4K 图。<br>
+  <strong>启示</strong>：早期资产生产规范要强制共用图集，配合 PrebuildAtlas/Toolchain 自动化检查。</p>
+</div>
+
+<div class="card">
+  <h4>④ Normal 贴图通道复用</h4>
+  <p>R/G = 法线 XY，B = Roughness（猜测），A = Mask —— <strong>1 张图承担 4 种数据</strong>。<br>
+  <strong>启示</strong>：移动端材质层标准化 RMA + 副通道压缩，是省内存最快的工程化手段。</p>
+</div>
+
+<div class="card">
+  <h4>⑤ 地形选 SVT、不做路面 Mesh</h4>
+  <p>SVT 配合自适应材质层 ID（PageTableIndirection）、远景 HLOD、路面用地形渲染替代独立 Mesh。<br>
+  <strong>启示</strong>：路面是开放世界 DC 大头之一，<strong>把路面"画"进地形材质层</strong>可大幅减少 DC 与重复几何。</p>
+</div>
+
+<div class="card">
+  <h4>⑥ Vulkan PreRotation 几乎是必选</h4>
+  <p>避免 Android 系统因屏幕旋转再做一次合成。<br>
+  <strong>启示</strong>：所有手游横/竖屏切换前都应确认是否启用 PreRotation，移动端节省可见。</p>
+</div>
+
+<div class="card">
+  <h4>⑦ 反射用低精度 Cubemap + 缓存</h4>
+  <p>角色武器全用 64²×6 ReflectionCaptureTexture，且不每帧重建。<br>
+  <strong>启示</strong>：手游对反射精度的容忍度比预想高，<strong>缓存 + 低分辨率 cubemap</strong> 已经够用。</p>
+</div>
+
+<div class="card">
+  <h4>⑧ 用 Subpass / FrameBuffer Fetch 做"通道重排"是手游 OnePass 思想的精髓</h4>
+  <p>三角洲 VT Pass 的 Combine Pass 不是为了"减 Pass 数"，而是为了<strong>把多张 RT 在 on-chip 内重新打包成更紧凑的格式</strong>，节省内存、写入次数、带宽和后续采样次数。<br>
+  <strong>启示</strong>：当一个 Pass 的输出受到外部约束（比如 Alpha Blend 占用 A 通道）导致 RT 数膨胀时，下一个 Pass 立即用 framebuffer fetch 做 channel repack，<strong>是手游优化里"几乎免费的高收益操作"</strong>。</p>
+</div>
+
+<div class="card">
+  <h4>⑨ 双管线分级 + 虚拟材质系统是端手一体的标准答卷</h4>
+  <p>美术做一份资源，靠虚拟材质系统映射到不同平台的不同管线（前向 / 延迟），不同档位差异化只在<strong>参数</strong>而不是<strong>算法</strong>。<br>
+  <strong>启示</strong>：一旦项目要做端手一体，材质系统必须先做平台抽象层，否则后期重做美术成本巨大。</p>
+</div>
+
+<!-- ============ 11. 参考资料 ============ -->
+<h2 id="refs">十一、参考资料与出处</h2>
+
+<div class="callout">
+  <div class="callout-title">一手出处链路</div>
+  GDC/UFSH 三场分享是<strong>同一套技术体系的递进披露</strong>：UFSH 2023 先讲工程方案，GDC 2024 上国际舞台讲全貌，GDC 2025 续上 Clipmap、3D Decal 等后续优化。
+</div>
+
+<table>
+  <thead>
+    <tr><th>类别</th><th>主要内容</th><th>出处</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>🎯 一手 · GDC 2024 主稿</td>
+      <td>双管线（前向/延迟）分级、虚拟材质系统、VT Pass <strong>Subpass / FrameBuffer Fetch 通道重排原话</strong>、跨设备参数调优</td>
+      <td><a href="https://view.inews.qq.com/k/20250523A09R3O00" target="_blank">天美大牛 GDC"硬核演讲"：《三角洲行动》跨平台技术解密！(腾讯新闻整理稿)</a></td>
+    </tr>
+    <tr>
+      <td>📚 一手 · GDC 2024 知乎版</td>
+      <td>同场分享，知乎专栏整理</td>
+      <td><a href="https://zhuanlan.zhihu.com/p/692577545" target="_blank">GDC | 《三角洲行动》双端高品质的一体化生产管线与技术支撑 (知乎)</a></td>
+    </tr>
+    <tr>
+      <td>📚 一手 · GDC 2024 GameRes 版</td>
+      <td>同场分享，更完整的中文整理</td>
+      <td><a href="https://www.gameres.com/905639.html" target="_blank">《三角洲行动》双端高品质的一体化生产管线与技术支撑【GDC 2024】(GameRes)</a></td>
+    </tr>
+    <tr>
+      <td>📚 一手 · GDC 2024 简书版</td>
+      <td>同场分享，简书整理</td>
+      <td><a href="https://cdn-qn0.jianshu.io/p/5c01fcf0dd1a" target="_blank">【GDC2024】《三角洲行动》双端高品质的一体化生产管线与技术支撑 (简书)</a></td>
+    </tr>
+    <tr>
+      <td>🎯 一手 · UFSH 2023</td>
+      <td><strong>VT Pass Combine Pass 完整工程方案</strong>（3→2 RT、Stipple Alpha Mask、On-Chip Fetch 保底方案）</td>
+      <td><a href="https://nothingtosay0031.github.io/Engine/UE/Delta_UFSH2023" target="_blank">《三角洲行动》端手一体地形渲染方案 (UFSH 2023 整理稿)</a></td>
+    </tr>
+    <tr>
+      <td>🎯 一手 · GDC 2025</td>
+      <td>地形 Clipmap、动态纹理数组、3D Decal 立体贴花、极低端退化方案</td>
+      <td><a href="https://163.com/dy/article/JT3MT5OA0526DPBA.html" target="_blank">GDC 2025 | 《三角洲行动》：高性能高品质的端手地形和生态技术 (网易)</a></td>
+    </tr>
+    <tr>
+      <td>📖 背景 · 多光源处理</td>
+      <td>Forward / Forward+ / Deferred / TBDR 概念背景</td>
+      <td><a href="https://zhuanlan.zhihu.com/p/418189731" target="_blank">多光源的处理 (知乎)</a></td>
+    </tr>
+    <tr>
+      <td>📖 背景 · 渲染路径</td>
+      <td>Forward+ vs Deferred 在 PC 与移动端的性能对比</td>
+      <td><a href="https://www.cnblogs.com/KillerAery/p/15962110.html" target="_blank">渲染路径：Forward & Deferred Rendering & Decals (博客园)</a></td>
+    </tr>
+    <tr>
+      <td>📖 背景 · Mobile Deferred</td>
+      <td>Vulkan Subpass 在 TBR 架构上的 G-Buffer on-chip 原理</td>
+      <td><a href="https://blog.csdn.net/qq_33060405/article/details/159409601" target="_blank">从前向渲染到延迟渲染：为什么 3A 游戏都在用 Deferred？ (CSDN)</a></td>
+    </tr>
+    <tr>
+      <td>📖 概念 · TBDR</td>
+      <td>Tile-Based Deferred Rendering 基础</td>
+      <td><a href="https://baike.baidu.com/item/%E5%BB%B6%E8%BF%9F%E7%9D%80%E8%89%B2" target="_blank">延迟着色 (百度百科)</a></td>
+    </tr>
+    <tr>
+      <td>🖼️ 截帧分析（本文档基础）</td>
+      <td>iQoo 11 8Gen2 实机 Vulkan 截帧分析报告（前向档位）</td>
+      <td>三角洲移动端分析.docx / .pdf（本地文档，飞书原文：sarosgame.feishu.cn/docx/Ac8md2eDPoU5PaxBMFVc8nIAnKd）</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  <div class="callout-title">引用注意</div>
+  上述网络资料均为<strong>第三方整理</strong>的中文转述稿，并非 GDC / UFSH 演讲的官方录像或 PDF。如需做正式技术报告或对外引用，建议进一步从 GDC Vault 检索原始 Session 名称：
+  <ul>
+    <li>GDC 2024：<em>"Delta Force: A Cross-Platform AAA Production Pipeline and Tech Support"</em>（腾讯天美 J3 工作室）</li>
+    <li>GDC 2025：<em>"Delta Force: High-Performance High-Quality Cross-Platform Terrain and Ecology"</em></li>
+    <li>UFSH 2023：Unreal Fest Shanghai 2023，主题为端手一体地形渲染方案</li>
+  </ul>
+</div>
+<footer>
+  本文档基于 三角洲移动端分析.docx 截帧报告 + GDC 2024 / GDC 2025 / UFSH 2023 公开演讲整理 · 截帧 + 演讲双视角
+</footer>
+
+</div>
+</body>
+</html>
