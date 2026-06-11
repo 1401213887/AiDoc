@@ -66,7 +66,11 @@
   <div class="toc-title">目录</div>
   <ol>
     <li><a href="#summary">一、核心结论速览</a></li>
-    <li><a href="#engine">二、UE 改造与移动管线</a></li>
+    <li><a href="#engine">二、UE 改造与移动管线</a>
+      <ol style="margin-top:4px">
+        <li><a href="#engine-rdg-deep">RDG / MobileBasePass 改造深度分析</a></li>
+      </ol>
+    </li>
     <li><a href="#pipeline">三、Pass 顺序与 RT 布局</a></li>
     <li><a href="#character">四、角色 NPR 与高光带</a></li>
     <li><a href="#world">五、开放世界场景</a></li>
@@ -119,6 +123,74 @@
     <tr><td>RDG</td><td>对 Mobile Forward 路径精简，合并部分 Render Pass 减少切换</td></tr>
   </tbody>
 </table>
+
+<h3 id="engine-rdg-deep">RDG / MobileBasePass 改造深度分析</h3>
+
+<div class="callout">
+  <div class="callout-title">为什么"性价比最高"</div>
+  UE4 Mobile Forward 是<strong>为 PBR 光照设计的固定管线</strong>，每个 Pass 硬编码为独立渲染阶段。这带来两个核心问题：① Pass 切换在 Tile-Based GPU（Mali / Adreno / Apple GPU）上代价极高——每次 RenderPass 边界都触发 Tile 内存回写主存再读回；② 默认 BasePass shader 走 <code>FMobileShadingModel</code> 的 PBR 分支，NPR 所需的 Ramp 采样、SDF 面部光照、Anisotropic 高光没有入口。改造管线框架一次投入，收益覆盖所有场景。
+</div>
+
+<h4>改造 1：Pass 合并——减少 RenderPass 边界</h4>
+<div class="card">
+<p>UE4 Mobile Forward 默认 Pass 切换开销：</p>
+<ul>
+  <li><strong>RenderTarget 绑定切换</strong>：Vulkan/Metal 上是 RenderPass 开始/结束，触发 Tile 刷新</li>
+  <li><strong>Pipeline State 切换</strong>：shader、blend state、depth state 全量重绑</li>
+  <li><strong>GPU 空泡</strong>：Pass 间 GPU 可能 stall，等待上一个 Pass 的 Tile Resolve 完成</li>
+</ul>
+<p>库洛的改造核心：NPR 角色和 PBR 场景放在<strong>同一个 BasePass</strong>里，通过 <code>Material Domain</code> 区分走哪个 shader 分支。这样：</p>
+<ul>
+  <li>不需要为角色单独开一个 Pass（UE 默认的 Translucency / Custom Depth 分离写法）</li>
+  <li>一个 RenderPass 内完成所有不透明物体渲染，Tile 内存常驻，不需要中途回写主存</li>
+  <li>描边（Outline）单独成 Pass 是因为需要完整的 Depth Buffer 做背面剔除，无法与 BasePass 合并</li>
+</ul>
+</div>
+
+<h4>改造 2：MobileBasePass shader 改造——NPR 光照入口</h4>
+<div class="card">
+<p>在 <code>FMobileShadingModel</code> 中插入自定义分支，使 NPR 与 PBR 在同一 Draw Call 池中按材质排序绘制：</p>
+<pre style="background:var(--code-bg);border:1px solid var(--border);border-radius:6px;padding:14px;overflow-x:auto;font-size:13px;line-height:1.6;color:#e6edf3"><code>// 伪代码示意
+if (ShadingModel == MSM_CustomNPR)
+{
+    // Ramp 采样（双 Ramp：暗部分界 + 暗部内部细分）
+    half3 baseColor   = Ramp1.Sample(NdotL);
+    half3 shadowColor = Ramp2.Sample(NdotL);
+
+    // Material ID 区分（皮肤/布料/金属选不同 Ramp）
+    half3 final = SelectRampByMaterialID(MaterialID, baseColor, shadowColor);
+
+    // 描边用单独 Pass，这里只写 BasePass 输出
+    return final;
+}
+else
+{
+    // 走默认 PBR 路径
+    return StandardPBR(N, V, L, Roughness, Metallic, BaseColor);
+}</code></pre>
+</div>
+
+<h4>改造 3：RDG 精简——砍掉 Mobile 不需要的 Pass</h4>
+<div class="card">
+<p>UE4 默认 RDG 会为 Mobile 路径插入"保险"Pass，很多在移动端是浪费的：</p>
+<ul>
+  <li><strong>移除 SSAO / SSR / AutoExposure 默认 Pass</strong>，自研轻量替代，高档按需插入</li>
+  <li><strong>Translucency 不走 SeparateTranslucency</strong>——UE4 默认把半透明渲染到独立 RT 再合成，多一次全屏 Blit；水/玻璃/特效直接在同 RT 渲染，用排序代替分离</li>
+  <li><strong>合并 PostProcess 链</strong>——Bloom + Tonemap + ColorGrading 压到一个 Compute / Fragment Pass 里，避免多次全屏采样</li>
+</ul>
+</div>
+
+<h4>改造收益对比</h4>
+<table>
+  <thead><tr><th>优化方向</th><th>投入</th><th>收益</th><th>性价比</th></tr></thead>
+  <tbody>
+    <tr><td><strong>RDG / Pass 合并</strong></td><td>中（改管线框架）</td><td>省掉 2-3 次 Tile 回写，GPU 利用率提升 10-15%</td><td style="color:var(--accent-3);font-weight:600">最高</td></tr>
+    <tr><td>LOD / Streaming</td><td>低</td><td>减少绘制量</td><td>中</td></tr>
+    <tr><td>材质简化</td><td>低</td><td>省 ALU</td><td>中</td></tr>
+    <tr><td>纹理压缩</td><td>低</td><td>省带宽</td><td>低（效果线性）</td></tr>
+  </tbody>
+</table>
+<p>Pass 合并直接减少的是 <strong>GPU 空泡和带宽浪费</strong>——不是因为画太多而慢，而是因为切换太多而闲着等。这是移动端最大的隐形杀手。</p>
 
 <h2 id="pipeline">三、Pass 顺序与 RT 布局</h2>
 <div class="card">
