@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>头部手游半透明渲染方案汇总</title>
+<style>
+  :root{
+    --bg:#0f1419;--bg-card:#1a2028;--border:#2a3441;
+    --text:#e6edf3;--text-dim:#9aa5b1;--text-mute:#6b7684;
+    --accent:#4dd0e1;
+    --accent-2:#ec407a;
+    --accent-3:#66bb6a;
+    --accent-4:#ef5350;
+    --accent-5:#ba68c8;
+    --code-bg:#0d1117;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.7}
+  .container{max-width:1180px;margin:0 auto;padding:32px 28px 80px}
+  header{background:linear-gradient(135deg,#0d3f4a 0%,#3a1238 100%);padding:48px 28px 56px;margin-bottom:32px;border-bottom:1px solid var(--border)}
+  header .inner{max-width:1180px;margin:0 auto}
+  h1{font-size:32px;margin:0 0 12px;font-weight:700;background:linear-gradient(90deg,var(--accent),var(--accent-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .subtitle{color:var(--text-dim);font-size:16px;margin:0}
+  .meta{margin-top:18px;display:flex;gap:16px;flex-wrap:wrap}
+  .meta-item{font-size:13px;color:var(--text-mute)}
+  .meta-item strong{color:var(--accent);margin-right:6px}
+  h2{font-size:22px;margin:40px 0 18px;padding-left:14px;border-left:4px solid var(--accent);line-height:1.3}
+  h3{font-size:17px;margin:24px 0 12px;color:var(--accent-2);font-weight:600}
+  h4{font-size:15px;margin:16px 0 8px;color:var(--accent-3);font-weight:600}
+  p{margin:10px 0}
+  ul,ol{padding-left:22px;margin:10px 0}
+  li{margin:5px 0}
+  code{background:var(--code-bg);color:#ffb74d;padding:2px 7px;border-radius:4px;font-family:"JetBrains Mono",Consolas,monospace;font-size:13px;border:1px solid var(--border)}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:16px 0;transition:border-color .2s}
+  .card:hover{border-color:#3a4759}
+  .grid{display:grid;gap:16px}
+  .grid-2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .grid-3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .pill{display:inline-block;padding:3px 10px;background:rgba(77,208,225,.12);border:1px solid rgba(77,208,225,.35);color:var(--accent);border-radius:12px;font-size:12px;font-family:Consolas,monospace}
+  .pill.warn{background:rgba(236,64,122,.12);border-color:rgba(236,64,122,.4);color:var(--accent-2)}
+  .pill.green{background:rgba(102,187,106,.12);border-color:rgba(102,187,106,.4);color:var(--accent-3)}
+  .pill.red{background:rgba(239,83,80,.12);border-color:rgba(239,83,80,.4);color:var(--accent-4)}
+  .pill.purple{background:rgba(186,104,200,.14);border-color:rgba(186,104,200,.4);color:var(--accent-5)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:rgba(77,208,225,.08);color:var(--accent);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .stage{background:var(--bg-card);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:16px 20px;margin-bottom:8px;position:relative}
+  .stage h4{margin:6px 0 8px;color:var(--accent);font-size:16px}
+  .callout{background:linear-gradient(135deg,rgba(77,208,225,.08),rgba(236,64,122,.06));border:1px solid rgba(77,208,225,.25);border-radius:8px;padding:14px 18px;margin:16px 0;font-size:14px}
+  .callout-title{font-weight:600;color:var(--accent);margin-bottom:6px;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+  .callout.warn{background:linear-gradient(135deg,rgba(236,64,122,.08),rgba(239,83,80,.06));border-color:rgba(236,64,122,.3)}
+  .callout.warn .callout-title{color:var(--accent-2)}
+  .toc{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px 22px;margin-bottom:30px}
+  .toc-title{font-size:13px;color:var(--text-dim);margin-bottom:8px;letter-spacing:1px}
+  .toc ol{padding-left:20px;margin:0}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  footer{text-align:center;color:var(--text-mute);font-size:12px;padding:20px 0 0;margin-top:40px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <h1>头部手游 · 半透明渲染方案汇总</h1>
+    <p class="subtitle">Transparency Rendering on Mobile · 从 Forward 兜底到 Subpass 折射 · 跨引擎跨品类横向对比</p>
+    <div class="meta">
+      <div class="meta-item"><strong>覆盖引擎</strong>UE4/5 · Unity URP/HDRP · 自研</div>
+      <div class="meta-item"><strong>视角</strong>移动端 TBDR / Tile Memory</div>
+      <div class="meta-item"><strong>标杆案例</strong>原神水面 · 燕云水墨 · 王者粒子分档</div>
+      <div class="meta-item"><strong>核心指标</strong>带宽 · Overdraw · 排序成本</div>
+      <div class="meta-item"><strong>方法</strong>跨游戏案例 + 引擎机制对比</div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+<div class="callout warn">
+  <div class="callout-title">资料说明</div>
+  本份为<strong>横向技术专题</strong>，半透明渲染在公开演讲中通常不是独立 topic，分散在水面/粒子/UI/雾等子主题里。本文以"半透明"为线索串起来，整合 GDC/UWA/UE 文档/Unity HDRP 设计文档与个人截帧推理。具体引擎实现以官方源码为准。
+</div>
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ol>
+    <li><a href="#summary">一、核心结论速览</a></li>
+    <li><a href="#concept">二、概念辨析（Alpha Blend / Test / OIT）</a></li>
+    <li><a href="#deferred-limit">三、为什么 Deferred 接不住半透明</a></li>
+    <li><a href="#engine">四、引擎机制对比（UE / Unity）</a></li>
+    <li><a href="#lighting">五、半透明的七档光照方案</a></li>
+    <li><a href="#mobile-special">六、移动端 TBDR 专属优化</a></li>
+    <li><a href="#cases">七、头部手游案例横向对比</a></li>
+    <li><a href="#pitfalls">八、避坑清单</a></li>
+    <li><a href="#checklist">九、落地 Checklist 与定位工具</a></li>
+    <li><a href="#refs">十、参考资料</a></li>
+  </ol>
+</div>
+
+<!-- ============ 1. 核心结论 ============ -->
+<h2 id="summary">一、核心结论速览</h2>
+<div class="grid grid-3">
+  <div class="card">
+    <h4>三层心智模型</h4>
+    <ul>
+      <li><strong>排序层</strong>：从远到近、按材质/层级</li>
+      <li><strong>混合层</strong>：Blend Equation + Src/Dst</li>
+      <li><strong>光照层</strong>：Forward 兜底 + 预烘焙数据</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>核心限制</h4>
+    <ul>
+      <li>不能写 GBuffer → 不享受 Deferred Lighting</li>
+      <li>不写深度 → 物体间排序困难</li>
+      <li>移动端 Overdraw 是头号杀手</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>主流解法</h4>
+    <ul>
+      <li>独立 Forward Pass + SH/Cubemap 间接光</li>
+      <li>Alpha Test 替代 Alpha Blend（草/叶）</li>
+      <li>Subpass 折射代替 GrabPass</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout">
+  <div class="callout-title">总体取舍</div>
+  半透明在移动端是 <strong>"画质 × 带宽 × Overdraw"</strong> 的三角博弈。本质矛盾是：<strong>Deferred 管线无法表达多层颜色叠加，所以半透明永远走 Forward 兜底。</strong> 工程上的选择本质是：<em>能 Unlit 就 Unlit、能 Alpha Test 就 Alpha Test、能假就假</em>——真正享受完整光照的半透明物体，全游戏可能不超过 5 类（水面、关键 VFX、玻璃、头发、布料）。
+</div>
+
+<!-- ============ 2. 概念辨析 ============ -->
+<h2 id="concept">二、概念辨析（Alpha Blend / Test / OIT）</h2>
+
+<h3>三种"半透明"实现的本质差异</h3>
+<table>
+  <thead><tr><th>类型</th><th>实现机制</th><th>写深度</th><th>需排序</th><th>移动端代价</th><th>典型用途</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Alpha Blend</strong></td>
+      <td>开 BlendOp，按 Src/DstFactor 混合</td>
+      <td>否</td>
+      <td>是（按物体）</td>
+      <td>高（Overdraw + 带宽）</td>
+      <td>玻璃、水、烟、特效</td>
+    </tr>
+    <tr>
+      <td><strong>Alpha Test</strong>（Cutout）</td>
+      <td>discard 像素，不进入 ROP</td>
+      <td>是</td>
+      <td>否</td>
+      <td>中（破坏 EarlyZ）</td>
+      <td>树叶、栅栏、头发</td>
+    </tr>
+    <tr>
+      <td><strong>Dithered Alpha</strong></td>
+      <td>按 alpha 抖动 discard</td>
+      <td>是</td>
+      <td>否</td>
+      <td>低</td>
+      <td>LOD 过渡、远景植被</td>
+    </tr>
+    <tr>
+      <td><strong>OIT (Order-Independent)</strong></td>
+      <td>Per-pixel linked list / ROV</td>
+      <td>否</td>
+      <td>否</td>
+      <td>极高（移动端罕见）</td>
+      <td>头发多层、复杂烟雾</td>
+    </tr>
+    <tr>
+      <td><strong>Additive</strong></td>
+      <td><code>Blend One One</code></td>
+      <td>否</td>
+      <td>不严格</td>
+      <td>低（只读不写源色）</td>
+      <td>光效、火花、Trail</td>
+    </tr>
+    <tr>
+      <td><strong>Premultiplied Alpha</strong></td>
+      <td><code>Blend One OneMinusSrcAlpha</code></td>
+      <td>否</td>
+      <td>是</td>
+      <td>中</td>
+      <td>预乘的粒子、UI</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <div class="callout-title">Alpha Test 在移动端 TBDR 的特殊问题</div>
+  Adreno/Mali/PowerVR 都依赖 <strong>Hidden Surface Removal (HSR) / Early-Z</strong> 跳过不可见像素。Alpha Test 中的 <code>discard</code> 会让 GPU <strong>必须执行 fragment shader 才能知道是否丢弃</strong>，导致：<br>
+  ① Early-Z 被禁用 → 被遮住的像素也跑 Shader<br>
+  ② HSR 失效 → 失去 TBDR 的核心优势<br>
+  ③ PowerVR 文档：Alpha Test 物体应"<strong>最后渲染</strong>"以减少损失<br>
+  这就是为什么虽然 Alpha Test 看起来"便宜"，但**滥用比 Alpha Blend 更糟**。
+</div>
+
+<h3>Blend Mode 速查（常用 Src/Dst）</h3>
+<table>
+  <thead><tr><th>模式</th><th>公式</th><th>视觉效果</th></tr></thead>
+  <tbody>
+    <tr><td>Normal Alpha</td><td><code>SrcAlpha · S + (1-SrcAlpha) · D</code></td><td>标准半透明</td></tr>
+    <tr><td>Additive</td><td><code>One · S + One · D</code></td><td>累加发光</td></tr>
+    <tr><td>Multiplicative</td><td><code>DstColor · S + Zero · D</code></td><td>染色/阴影模拟</td></tr>
+    <tr><td>Premultiplied</td><td><code>One · S + (1-SrcAlpha) · D</code></td><td>正确的边缘处理</td></tr>
+    <tr><td>Screen</td><td><code>OneMinusDstColor · S + One · D</code></td><td>柔光叠加</td></tr>
+    <tr><td>Subtractive</td><td><code>One · S, BlendOp ReverseSub</code></td><td>负面光效</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 3. Deferred 限制 ============ -->
+<h2 id="deferred-limit">三、为什么 Deferred 接不住半透明</h2>
+
+<div class="card">
+<p><strong>根因：GBuffer 一个像素只能存一份材质参数。</strong> 半透明的物理含义是"两份颜色按 alpha 混合"，但：</p>
+
+<table>
+  <thead><tr><th>如果硬把半透明写进 GBuffer</th><th>会发生什么</th></tr></thead>
+  <tbody>
+    <tr><td>RT0 Albedo Blend</td><td>得到"平均色"，物理上不存在的材质</td></tr>
+    <tr><td>RT1 Normal Blend</td><td>插值法线模长不为 1，PBR 公式直接出错</td></tr>
+    <tr><td>RT2 Material Blend</td><td>0.5 玻璃 + 0.5 墙的 Roughness 无意义</td></tr>
+    <tr><td>Depth 测试两难</td><td>写深度挡住后面；不写深度 Lighting 找不到</td></tr>
+  </tbody>
+</table>
+
+<p><strong>BRDF 是非线性的</strong>，对"参数"做混合 ≠ 对"光照结果"做混合。所以正确顺序必须是：先把不透明物体的光照算完 → 半透明物体再在 Forward 阶段把自己的光照算完 → 用 alpha 混合"两组光照结果"。</p>
+</div>
+
+<h3>所有 Deferred 引擎的通用解法</h3>
+<div class="stage"><h4>Step 1 · GBuffer Pass（仅不透明）</h4><p>写 Albedo / Normal / Material 到 tile memory（移动）或 VRAM（PC）</p></div>
+<div class="stage"><h4>Step 2 · Lighting Pass（仅不透明）</h4><p>读 GBuffer，算 PBR，输出到 SceneColor</p></div>
+<div class="stage"><h4>Step 3 · Sky / Atmosphere</h4><p>大气和远景合成到 SceneColor</p></div>
+<div class="stage"><h4>Step 4 · Translucency Forward Pass ★</h4><p>半透明独立走 Forward：每个材质自己算光照（SH 间接 + 主光直算 + 可选 Forward+ 局部光），按深度排序后 alpha blend 到 SceneColor。这一步可以读 SceneColor 当背景做折射。</p></div>
+<div class="stage"><h4>Step 5 · PostProcess</h4><p>Bloom / Tonemap / DOF / Vignette</p></div>
+
+<!-- ============ 4. 引擎机制对比 ============ -->
+<h2 id="engine">四、引擎机制对比（UE / Unity）</h2>
+
+<h3>Unreal Engine 的 Translucency Mode</h3>
+<table>
+  <thead><tr><th>Lighting Mode</th><th>原理</th><th>移动端</th></tr></thead>
+  <tbody>
+    <tr><td><code>Unlit</code></td><td>不算光照，纯贴图</td><td>✅ 首选，所有粒子默认</td></tr>
+    <tr><td><code>VolumetricNonDirectional</code></td><td>采 Volumetric Lightmap（无方向）</td><td>✅ 雾、烟</td></tr>
+    <tr><td><code>VolumetricDirectional</code></td><td>带方向的体积光照</td><td>⚠️ 中端机以上</td></tr>
+    <tr><td><code>VolumetricPerVertex*</code></td><td>顶点级光照</td><td>✅ 大粒子、低端机</td></tr>
+    <tr><td><code>Surface TranslucencyVolume</code></td><td>采体积纹理 + 表面着色</td><td>⚠️ 高端档</td></tr>
+    <tr><td><code>Surface ForwardShading</code></td><td>完整 Forward，含点光阴影</td><td>❌ 极贵，仅旗舰机</td></tr>
+  </tbody>
+</table>
+
+<div class="card">
+<h4>UE 移动端特殊机制 <span class="pill">UE Mobile</span></h4>
+<ul>
+  <li><strong>Mobile HDR 关闭时</strong>：所有半透明在 LDR 下混合，省一张 R11G11B10 SceneColor</li>
+  <li><strong>Translucency Sort Priority</strong>：手动指定层级避免穿插穿帮</li>
+  <li><strong>Separate Translucency</strong>：半透明渲到独立 RT（开 DOF 时必须），代价 +1 张 RT</li>
+  <li><strong>Mobile MSAA + Translucency</strong>：仅 4xMSAA 下可用，Adreno 实测带宽 +30%</li>
+  <li><strong>r.Mobile.TranslucentDepth</strong>：开关半透明是否写 Custom Depth（粒子描边用）</li>
+</ul>
+</div>
+
+<h3>Unity 的 Render Queue 与 SRP 处理</h3>
+<table>
+  <thead><tr><th>Queue 范围</th><th>用途</th><th>排序规则</th></tr></thead>
+  <tbody>
+    <tr><td>2000~2449 (Geometry)</td><td>不透明</td><td>前到后（提升 Early-Z）</td></tr>
+    <tr><td>2450 (AlphaTest)</td><td>Cutout</td><td>前到后</td></tr>
+    <tr><td>2500~2999 (Transparent)</td><td>半透明</td><td>后到前</td></tr>
+    <tr><td>3000+ (Overlay)</td><td>UI、Lens Flare</td><td>按 Queue</td></tr>
+  </tbody>
+</table>
+
+<div class="card">
+<h4>Unity URP/HDRP 半透明专属机制 <span class="pill">Unity</span></h4>
+<ul>
+  <li><strong>URP Forward+</strong>：半透明可接受 32 个 / tile 的点光（2022+）</li>
+  <li><strong>HDRP Stacked Lit</strong>：双层材质堆叠（车漆/眼睛），本质是手动 OIT</li>
+  <li><strong>Single Pass Forward Lighting</strong>：URP 半透明默认走单 Pass，多光照只走主光 + 4 个非重要光</li>
+  <li><strong>Light Probe Proxy Volume (LPPV)</strong>：大半透明物体（如云、玻璃幕墙）按格子采 SH，避免整物体一个 SH 的"光斑"问题</li>
+  <li><strong>Soft Particles</strong>：URP 内置，按深度做边缘软化，避免粒子穿插穿帮</li>
+</ul>
+</div>
+
+<h3>Vulkan / Metal Subpass 的特殊机会</h3>
+<div class="callout">
+  <div class="callout-title">Subpass Self-Dependency · 燕云/原神在用</div>
+  <strong>Vulkan 1.0+</strong> 提供 <code>VkSubpassDependency</code> with <code>VK_DEPENDENCY_BY_REGION_BIT</code>，允许同一个 Subpass 内 <strong>读自己当前 tile 的 SceneColor</strong>。这相当于 OpenGL ES 的 <code>GL_EXT_shader_framebuffer_fetch</code>。<br><br>
+  <strong>用途</strong>：半透明 shader 可以读 Lighting 阶段写入的 SceneColor 作为背景做折射/扭曲，<strong>完全不需要打断 RenderPass、不需要 STORE 到主存</strong>。Adreno 740 上典型节省 8~12% 主存带宽。
+</div>
+
+<!-- ============ 5. 七档光照方案 ============ -->
+<h2 id="lighting">五、半透明的七档光照方案</h2>
+
+<h3>从最便宜到最贵</h3>
+
+<div class="stage"><h4>档 1 · Unlit + 顶点色 / 流光贴图</h4>
+<p>完全不算光照，亮度烘焙到顶点或贴图。<strong>所有粒子默认</strong>。</p>
+<ul><li>代表用法：剑光 Trail、UI、Add 粒子、远景烟雾</li><li>成本：≈ 0</li></ul>
+</div>
+
+<div class="stage"><h4>档 2 · Half-Lambert + 主光</h4>
+<p><code>NdotL · 0.5 + 0.5</code> 让背光面也有底亮度，常配 SSS 近似让树叶背光透出绿色。</p>
+<ul><li>代表用法：草、树叶、雨雪粒子、半透明布料</li><li>SSS 近似：<code>pow(saturate(-NdotL), 2) * SSS_Tint</code></li></ul>
+</div>
+
+<div class="stage"><h4>档 3 · Light Probe / SH 间接光（标配）</h4>
+<p>采样 9 个 SH 系数得到环境光，每个物体一次采样。</p>
+<ul>
+  <li>Unity: <code>ShadeSH9(worldNormal)</code> / URP: <code>SampleSH(N)</code></li>
+  <li>UE: <code>GetSkySHDiffuse</code> + Indirect Lighting Cache</li>
+  <li>大物体用 <strong>LPPV</strong> 或 <strong>Tetrahedral Tessellation</strong> 避免"一物一光"</li>
+</ul>
+</div>
+
+<div class="stage"><h4>档 4 · Reflection Probe / Cubemap 反射</h4>
+<p>镜面分量用预烘焙 Cubemap，按 Roughness 采不同 Mip。</p>
+<ul>
+  <li>Box Projection 解决"反射不对位"</li>
+  <li>移动端水面、玻璃、湿地面的主力方案</li>
+  <li>燕云水面 = Gerstner 波 + Cubemap，没有 SSR</li>
+</ul>
+</div>
+
+<div class="stage"><h4>档 5 · Forward+ / Tile Light List</h4>
+<p>Compute 算每 tile 的光列表，半透明 shader 查询循环。</p>
+<ul>
+  <li>Unity URP Forward+（2022+）/ UE5 Mobile Forward+</li>
+  <li>原神高档、星铁、绝区零的角色用这条路</li>
+  <li>代价：Light Culling Compute Pass +0.3~0.8ms（Adreno 740）</li>
+</ul>
+</div>
+
+<div class="stage"><h4>档 6 · 折射（Sample SceneColor）</h4>
+<p>半透明 shader 采样背后的 SceneColor 模拟玻璃折射、水下扭曲。</p>
+<ul>
+  <li>桌面：GrabPass / SceneColor Texture（需 STORE + LOAD）</li>
+  <li>移动端推荐：<strong>Subpass Self-Dependency</strong> 或 <code>framebuffer_fetch</code></li>
+  <li>UE: <code>SceneTexture: PostProcessInput0</code> 在 Translucency 阶段可用</li>
+</ul>
+</div>
+
+<div class="stage"><h4>档 7 · Volumetric / 体积光照</h4>
+<p>沿视线 Ray March 累加光照，或填充 Froxel Volume。</p>
+<ul>
+  <li>移动端几乎不上真 Ray March，多用 <strong>2D 贴图近似 + Sky LUT</strong></li>
+  <li>原神/星铁的体积雾走 Froxel 简化版（高档）</li>
+  <li>燕云体积云 = 贴图 + Noise，PC 才上 Ray March</li>
+</ul>
+</div>
+
+<!-- ============ 6. 移动端 TBDR 专属优化 ============ -->
+<h2 id="mobile-special">六、移动端 TBDR 专属优化</h2>
+
+<h3>核心矛盾：半透明 = Overdraw + 带宽</h3>
+<table>
+  <thead><tr><th>问题</th><th>原因</th><th>对策</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Overdraw 爆炸</strong></td>
+      <td>多层半透明叠加，每层都要采贴图 + 算光照</td>
+      <td>美术控层级；远景粒子合批；按距离剔除</td>
+    </tr>
+    <tr>
+      <td><strong>带宽往返</strong></td>
+      <td>每个半透明像素都要 Read+Modify+Write SceneColor</td>
+      <td>R11G11B10 替代 RGBA16F；保持 Subpass 完整</td>
+    </tr>
+    <tr>
+      <td><strong>Alpha Test 杀 EarlyZ</strong></td>
+      <td>discard 让 HSR 失效</td>
+      <td>Cutout 物体后渲；远景换 Dithered；不要乱用 discard</td>
+    </tr>
+    <tr>
+      <td><strong>排序穿插</strong></td>
+      <td>按物体排序无法解决"两个长粒子互穿"</td>
+      <td>按 Particle Pivot 重心 / 按面片中心 / 限制粒子大小</td>
+    </tr>
+    <tr>
+      <td><strong>UI 与场景半透叠加</strong></td>
+      <td>UI 走独立 RT 还是合到 SceneColor 各有代价</td>
+      <td>常规：UI 独立 RT + 最终 Composite；MMO：UI 直叠</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>关键优化技巧</h3>
+<div class="card">
+<h4>1. Soft Particle（深度软化）</h4>
+<p>粒子接触地面时根据 <code>SceneDepth - ParticleDepth</code> 衰减 alpha，避免硬边。</p>
+<ul><li>代价：需要采样 Depth → <strong>Subpass 中断风险</strong></li><li>移动端最好用 <strong>已 STORE 的 EarlyZ Depth</strong>，不要为此打断 Subpass 链</li></ul>
+</div>
+
+<div class="card">
+<h4>2. 粒子顶点光照</h4>
+<p>大粒子（如烟雾）<strong>主光算到顶点</strong>，fragment shader 仅做插值。可省 70~85% ALU。</p>
+</div>
+
+<div class="card">
+<h4>3. 粒子合批（Particle Atlas）</h4>
+<p>所有粒子贴图烘到一张 2K Atlas，按 UV Flipbook 索引，整局 1 个 Draw Call。</p>
+</div>
+
+<div class="card">
+<h4>4. Pre-Multiplied Alpha</h4>
+<p><code>finalColor.rgb *= alpha</code> 烘到贴图。混合时 <code>Blend One OneMinusSrcAlpha</code>。<br>
+<strong>好处</strong>：解决"半透明边缘溢色"，多层混合精度更高。</p>
+</div>
+
+<div class="card">
+<h4>5. Dithered Alpha（替代 Alpha Blend）</h4>
+<p>远景植被、LOD 切换、Camera Fade 用蓝噪声抖动 + discard 代替真半透明：</p>
+<ul>
+  <li>不需要排序</li>
+  <li>仍然 break Early-Z，但对远景影响小</li>
+  <li>配合 TAA 可消除颗粒感（移动端少数旗舰才开 TAA）</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>6. Translucent Light Volume</h4>
+<p>UE 提供的预计算"半透明专用光照体积"，48×24×48 网格存光照，每帧更新一次。<br>
+半透明物体采 3D 纹理 → 1 次采样得到当帧的局部光照，<strong>不用走 Forward+</strong>。</p>
+</div>
+
+<!-- ============ 7. 案例横向对比 ============ -->
+<h2 id="cases">七、头部手游案例横向对比</h2>
+
+<table>
+  <thead><tr><th>游戏</th><th>引擎</th><th>关键半透明物</th><th>方案</th><th>来源</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>原神</strong></td>
+      <td>Unity SRP 改</td>
+      <td>水面 / 头发 / 元素特效</td>
+      <td>水面 Gerstner+Cubemap+折射 SceneColor / 头发 Anisotropic + 多层 / 元素粒子 Additive + 顶点光</td>
+      <td><span class="pill">Unite 2020</span></td>
+    </tr>
+    <tr>
+      <td><strong>崩坏星穹铁道</strong></td>
+      <td>Unity SRP</td>
+      <td>战斗 VFX / 半透明 UI 层</td>
+      <td>大量 Additive；技能 VFX 用 LPPV 接受环境光；UI 单独 RT 后 Composite</td>
+      <td><span class="pill">推理</span></td>
+    </tr>
+    <tr>
+      <td><strong>绝区零</strong></td>
+      <td>Unity SRP</td>
+      <td>漫画分镜 / 屏幕扭曲</td>
+      <td>角色用 Cutout（漫画硬边）；屏幕扭曲走 Post，不算严格半透明</td>
+      <td><span class="pill">截帧</span></td>
+    </tr>
+    <tr>
+      <td><strong>燕云十六声</strong></td>
+      <td>网易 Messiah</td>
+      <td>水墨水面 / 雨雪 / 竹林</td>
+      <td>Mobile Deferred + Subpass：水面在最后一个 Subpass，<strong>直接读 tile 内 SceneColor</strong>；雨雪粒子 Additive；竹叶 Alpha Test + Dithered</td>
+      <td><span class="pill">公开演讲 + 截帧</span></td>
+    </tr>
+    <tr>
+      <td><strong>鸣潮</strong></td>
+      <td>UE4 改</td>
+      <td>全息 UI / 角色头发</td>
+      <td>头发 Surface ForwardShading（高档）/ Anisotropic 简化（中低档）；UI 全息走 Add + Bloom</td>
+      <td><span class="pill">截帧</span></td>
+    </tr>
+    <tr>
+      <td><strong>王者荣耀</strong></td>
+      <td>Unity</td>
+      <td>技能 VFX / 大招扭曲</td>
+      <td>技能基本 Additive + Multiply；大招扭曲用 GrabPass（仅高档）；低档关扭曲改 Color Tint</td>
+      <td><span class="pill">UWA 系列</span></td>
+    </tr>
+    <tr>
+      <td><strong>和平精英</strong></td>
+      <td>UE4 改</td>
+      <td>枪口火光 / 烟雾弹 / 玻璃</td>
+      <td>烟雾弹用 Volumetric Lightmap + Soft Particle；玻璃 Cubemap 假反射（不破）；枪口火光纯 Add</td>
+      <td><span class="pill">UE 文档 + 截帧</span></td>
+    </tr>
+    <tr>
+      <td><strong>暗区突围</strong></td>
+      <td>UE4 改</td>
+      <td>烟幕 / 望远镜 UI</td>
+      <td>烟幕用 Volumetric Fog（高档）/ 贴图近似（低档）；望远镜 UI 走 Render Target + Composite</td>
+      <td><span class="pill">截帧</span></td>
+    </tr>
+    <tr>
+      <td><strong>使命召唤手游</strong></td>
+      <td>Unity</td>
+      <td>枪口效果 / 玻璃破碎</td>
+      <td>玻璃破碎走预制贴图 + Decal 替换；不实时折射；烟幕弹 Soft Particle</td>
+      <td><span class="pill">推理</span></td>
+    </tr>
+    <tr>
+      <td><strong>三角洲行动</strong></td>
+      <td>UE4 改</td>
+      <td>烟幕 / 玻璃破碎 / 远景大气</td>
+      <td>烟幕走 Volumetric Fog + Subpass 折射；远景雾用 Atmosphere LUT；UI 独立 RT</td>
+      <td><span class="pill">GDC 2024</span></td>
+    </tr>
+    <tr>
+      <td><strong>光遇</strong></td>
+      <td>自研 Sky Engine</td>
+      <td>云海 / 翅膀 / 角色发光</td>
+      <td>云海用 Ray March 近似（独家强项）/ 翅膀 Cutout + Premult / 角色发光 Add + Bloom</td>
+      <td><span class="pill">推理 + 演讲</span></td>
+    </tr>
+    <tr>
+      <td><strong>蛋仔派对</strong></td>
+      <td>Unity URP</td>
+      <td>果冻角色 / 气泡道具</td>
+      <td>果冻角色 Forward+ 简化 SSS 近似；气泡 Cubemap + Fresnel + Add；UGC 物件全 Cutout 不开 Blend</td>
+      <td><span class="pill">推理</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <div class="callout-title">观察</div>
+  几乎所有头部手游<strong>在战斗特效上无脑用 Additive</strong>——加法天然不需要严格排序（满足交换律），ROP 又不需要读 Dst Alpha。<strong>真正需要"看见后面"的半透明（玻璃、水、烟）才走完整 Forward 兜底。</strong>
+</div>
+
+<!-- ============ 8. 避坑 ============ -->
+<h2 id="pitfalls">八、避坑清单</h2>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h4>排序穿帮</h4>
+    <ul>
+      <li><strong>两个长条粒子互穿</strong>：按 Pivot 排序无法解决，需用 BillboardChain 或 GPU 排序</li>
+      <li><strong>粒子和水面互穿</strong>：手动指定 Render Queue 偏移</li>
+      <li><strong>UI 在场景半透明前面</strong>：UI 必须最后渲</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>Subpass 链断裂</h4>
+    <ul>
+      <li>半透明读 SceneDepth 软化时，若 Depth 未 STORE，会强制 RenderPass 断裂</li>
+      <li><strong>解决</strong>：用 EarlyZ Depth Prepass + 显式 STORE</li>
+      <li>Adreno 实测：断一次 RenderPass 损失 0.5~1.5ms</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>Overdraw 失控</h4>
+    <ul>
+      <li>战斗高峰一个像素被 30+ 个粒子覆盖</li>
+      <li><strong>对策</strong>：粒子距离剔除、合批、限制最大并发数</li>
+      <li>关键 KPI：<code>Translucency Overdraw</code>（UE Visualizer 可查）</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>Alpha Test 滥用</h4>
+    <ul>
+      <li>把所有"边缘"问题都用 Alpha Test 解决 → HSR 全失效</li>
+      <li>叶子/草 OK，但<strong>不要把 UI 字体、玻璃边缘做成 Cutout</strong></li>
+      <li>PowerVR/Mali：Cutout 物体应单独排到不透明组的最后</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>移动端 OIT 不要碰</h4>
+    <ul>
+      <li>ROV (Rasterizer Ordered Views) 移动端不支持</li>
+      <li>Per-pixel linked list 需要原子操作，Mali/Adreno 慢且不稳</li>
+      <li>头发想要 OIT 效果 → 用 Hair Card + Pre-Sorted Strands</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>带宽误判</h4>
+    <ul>
+      <li>SceneColor RGBA16F 看起来"只多 4 byte/px"，但半透明 Read+Write → 实际带宽 ×4</li>
+      <li>R11G11B10 在移动端是<strong>强制选择</strong>，除非有明确 HDR Bloom 需求</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>分档配置不齐</h4>
+    <ul>
+      <li>高档开 Volumetric Fog，低档忘了关 → 中端机直接卡帧</li>
+      <li><strong>SSR/SSAO 也要按档关闭半透明的读取</strong></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>"假"半透明真香</h4>
+    <ul>
+      <li>玻璃窗 → 贴 Cubemap + Fresnel，<strong>不开 Blend</strong></li>
+      <li>水面远景 → 直接 Alpha Test + Noise，不做折射</li>
+      <li>能假就假，每多一个真半透明物体都是带宽税</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 9. Checklist ============ -->
+<h2 id="checklist">九、落地 Checklist 与定位工具</h2>
+
+<h3>施策优先级（从便宜到贵）</h3>
+<ol>
+  <li><strong>看效果能不能 Unlit</strong> → 90% 粒子都能</li>
+  <li><strong>能不能 Additive</strong> → 不需要排序，最便宜</li>
+  <li><strong>能不能 Alpha Test + Dithered</strong> → 不破 EarlyZ 太多</li>
+  <li><strong>能不能 SH 间接光 + 主光直算</strong> → 标配中档</li>
+  <li><strong>能不能 Cubemap 反射代替 SSR</strong> → 玻璃水面通用</li>
+  <li><strong>能不能 Subpass 折射代替 GrabPass</strong> → 移动端必选</li>
+  <li><strong>实在不行才上 Forward+ Tile Light List</strong> → 仅角色/水面</li>
+</ol>
+
+<h3>UE 移动端关键 CVar</h3>
+<table>
+  <thead><tr><th>CVar</th><th>作用</th><th>典型值</th></tr></thead>
+  <tbody>
+    <tr><td><code>r.Mobile.UseHWsRGBEncoding</code></td><td>SceneColor sRGB 编码</td><td>1</td></tr>
+    <tr><td><code>r.SeparateTranslucency</code></td><td>半透明独立 RT（DOF 必需）</td><td>0（默认关）</td></tr>
+    <tr><td><code>r.Mobile.TranslucentSortPolicy</code></td><td>排序策略</td><td>0=ProjectedPos</td></tr>
+    <tr><td><code>r.TranslucentLightingVolume</code></td><td>半透明专用光照体积</td><td>1（中档以上）</td></tr>
+    <tr><td><code>r.Mobile.TonemapperFilm</code></td><td>影响半透明颜色映射</td><td>1</td></tr>
+    <tr><td><code>r.SceneColorFringe.Max</code></td><td>色差（后处理影响半透明合成）</td><td>0~5</td></tr>
+  </tbody>
+</table>
+
+<h3>定位工具</h3>
+<div class="card">
+<h4>UE Visualizer</h4>
+<ul>
+  <li><code>show TranslucencyOverdraw</code> — 半透明 overdraw 可视化</li>
+  <li><code>show ShaderComplexity</code> — 整体复杂度，半透明高亮</li>
+  <li><code>stat Translucency</code> — Pass 耗时</li>
+  <li>RenderDoc：抓 Translucency Pass 看每物体 Draw 数</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>Unity Frame Debugger / URP</h4>
+<ul>
+  <li>Frame Debugger 看 Render Queue 排序</li>
+  <li>URP Renderer Asset → Transparent Layer Mask 控制哪些层走半透明</li>
+  <li>RenderDoc / Mali Graphics Debugger 看 Overdraw Heatmap</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>移动端 Profiler</h4>
+<ul>
+  <li>Snapdragon Profiler：Overdraw Visualizer + Texture Bandwidth Per Draw</li>
+  <li>Mali Streamline：Tile Read/Write Bytes</li>
+  <li>Xcode Metal Capture：Tile Memory 占用</li>
+</ul>
+</div>
+
+<!-- ============ 10. 参考 ============ -->
+<h2 id="refs">十、参考资料</h2>
+<ul>
+  <li><strong>UE 官方文档</strong>：Translucency Lighting Modes / Mobile Translucency / Separate Translucency</li>
+  <li><strong>Unity URP/HDRP 文档</strong>：Render Queue / Light Probe Proxy Volume / Forward+</li>
+  <li><strong>Imagination Technologies (PowerVR)</strong>：<em>Performance Recommendations - Alpha Test</em></li>
+  <li><strong>Arm Mali Developer Guide</strong>：<em>Hidden Surface Removal &amp; Alpha</em></li>
+  <li><strong>Qualcomm Adreno GPU Documentation</strong>：<em>Mobile Translucency Best Practices</em></li>
+  <li><strong>Vulkan Spec</strong>：<em>VkSubpassDependency &amp; Input Attachment</em></li>
+  <li><strong>GDC 2024 三角洲行动</strong>：移动端管线分享（含半透明 Subpass 设计）</li>
+  <li><strong>Unite Shanghai 原神</strong>：水面渲染与 Cubemap 反射</li>
+  <li><strong>知乎</strong>：《移动端 Alpha Test 真的免费吗》《TBDR 与半透明 Overdraw》</li>
+  <li><strong>UWA 文章</strong>：王者荣耀技能特效优化、Unity 半透明排序</li>
+  <li>个人截帧（设备：iPhone 15 Pro / 小米 14 / 小米 13）</li>
+</ul>
+
+<footer>头部手游半透明渲染方案汇总 · 横向技术专题 · 基于公开演讲、引擎文档与个人截帧整理</footer>
+
+</div>
+</body>
+</html>

@@ -68,6 +68,7 @@
     <li><a href="#summary">一、核心结论速览</a></li>
     <li><a href="#engine">二、Messiah 引擎</a></li>
     <li><a href="#pipeline">三、Pass 顺序与 RT</a></li>
+    <li><a href="#deferred">三·补 Mobile Deferred 管线深度解析</a></li>
     <li><a href="#world">四、大世界场景</a></li>
     <li><a href="#weather">五、天气与时间系统</a></li>
     <li><a href="#water">六、水体与笔触感</a></li>
@@ -137,6 +138,105 @@
 <div class="stage"><h4>Pass 6 · PostProcess</h4>
 <p>Bloom + Tonemap + 色调（中国风偏柔的色彩曲线）。</p></div>
 </div>
+
+<h2 id="deferred">三·补 Mobile Deferred 管线深度解析</h2>
+
+<div class="callout">
+  <div class="callout-title">为什么燕云敢上 Mobile Deferred</div>
+  传统 Deferred 在移动端最大的问题是 <strong>GBuffer 带宽</strong>——3~4 张 RT 反复写回主存（DDR），手机带宽和发热都顶不住。燕云走的是 <strong>Vulkan/Metal Subpass 路径</strong>，让 GBuffer 全程留在 <strong>Tile Memory</strong>（片上 SRAM）里，Lighting 直接从 tile 读，<strong>三张 GBuffer 不写主存</strong>。这条路只在 Tile-Based Deferred Rendering（TBDR / TBR）架构上跑得通——也就是 PowerVR、Adreno、Mali、Apple GPU。
+</div>
+
+<h3>1. Tile Memory 与 Subpass 的关系</h3>
+<div class="card">
+<p>移动 GPU 把屏幕划分成 16×16 或 32×32 的 tile，每个 tile 单独进 SRAM 处理。Subpass 的核心约定：</p>
+<ul>
+  <li><strong>同一个 RenderPass 内的多个 Subpass</strong> 共享同一块 tile memory</li>
+  <li>Subpass 之间用 <code>VK_ATTACHMENT_LOAD_OP_LOAD</code> 不需要回主存——这是 <code>InputAttachment</code> 机制</li>
+  <li>只有进入下一个 RenderPass 或 <code>STORE_OP_STORE</code> 时，才会真正写回 DDR</li>
+</ul>
+<p>燕云一个 frame 在主场景的 RenderPass 大致是：<code>GBuffer → Lighting → Sky → Translucency</code> 全部塞在一个 RenderPass 的 4 个 Subpass 里，只在最后把 <code>SceneColor</code>（R11G11B10，4 byte/px）写回主存。</p>
+</div>
+
+<h3>2. GBuffer 布局（精简版）</h3>
+<table>
+  <thead><tr><th>Slot</th><th>Format</th><th>R</th><th>G</th><th>B</th><th>A</th><th>bytes/px</th></tr></thead>
+  <tbody>
+    <tr><td>RT0 Albedo</td><td><code>B8G8R8A8</code></td><td>Albedo.r</td><td>Albedo.g</td><td>Albedo.b</td><td>Occlusion</td><td>4</td></tr>
+    <tr><td>RT1 Normal</td><td><code>R10G10B10A2</code></td><td>Nx</td><td>Ny</td><td>Nz</td><td>ShadingModel(2bit)</td><td>4</td></tr>
+    <tr><td>RT2 Material</td><td><code>B8G8R8A8</code></td><td>Metallic</td><td>Roughness</td><td>Specular</td><td>Custom</td><td>4</td></tr>
+    <tr><td>Depth</td><td><code>D24S8</code></td><td colspan="4">深度 + Stencil（用于光照分类）</td><td>4</td></tr>
+    <tr><td>SceneColor</td><td><code>R11G11B10</code></td><td colspan="4">Lighting 输出，唯一写回主存的 RT</td><td>4</td></tr>
+  </tbody>
+</table>
+<p><strong>合计 tile 占用约 20 byte/px</strong>。Adreno 740 单 tile SRAM 约 1MB，能容纳 32×32 tile 下的全部 GBuffer + Depth + SceneColor，<strong>不会发生 tile spilling</strong>（一旦 spill 性能立刻崩盘）。</p>
+
+<div class="callout">
+  <div class="callout-title">为什么不用 GBuffer 压缩（Octahedron Normal、YCoCg Albedo）</div>
+  Tile memory 模式下，<strong>GBuffer 不进 DDR，压缩节省的是 0 带宽</strong>，反而增加 encode/decode ALU 开销。所以燕云没像 UE 桌面 Deferred 那样搞复杂的 packing，直接用最朴素的 B8G8R8A8 + R10G10B10A2。
+</div>
+
+<h3>3. Lighting Subpass 的细节</h3>
+<div class="card">
+<ul>
+  <li><strong>主光（Sun）</strong>：1 个全屏 Quad，直读 tile 内 GBuffer，CSM 采样 + PBR 计算</li>
+  <li><strong>局部光</strong>：用 <strong>Stencil 分类</strong>（按 ShadingModel 的 2bit 标记）+ <strong>光体积 mesh</strong>（球/锥）减少 overdraw</li>
+  <li><strong>没有 Clustered Lighting</strong>：燕云的局部光数量受控（每屏 8~16 个动态光），传统 Light Volume 已够用，避免 compute shader 在低端机上的开销</li>
+  <li><strong>无 SSAO / SSR</strong>：因为这两个都需要从主存读 Depth/Normal，破坏 Subpass 链；改用 baked AO + Cubemap Reflection</li>
+</ul>
+</div>
+
+<h3>4. ShadowMap 必须在 RenderPass 之外</h3>
+<p>ShadowMap 是独立 RenderPass，原因有两个：</p>
+<ul>
+  <li>Shadow 的 viewport 和主相机不同，不能塞进同一个 tile 划分</li>
+  <li>Lighting Subpass 需要把 Shadow Texture 作为普通 <code>SampledImage</code> 读取（不是 InputAttachment），所以 Shadow 必须先 <code>STORE</code> 出来</li>
+</ul>
+<p>燕云的 Shadow 走法：<code>CSM 3 级</code>（高档）/<code>2 级</code>（低档），每级分辨率 1K~2K，<strong>异步预读 + 帧间 cache</strong>——静态阴影一帧只更新一级，动态部分单独维护 Receiver Mask。</p>
+
+<h3>5. 与 Forward 路径的对比</h3>
+<table>
+  <thead><tr><th>对比项</th><th>Mobile Deferred + Subpass</th><th>传统 Forward / Forward+</th></tr></thead>
+  <tbody>
+    <tr><td>动态光支持</td><td>几十个，光体积剔除高效</td><td>每物体 4~8 个，超出需 Clustered</td></tr>
+    <tr><td>带宽（每像素）</td><td>≈4 byte 写（仅 SceneColor）</td><td>≈4 byte 写（HDR Color）</td></tr>
+    <tr><td>Tile 占用</td><td>≈20 byte/px（GBuffer 全在 tile）</td><td>≈8 byte/px（仅 Color+Depth）</td></tr>
+    <tr><td>Shader 复杂度</td><td>Lighting 集中，Material Shader 简单</td><td>每个材质都要做全套光照</td></tr>
+    <tr><td>MSAA</td><td>不支持（GBuffer MSAA 成本爆炸）</td><td>支持 2x/4x</td></tr>
+    <tr><td>半透明</td><td>必须独立 Forward Pass</td><td>原生支持</td></tr>
+    <tr><td>分档下限</td><td>需 Vulkan 1.1+ / Metal 2.0+ 且支持 InputAttachment</td><td>OpenGL ES 3.0 即可</td></tr>
+  </tbody>
+</table>
+
+<h3>6. 低端机回退 Forward 的触发</h3>
+<div class="card">
+<ul>
+  <li><strong>设备黑名单</strong>：Mali-G57 以下、Adreno 620 以下、不支持 Vulkan 1.1 或不开启 <code>SubpassDescription</code></li>
+  <li><strong>降级后差异</strong>：动态光从"任意数量"降到"每物体 2 主光"；体积云换贴图；雾从 volumetric 降到 distance fog</li>
+  <li><strong>美术资源不变</strong>：GBuffer 模式和 Forward 模式共用同一套材质，仅 shader 走分支编译（<code>USE_DEFERRED</code> 宏）</li>
+</ul>
+</div>
+
+<h3>7. 与 PC/主机版 Deferred 的差异</h3>
+<table>
+  <thead><tr><th>项</th><th>移动端</th><th>PC / 主机</th></tr></thead>
+  <tbody>
+    <tr><td>RenderPass 组织</td><td>Subpass 链，全在 tile</td><td>独立 Pass，写回 VRAM</td></tr>
+    <tr><td>GBuffer 数量</td><td>3 张 + Depth</td><td>4~6 张（多一张 MotionVector / Custom）</td></tr>
+    <tr><td>SSR / SSAO</td><td>关闭</td><td>开启</td></tr>
+    <tr><td>体积云</td><td>2D 贴图近似</td><td>Ray March</td></tr>
+    <tr><td>TAA</td><td>低档关，高档轻量 TAA</td><td>完整 TAAU / DLSS</td></tr>
+    <tr><td>SceneColor</td><td>R11G11B10</td><td>RGBA16F</td></tr>
+  </tbody>
+</table>
+
+<h3>8. 常见踩坑</h3>
+<ul>
+  <li><strong>Subpass 链一旦中断带宽就爆</strong>：调试时插一个 readback、或者错误地把 RT 标记成 <code>STORE</code>，整帧带宽立刻翻 3 倍</li>
+  <li><strong>InputAttachment 读取限制</strong>：只能读当前像素位置（不能像 texture 那样偏移采样），所以 SSR/SSAO 无法做</li>
+  <li><strong>Tile size 自适应</strong>：GBuffer 越大，GPU 自动选越小的 tile（如 16×16），fragment 数量翻倍，得做平衡</li>
+  <li><strong>RGB10A2 Normal 精度</strong>：水面、丝绸等高光物体在低光照下能看出色阶——燕云在材质上做了 dithering 缓解</li>
+  <li><strong>半透明不能进 Subpass 链</strong>：必须在 Lighting 完成后独立 Forward Pass，否则会和 GBuffer 写冲突</li>
+</ul>
 
 <h2 id="world">四、大世界场景</h2>
 <h3>地形</h3>
