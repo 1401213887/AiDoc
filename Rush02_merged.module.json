@@ -1,0 +1,829 @@
+{
+  "root_total": 53.594,
+  "mod_total": 52.823,
+  "unc_total": 0.771,
+  "summary": {
+    "total_cpu_pct": 57.421,
+    "duration_s": 1441.563,
+    "cores": 8,
+    "frames": "N/A",
+    "timers": 315834,
+    "instances": 1562205210,
+    "selection_ms": 1441562.89
+  },
+  "modules": [
+    {
+      "name": "RHI / Submission",
+      "tot": 14.119074274590039,
+      "desc": "RHI 命令提交/底层图形",
+      "nodes": [
+        [
+          "RHI_Translate",
+          10.422,
+          0
+        ],
+        [
+          "[容器自身] Submit  ← RHISubmissionThread",
+          1.277,
+          1
+        ],
+        [
+          "GenerateBarrierCommandListAndUpdateState",
+          0.763,
+          2
+        ],
+        [
+          "RHI_SubmitToGPU",
+          0.59,
+          0
+        ],
+        [
+          "ExecuteCommandList",
+          0.575,
+          2
+        ],
+        [
+          "RHI_Finalize",
+          0.162,
+          0
+        ],
+        [
+          "RHI_Dispatch",
+          0.08,
+          1
+        ],
+        [
+          "[容器自身] CompileBarriers",
+          0.072,
+          1
+        ],
+        [
+          "SetEventOnCompletion",
+          0.068,
+          1
+        ],
+        [
+          "ExecuteCommandList",
+          0.064,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "Physics / Chaos",
+      "tot": 7.868897886008715,
+      "desc": "物理仿真/Chaos 求解",
+      "nodes": [
+        [
+          "TG_PrePhysics",
+          3.184,
+          8
+        ],
+        [
+          "Start TG_DuringPhysics",
+          2.855,
+          8
+        ],
+        [
+          "FChaosAccelerationStructureTask::UpdateStructure",
+          0.474,
+          1
+        ],
+        [
+          "Physics Tick",
+          0.434,
+          1
+        ],
+        [
+          "TG_EndPhysics",
+          0.224,
+          8
+        ],
+        [
+          "TG_StartPhysics",
+          0.107,
+          8
+        ]
+      ]
+    },
+    {
+      "name": "RDG / FrameGraph",
+      "tot": 4.047237993276536,
+      "desc": "RDG 编排/资源生命周期/Pass 执行",
+      "nodes": [
+        [
+          "FRDGBuilder::ExecutePasses",
+          1.306,
+          2
+        ],
+        [
+          "FRDGBuilder::ExecutePasses",
+          0.57,
+          1
+        ],
+        [
+          "FRDGBuilder::ProcessAsyncSetupQueue",
+          0.526,
+          1
+        ],
+        [
+          "FRDGBuilder::SubmitBufferUploads",
+          0.469,
+          1
+        ],
+        [
+          "FRDGBuilder::CollectResources",
+          0.467,
+          3
+        ],
+        [
+          "FRDGBuilder::FinalizeResources",
+          0.155,
+          1
+        ],
+        [
+          "FRDGBuilder::CreateUniformBuffers",
+          0.125,
+          2
+        ],
+        [
+          "FRDGBuilder::CollectBarriers",
+          0.116,
+          1
+        ],
+        [
+          "FRDGAllocator::ReleaseAll",
+          0.077,
+          1
+        ],
+        [
+          "FRDGBuilder::FinalizeDescs",
+          0.064,
+          1
+        ],
+        [
+          "FRDGBuilder::CreatePassBarriers",
+          0.057,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "Animation",
+      "tot": 3.733621612313255,
+      "desc": "动画/骨骼蒙皮/AnimGraph",
+      "nodes": [
+        [
+          "CharacterMesh0",
+          3.399,
+          1
+        ],
+        [
+          "CharacterMesh0",
+          0.079,
+          3
+        ],
+        [
+          "SkeletalMesh",
+          0.056,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "任务调度 / TaskWorker",
+      "tot": 3.1890014916448863,
+      "desc": "TaskGraph 调度开销（叶子级同步原语：WaitImpl / Enqueue / WaitingQueue 唤醒等）",
+      "nodes": [
+        [
+          "[容器自身] TaskWorkerIsLookingForWork",
+          2.316,
+          0
+        ],
+        [
+          "[容器自身] ExecuteForegroundTask",
+          0.697,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "InitViews / Visibility",
+      "tot": 2.931836821969698,
+      "desc": "可见性/遮挡剔除/View 相关性/Instance 剔除",
+      "nodes": [
+        [
+          "ComputeViewRelevance",
+          1.079,
+          1
+        ],
+        [
+          "SceneVisibility_FrustumCull",
+          0.605,
+          1
+        ],
+        [
+          "OcclusionCull",
+          0.499,
+          1
+        ],
+        [
+          "STAT_PostVisibilityFrameSetup_Light_Visibility",
+          0.299,
+          1
+        ],
+        [
+          "FinalizeOcclusionCull",
+          0.125,
+          1
+        ],
+        [
+          "OcclusionCullPipe",
+          0.064,
+          1
+        ],
+        [
+          "LaunchVisibilityTasks",
+          0.052,
+          5
+        ]
+      ]
+    },
+    {
+      "name": "MDC 管理",
+      "tot": 2.8135089080109306,
+      "desc": "MDC（MeshDrawCommand）生成/排序/缓存/分发",
+      "nodes": [
+        [
+          "DrawVisibleMeshCommandsAnyThreadTask",
+          1.514,
+          1
+        ],
+        [
+          "MeshDrawCommandPassSetupTask",
+          1.046,
+          1
+        ],
+        [
+          "FPrimitiveSceneInfo_CacheMeshDrawCommands",
+          0.076,
+          1
+        ],
+        [
+          "ParallelMdcDispatchPassSetup",
+          0.056,
+          2
+        ]
+      ]
+    },
+    {
+      "name": "场景渲染调度",
+      "tot": 2.55132403633882,
+      "desc": "场景渲染顶层调度（FSceneRenderer/DrawScene/RenderView/Light 排序/Proxy 同步/Light-Primitive 交互）",
+      "nodes": [
+        [
+          "[容器自身] FDeferredShadingSceneRenderer_Render",
+          0.396,
+          2
+        ],
+        [
+          "FDeferredShadingSceneRenderer_InitViews",
+          0.322,
+          3
+        ],
+        [
+          "DeleteSceneRenderer",
+          0.321,
+          1
+        ],
+        [
+          "[容器自身] RenderViewFamily",
+          0.318,
+          1
+        ],
+        [
+          "Render Lights and Shadows",
+          0.168,
+          7
+        ],
+        [
+          "GatherAndSortLights",
+          0.122,
+          1
+        ],
+        [
+          "CopyPersistentLightState",
+          0.113,
+          1
+        ],
+        [
+          "FSceneRenderer::ComputeVolumetricFog",
+          0.098,
+          3
+        ],
+        [
+          "[容器自身] FDrawSceneCommand",
+          0.096,
+          0
+        ],
+        [
+          "UpdateLightFunctionAtlas",
+          0.089,
+          1
+        ],
+        [
+          "[容器自身] DeferredRenderUpdates",
+          0.075,
+          2
+        ],
+        [
+          "[容器自身] FDeferredShadingSceneRenderer::RenderDiffuseIndirectAndAmbientOcclusion",
+          0.06,
+          5
+        ],
+        [
+          "FSceneRenderer_FinalizeStaticRelevance",
+          0.056,
+          1
+        ],
+        [
+          "GatherLightsAndComputeLightGrid",
+          0.052,
+          3
+        ]
+      ]
+    },
+    {
+      "name": "Engine Loop / GameThread",
+      "tot": 1.9180701271321157,
+      "desc": "GameThread Tick 调度/引擎子系统/SignificanceManager",
+      "nodes": [
+        [
+          "[容器自身] US1GameEngine::Tick",
+          1.384,
+          3
+        ],
+        [
+          "TG_PostUpdateWork",
+          0.132,
+          8
+        ],
+        [
+          "[容器自身] FrameTime",
+          0.082,
+          2
+        ],
+        [
+          "Queue Ticks",
+          0.078,
+          7
+        ]
+      ]
+    },
+    {
+      "name": "Slate / UMG",
+      "tot": 1.7135652088794,
+      "desc": "UI/Slate/UMG/Minimap/GUI",
+      "nodes": [
+        [
+          "Slate::Tick (Time and Widgets)",
+          0.872,
+          3
+        ],
+        [
+          "Slate::DrawWindow_RenderThread",
+          0.315,
+          1
+        ],
+        [
+          "[容器自身] SlateDrawWindowsCommand",
+          0.159,
+          0
+        ],
+        [
+          "UMinimapManagerSystem::UpdateMiniMapPos",
+          0.152,
+          10
+        ],
+        [
+          "&quot;Slate::MergeRenderBatches&quot;",
+          0.09,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "Shadow",
+      "tot": 1.3507462854836028,
+      "desc": "阴影绘制/MMH Decode",
+      "nodes": [
+        [
+          "FGatherShadowPrimitivesPrepareTask",
+          0.331,
+          1
+        ],
+        [
+          "MMHVirtualDecompressPreUpdate",
+          0.244,
+          5
+        ],
+        [
+          "MMHVirtualDecompressUpdate",
+          0.237,
+          3
+        ],
+        [
+          "GatherShadowDynamicMeshElements",
+          0.148,
+          1
+        ],
+        [
+          "MMH Decode Raw Feedback Value",
+          0.136,
+          1
+        ],
+        [
+          "FSceneRenderer::RenderShadowDepthMaps",
+          0.117,
+          3
+        ],
+        [
+          "FGatherShadowPrimitivesFinalizeTask",
+          0.055,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "Particles / Niagara",
+      "tot": 1.107368272032352,
+      "desc": "粒子/Niagara System Tick",
+      "nodes": [
+        [
+          "FNiagaraSceneProxy",
+          0.415,
+          2
+        ],
+        [
+          "System Instance Tick [CNC]",
+          0.249,
+          1
+        ],
+        [
+          "System Simulation Tick [CNC]",
+          0.208,
+          1
+        ],
+        [
+          "Niagara Manager Tick [GT]",
+          0.078,
+          6
+        ]
+      ]
+    },
+    {
+      "name": "World / Streaming",
+      "tot": 1.086579394886366,
+      "desc": "世界/流送/Mip/资源流送",
+      "nodes": [
+        [
+          "FRenderAssetStreamingMipCalcTask",
+          0.328,
+          0
+        ],
+        [
+          "STAT_UGameEngine_Tick_IStreamingManager",
+          0.301,
+          5
+        ],
+        [
+          "UpdateStreamingRenderAssets",
+          0.111,
+          1
+        ],
+        [
+          "UpdateStreamingState Time",
+          0.096,
+          7
+        ],
+        [
+          "RenderAssetStreaming",
+          0.078,
+          1
+        ],
+        [
+          "UWorld::UpdateLevelStreaming",
+          0.063,
+          7
+        ]
+      ]
+    },
+    {
+      "name": "IO / Decompress",
+      "tot": 0.7598909078291699,
+      "desc": "IO/解压（Oodle/Pak）",
+      "nodes": [
+        [
+          "[容器自身] InterruptQueue_Process",
+          0.461,
+          0
+        ],
+        [
+          "[容器自身] FGenericReadRequestWorker",
+          0.194,
+          0
+        ],
+        [
+          "FCompression::UncompressMemory",
+          0.052,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "Networking / Replication",
+      "tot": 0.5725366041261833,
+      "desc": "网络复制",
+      "nodes": [
+        [
+          "Replay actor replication time",
+          0.332,
+          10
+        ],
+        [
+          "UEnNetConnection_ReceiveFrameDelayedBunches",
+          0.098,
+          8
+        ],
+        [
+          "NetDriver TickFlush",
+          0.072,
+          9
+        ]
+      ]
+    },
+    {
+      "name": "GPU Scene",
+      "tot": 0.5386619064830922,
+      "desc": "GPU Scene Buffer 更新",
+      "nodes": [
+        [
+          "UpdateGPUScene_Lights",
+          0.457,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "VirtualTexture",
+      "tot": 0.3350158665155207,
+      "desc": "虚拟纹理（VT/RVT/UDIM 流送/Transcode/Feedback）",
+      "nodes": [
+        [
+          "FVirtualTextureSystem::GatherAndSubmitRequests",
+          0.163,
+          1
+        ],
+        [
+          "FVirtualTextureSystem::BeginUpdate",
+          0.095,
+          2
+        ],
+        [
+          "FVirtualTextureSystem::EndUpdate",
+          0.077,
+          3
+        ]
+      ]
+    },
+    {
+      "name": "AI / Navigation",
+      "tot": 0.3061867738615458,
+      "desc": "AI/寻路/ML 推理",
+      "nodes": [
+        [
+          "FInferenceWorker::Predict",
+          0.306,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "Terrain / Landscape",
+      "tot": 0.2806705435505897,
+      "desc": "地形/Landscape 渲染与碰撞(含VHM)",
+      "nodes": [
+        [
+          "FLandscapeRenderSystem::ComputeLODs",
+          0.171,
+          1
+        ],
+        [
+          "ULandscapeSubsystem",
+          0.055,
+          9
+        ]
+      ]
+    },
+    {
+      "name": "StaticMesh",
+      "tot": 0.23069242814554913,
+      "desc": "静态模型（StaticMesh/ISM）",
+      "nodes": [
+        [
+          "FHierarchicalStaticMeshSceneProxy",
+          0.208,
+          2
+        ]
+      ]
+    },
+    {
+      "name": "PostProcess",
+      "tot": 0.22920374692885753,
+      "desc": "PostProcess Pass 链（TAA/Tonemap/Bloom/DOF/SSAO 等）",
+      "nodes": [
+        [
+          "PostProcessing",
+          0.166,
+          3
+        ],
+        [
+          "STAT_PostprocessSettings",
+          0.053,
+          8
+        ]
+      ]
+    },
+    {
+      "name": "PSO / Shader Compile",
+      "tot": 0.17004791570342392,
+      "desc": "PSO/着色器编译",
+      "nodes": [
+        [
+          "FPSOPrecacheAsyncTask",
+          0.17,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "Stat System",
+      "tot": 0.15688127964104115,
+      "desc": "引擎 Stats 统计系统（StatsNew Tick / Add To History 等）",
+      "nodes": [
+        [
+          "StatsNew Tick",
+          0.157,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "Scene Query / Trace",
+      "tot": 0.1547420932364011,
+      "desc": "场景查询/Trace",
+      "nodes": [
+        [
+          "SceneQueryTotal",
+          0.052,
+          12
+        ]
+      ]
+    },
+    {
+      "name": "ParallelFor 框架",
+      "tot": 0.14977509747350137,
+      "desc": "通用并行框架自身（dispatch/sync/wait）",
+      "nodes": []
+    },
+    {
+      "name": "异步加载 / Background Worker",
+      "tot": 0.14143543016083474,
+      "desc": "后台资源加载/流送 worker",
+      "nodes": [
+        [
+          "[容器自身] ExecuteBackgroundTask",
+          0.141,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "GC / Memory",
+      "tot": 0.06908820755078093,
+      "desc": "GC/内存管理",
+      "nodes": []
+    },
+    {
+      "name": "Material / MID Update",
+      "tot": 0.0635954054510998,
+      "desc": "材质动态参数/Uniform 缓存（含 FUniformBuffer 资源回收）",
+      "nodes": []
+    },
+    {
+      "name": "渲染 Pass",
+      "tot": 0.061510087164480094,
+      "desc": "各渲染 Pass（Depth/Velocity/Translucency/Water 等）",
+      "nodes": []
+    },
+    {
+      "name": "GI / Global Illumination",
+      "tot": 0.053874457625814075,
+      "desc": "项目自研全局光照（LuxGI）",
+      "nodes": []
+    },
+    {
+      "name": "BasePass",
+      "tot": 0.05,
+      "desc": "BasePass 绘制",
+      "nodes": []
+    },
+    {
+      "name": "OS / Message Pump",
+      "tot": 0.03829818542329587,
+      "desc": "Windows 消息泵 / 系统调用",
+      "nodes": []
+    },
+    {
+      "name": "Decal",
+      "tot": 0.02,
+      "desc": "贴花（Decal/DBuffer 贴花/MeshDecal）",
+      "nodes": []
+    },
+    {
+      "name": "Audio",
+      "tot": 0.01,
+      "desc": "音频",
+      "nodes": []
+    },
+    {
+      "name": "PoolObject",
+      "tot": 0.0,
+      "desc": "对象池/池化分配/Actor Recycle",
+      "nodes": []
+    },
+    {
+      "name": "Grass / Foliage",
+      "tot": 0.0,
+      "desc": "草/植被实例化渲染(HISM/Foliage)",
+      "nodes": []
+    }
+  ],
+  "merge_meta": {
+    "segments": [
+      {
+        "label": "Rush02_3C.module",
+        "json": "C:\\Users\\djangozhang\\Desktop\\cpuusage\\.workbuddy\\tmp\\Rush02_3C.module.json",
+        "duration_s": 69.803,
+        "weight_pct": 4.84,
+        "cores": 8,
+        "total_cpu_pct": 54.94,
+        "root_total": 51.53,
+        "mod_total": 50.900000000000006
+      },
+      {
+        "label": "Rush02_HUD.module",
+        "json": "C:\\Users\\djangozhang\\Desktop\\cpuusage\\.workbuddy\\tmp\\Rush02_HUD.module.json",
+        "duration_s": 47.107,
+        "weight_pct": 3.27,
+        "cores": 8,
+        "total_cpu_pct": 54.63,
+        "root_total": 51.03,
+        "mod_total": 50.38
+      },
+      {
+        "label": "Rush02_fire.module",
+        "json": "C:\\Users\\djangozhang\\Desktop\\cpuusage\\.workbuddy\\tmp\\Rush02_fire.module.json",
+        "duration_s": 100.779,
+        "weight_pct": 6.99,
+        "cores": 8,
+        "total_cpu_pct": 57.06,
+        "root_total": 53.09,
+        "mod_total": 52.35
+      },
+      {
+        "label": "Rush02_skill.module",
+        "json": "C:\\Users\\djangozhang\\Desktop\\cpuusage\\.workbuddy\\tmp\\Rush02_skill.module.json",
+        "duration_s": 332.673,
+        "weight_pct": 23.08,
+        "cores": 8,
+        "total_cpu_pct": 58.34,
+        "root_total": 54.980000000000004,
+        "mod_total": 54.42
+      },
+      {
+        "label": "Rush02_16AI.module",
+        "json": "C:\\Users\\djangozhang\\Desktop\\cpuusage\\.workbuddy\\tmp\\Rush02_16AI.module.json",
+        "duration_s": 891.201,
+        "weight_pct": 61.82,
+        "cores": 8,
+        "total_cpu_pct": 57.46,
+        "root_total": 53.43,
+        "mod_total": 52.56
+      }
+    ],
+    "total_duration_s": 1441.563,
+    "cores_consistent": true,
+    "n_segments": 5
+  }
+}
