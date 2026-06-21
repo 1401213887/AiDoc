@@ -152,8 +152,8 @@ fragment half4 LightingPass(
 | CVar | 默认 | 作用 |
 |------|:----:|------|
 | `r.Mobile.ShadingPath` | 0 | 0=Forward，1=Deferred（片上 GBuffer） |
-| `r.MobileHDR` | True | Deferred 强制要求 |
-| `r.Mobile.TonemapSubpass` | 0 | Tonemap/ColorGrading/Vignette 子通道（需 Meta XR 插件，与 Deferred 互斥） |
+| `r.MobileHDR` | True | 浮点 SceneColor 承接 HDR 光照；Deferred 强制要求（增补卷 §11） |
+| `r.Mobile.TonemapSubpass` | 0 | Tonemap/ColorGrading/Vignette 子通道（需 Meta XR 插件，与 Deferred 互斥；增补卷 §10） |
 | `r.EarlyZPass` | — | 0关/1不透明/2+Masked/3全部 |
 | `r.EarlyZPassOnlyMaterialMasking` | — | 只对 Masked 做 PrePass（iOS 强烈建议=1） |
 | `r.Mobile.Forward.EnableClusteredReflections` | — | 移动前向聚类反射 |
@@ -220,7 +220,7 @@ RenderPass {
 | GBuffer Format | **B8G8R8A8 + R10**（tile 直读） |
 | 每像素 tile 占用 | **~20 byte/px** |
 | Tile SRAM 容量 | **~1MB**，32×32 tile 下可容纳全 GBuffer+Depth+SceneColor（避免 tile spilling） |
-| 法线压缩 | **Octahedron Normal**（八面体编码，2 通道） |
+| 法线压缩 | **Octahedron Normal**（八面体编码，单位法线 3 通道→2 通道；原理见增补卷 §12） |
 | 颜色压缩 | **YCoCg Albedo** |
 | 关键洞察 | Tile memory 模式下 GBuffer 不进 DDR，**压缩节省的不是带宽（本就 0 写回），而是腾出 tile 空间避免 spilling** |
 
@@ -338,7 +338,7 @@ DrawMergedPostProcess(enc);     // Programmable Blending 读 SceneColor，合并
 ```
 
 ### 7.4 Apple 独有王牌：Imageblock + Tile Shading（A11+）
-可在 render pass 内联 compute、跨像素访问整个 tile，实现洛克王国都没做的 **tile 光源裁剪 / OIT**。Vulkan subpass 无等价物，是 iOS 高端档位差异化优势。需 `MTLTileRenderPipelineDescriptor`，运行时检测 `MTLGPUFamilyApple4`。
+可在 render pass 内联 compute、跨像素访问整个 tile，实现洛克王国都没做的 **tile 光源裁剪 / OIT**。Vulkan subpass 无等价物，是 iOS 高端档位差异化优势。需 `MTLTileRenderPipelineDescriptor`，运行时检测 `MTLGPUFamilyApple4`。**完整原理、MSL 代码与三者（Programmable Blending / Imageblock / Tile Shading）关系见增补卷 §13。**
 
 ---
 
