@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>高通 SDP 工具使用教程 - 移动端 GPU 瓶颈定位指南</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a2e;
+    --muted: #6b7280;
+    --accent: #e63946;
+    --accent2: #457b9d;
+    --card: #f8f9fa;
+    --border: #e5e7eb;
+    --code-bg: #f1f3f5;
+    --success: #2d6a4f;
+    --warn: #e9c46a;
+    --danger: #d62828;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, "Segoe UI", "Noto Sans SC", sans-serif; color:var(--fg); background:var(--bg); line-height:1.7; }
+  .container { max-width:1100px; margin:0 auto; padding:24px 32px 80px; }
+
+  /* Hero */
+  .hero { background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%); color:#fff; padding:48px 32px; border-radius:16px; margin-bottom:40px; position:relative; overflow:hidden; }
+  .hero::after { content:''; position:absolute; right:-60px; top:-60px; width:240px; height:240px; border-radius:50%; background:rgba(230,57,70,0.15); }
+  .hero h1 { font-size:2rem; font-weight:800; margin-bottom:8px; }
+  .hero .sub { font-size:1.05rem; opacity:0.85; font-weight:300; }
+  .hero .meta { margin-top:16px; font-size:0.85rem; opacity:0.6; }
+
+  /* Nav */
+  .toc { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px 28px; margin-bottom:36px; }
+  .toc h2 { font-size:1rem; font-weight:700; margin-bottom:12px; color:var(--accent); }
+  .toc ol { padding-left:20px; }
+  .toc li { margin-bottom:4px; }
+  .toc a { color:var(--accent2); text-decoration:none; font-size:0.95rem; }
+  .toc a:hover { text-decoration:underline; }
+
+  /* Sections */
+  h2 { font-size:1.5rem; font-weight:700; margin:40px 0 16px; padding-bottom:8px; border-bottom:3px solid var(--accent); display:inline-block; }
+  h3 { font-size:1.15rem; font-weight:700; margin:28px 0 10px; color:#16213e; }
+  h4 { font-size:1rem; font-weight:600; margin:20px 0 8px; color:var(--accent2); }
+  p { margin-bottom:12px; }
+  ul,ol { padding-left:24px; margin-bottom:12px; }
+  li { margin-bottom:6px; }
+
+  /* Cards */
+  .card-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin:16px 0 24px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:20px; transition:box-shadow .2s; }
+  .card:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); }
+  .card .icon { font-size:1.6rem; margin-bottom:8px; }
+  .card .label { font-weight:700; margin-bottom:4px; }
+  .card .desc { font-size:0.88rem; color:var(--muted); }
+
+  /* Tables */
+  table { width:100%; border-collapse:collapse; margin:12px 0 20px; font-size:0.9rem; }
+  th { background:#16213e; color:#fff; text-align:left; padding:10px 14px; font-weight:600; }
+  td { padding:9px 14px; border-bottom:1px solid var(--border); }
+  tr:nth-child(even) td { background:var(--card); }
+  tr:hover td { background:#eef2ff; }
+
+  /* Code */
+  code { background:var(--code-bg); padding:2px 6px; border-radius:4px; font-size:0.88em; font-family:"Cascadia Code","Fira Code",monospace; }
+  pre { background:#1a1a2e; color:#e0e0e0; padding:16px 20px; border-radius:8px; overflow-x:auto; margin:12px 0 16px; font-size:0.88rem; line-height:1.5; }
+  pre code { background:none; padding:0; color:inherit; }
+
+  /* Callout */
+  .callout { border-radius:10px; padding:16px 20px; margin:16px 0; font-size:0.92rem; }
+  .callout-tip { background:#e8f5e9; border-left:4px solid var(--success); }
+  .callout-warn { background:#fff8e1; border-left:4px solid var(--warn); }
+  .callout-danger { background:#ffebee; border-left:4px solid var(--danger); }
+  .callout-info { background:#e3f2fd; border-left:4px solid var(--accent2); }
+  .callout strong { display:block; margin-bottom:4px; }
+
+  /* Workflow */
+  .workflow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:16px 0; }
+  .step { background:var(--accent); color:#fff; padding:8px 16px; border-radius:20px; font-size:0.88rem; font-weight:600; white-space:nowrap; }
+  .arrow { color:var(--muted); font-size:1.2rem; }
+
+  /* Badge */
+  .badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:0.78rem; font-weight:600; }
+  .badge-good { background:#d4edda; color:#155724; }
+  .badge-warn { background:#fff3cd; color:#856404; }
+  .badge-bad { background:#f8d7da; color:#721c24; }
+  .badge-info { background:#d1ecf1; color:#0c5460; }
+
+  /* Metric card */
+  .metric { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin:8px 0; }
+  .metric .name { font-weight:700; font-size:0.95rem; }
+  .metric .thresh { font-size:0.85rem; color:var(--muted); margin-top:4px; }
+  .metric .thresh span { margin-right:16px; }
+
+  /* Comparison */
+  .compare { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:16px 0; }
+  .compare-item { text-align:center; padding:16px; border-radius:10px; }
+  .compare-item.before { background:#ffebee; }
+  .compare-item.after { background:#e8f5e9; }
+  .compare-item .val { font-size:1.8rem; font-weight:800; }
+  .compare-item .lbl { font-size:0.85rem; color:var(--muted); margin-top:4px; }
+
+  @media(max-width:700px) {
+    .container { padding:16px; }
+    .hero { padding:28px 16px; }
+    .hero h1 { font-size:1.5rem; }
+    .card-grid { grid-template-columns:1fr; }
+    .compare { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Hero -->
+<div class="hero">
+  <h1>高通 SDP 工具使用教程</h1>
+  <div class="sub">移动端 GPU 瓶颈定位实战指南 — Snapdragon Profiler / Qualcomm Profiler</div>
+  <div class="meta">整理于 2026-06-22 · 适用于 Adreno GPU 全系列</div>
+</div>
+
+<!-- TOC -->
+<div class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#overview">工具概览与版本说明</a></li>
+    <li><a href="#install">安装与环境配置</a></li>
+    <li><a href="#modes">四大核心模式详解</a></li>
+    <li><a href="#quickstart">GPU 瓶颈快速定位流程</a></li>
+    <li><a href="#metrics">关键 GPU 指标与阈值速查</a></li>
+    <li><a href="#texture">纹理与带宽瓶颈诊断</a></li>
+    <li><a href="#shader">着色器瓶颈诊断</a></li>
+    <li><a href="#geometry">几何与光栅化瓶颈诊断</a></li>
+    <li><a href="#thermal">发热与降频诊断</a></li>
+    <li><a href="#practical">实战案例与常见优化</a></li>
+    <li><a href="#tips">高级技巧与注意事项</a></li>
+    <li><a href="#refs">参考资源</a></li>
+  </ol>
+</div>
+
+<!-- ==================== 1. 工具概览 ==================== -->
+<h2 id="overview">1. 工具概览与版本说明</h2>
+
+<p>高通为 Snapdragon 平台提供了两代性能分析工具，核心能力相同但架构不同：</p>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="icon">🔬</div>
+    <div class="label">Snapdragon Profiler（经典版）</div>
+    <div class="desc">桌面 GUI 工具，通过 USB + ADB 连接设备。支持 Realtime / Trace / Snapshot / Sampling 四种模式。适用于 OpenGL ES、Vulkan、OpenCL、DirectX。Windows / Linux / macOS 跨平台。</div>
+  </div>
+  <div class="card">
+    <div class="icon">🚀</div>
+    <div class="label">Qualcomm Profiler（新版）</div>
+    <div class="desc">新一代系统级分析工具，支持 Host Streaming（IP 连接）和 On-Device Profiling（设备端直接采集）。提供 GUI、CLI、C API 三种接口。Windows / Ubuntu / Windows on ARM。可输出 Perfetto 格式。</div>
+  </div>
+</div>
+
+<div class="callout callout-info">
+  <strong>💡 选择建议</strong>
+  如果你需要<strong>帧级渲染调试</strong>（逐 DrawCall 分析、着色器编辑、像素历史），用 Snapdragon Profiler 的 Snapshot 模式。<br>
+  如果你只需要<strong>系统级性能指标监控</strong>（CPU/GPU/DSP 负载、功耗温度），Qualcomm Profiler 的 CLI 更轻量、更适合自动化。
+</div>
+
+<p>本文以 <strong>Snapdragon Profiler</strong> 为主要讲解对象，因为它对 GPU 渲染管线的分析能力更强，更适合定位移动端 GPU 瓶颈。</p>
+
+<!-- ==================== 2. 安装与环境配置 ==================== -->
+<h2 id="install">2. 安装与环境配置</h2>
+
+<h3>2.1 下载安装</h3>
+<ol>
+  <li>前往 <a href="https://developer.qualcomm.com/software/snapdragon-profiler" target="_blank">Qualcomm Developer Network</a> 下载最新版</li>
+  <li>需要注册 QDN 账号并登录</li>
+  <li>安装过程默认下一步即可（Windows / Linux / macOS 均有安装包）</li>
+</ol>
+
+<h3>2.2 环境要求</h3>
+<table>
+  <tr><th>项目</th><th>要求</th></tr>
+  <tr><td>ADB 工具链</td><td>通过 Android Studio 安装或单独下载 Platform Tools，并加入系统 PATH</td></tr>
+  <tr><td>USB 调试</td><td>开发者选项中开启"USB 调试"和"禁用权限监控"</td></tr>
+  <tr><td>设备芯片</td><td>骁龙 600 系列以上（推荐 8 系旗舰，如骁龙 8 Gen1/Gen2/Gen3）</td></tr>
+  <tr><td>数据线</td><td>支持数据传输的原装线（非仅充电线）</td></tr>
+  <tr><td>应用权限</td><td>目标应用需在 AndroidManifest.xml 中添加 <code>INTERNET</code> 权限（Trace 模式需要）</td></tr>
+</table>
+
+<h3>2.3 连接设备与排错</h3>
+<pre><code># 检查设备连接
+adb devices
+
+# 如果列表为空，尝试：
+adb kill-server
+# 重新插拔 USB 线，设备上点击"允许调试"</code></pre>
+
+<div class="callout callout-warn">
+  <strong>⚠️ 常见坑</strong>
+  <ul>
+    <li><strong>adb devices 为空</strong>：① 未安装设备 USB 驱动 ② 数据线只充电 ③ 未在设备弹窗授权</li>
+    <li><strong>Profiler 中 ADB 路径未配置</strong>：File → Settings → Android 选项卡，手动设置 ADB 路径</li>
+    <li><strong>设备温度过高</strong>：建议配合散热背夹使用，否则 GPU 降频后指标失真</li>
+  </ul>
+</div>
+
+<!-- ==================== 3. 四大核心模式 ==================== -->
+<h2 id="modes">3. 四大核心模式详解</h2>
+
+<div class="card-grid">
+  <div class="card" style="border-top:3px solid var(--accent);">
+    <div class="icon">📊</div>
+    <div class="label">Realtime 实时模式</div>
+    <div class="desc">持续监控 150+ 硬件计数器（CPU/GPU/DSP/内存/功耗/温度）。适合快速定位异常波动。可自定义指标看板。</div>
+  </div>
+  <div class="card" style="border-top:3px solid var(--accent2);">
+    <div class="icon">🔍</div>
+    <div class="label">Trace 追踪模式</div>
+    <div class="desc">微秒级精度记录完整 API 调用链与内核事件。可精确到每个 DrawCall。支持 OpenGL ES / Vulkan / OpenCL / DirectX。</div>
+  </div>
+  <div class="card" style="border-top:3px solid var(--success);">
+    <div class="icon">📸</div>
+    <div class="label">Snapshot 快照模式</div>
+    <div class="desc">冻结单帧所有渲染指令，逐 DrawCall 回放。可查看纹理、着色器代码、帧缓冲、像素历史、Overdraw 分析。支持着色器热编辑。</div>
+  </div>
+  <div class="card" style="border-top:3px solid #6a4c93;">
+    <div class="icon">🔥</div>
+    <div class="label">Sampling 采样模式</div>
+    <div class="desc">通过火焰图可视化分析函数/模块级 CPU 性能。定位 CPU 侧热点函数。</div>
+  </div>
+</div>
+
+<h3>3.1 Realtime 实时模式 — 用法</h3>
+<ol>
+  <li>连接设备 → 新建 Session → 选择 Realtime</li>
+  <li>左侧指标面板选择关心的计数器（推荐：GPU % Utilization、GPU Frequency、GPU Temperature、% Shaders Busy、Texture Memory Read BW）</li>
+  <li>右侧时间线实时绘制曲线，可暂停/缩放查看细节</li>
+  <li>适合场景：快速判断 GPU/CPU 哪个是瓶颈、温度是否触发降频</li>
+</ol>
+
+<h3>3.2 Trace 追踪模式 — 用法</h3>
+<ol>
+  <li>新建 Session → 选择 Trace Capture</li>
+  <li>勾选关心的 Metrics（初始推荐见第 5 节）</li>
+  <li>点击 Start Capture → 在设备上操作测试场景 → Stop Capture</li>
+  <li>在时间线上查看 Rendering Stages（GPU 各阶段耗时）、CPU Scheduling、GPU Activity</li>
+  <li>适合场景：精确定位哪一帧、哪个 DrawCall 耗时异常</li>
+</ol>
+
+<h3>3.3 Snapshot 快照模式 — 用法</h3>
+<ol>
+  <li>新建 Session → 选择 Snapshot Capture</li>
+  <li>选择目标进程 → 点击 Capture Frame</li>
+  <li>获得完整帧数据：
+    <ul>
+      <li><strong>Draw Call 列表</strong>：每个 DrawCall 的 API 调用、耗时</li>
+      <li><strong>资源面板</strong>：所有纹理、帧缓冲、着色器</li>
+      <li><strong>着色器分析</strong>：指令数、ALU/EFU 比例、Full/Half 精度占比</li>
+      <li><strong>像素历史</strong>：追踪某像素被哪些 DrawCall 写入</li>
+      <li><strong>Overdraw 可视化</strong>：识别过度绘制区域</li>
+    </ul>
+  </li>
+  <li>适合场景：渲染 Bug 排查、DrawCall 优化、着色器复杂度分析</li>
+</ol>
+
+<div class="callout callout-tip">
+  <strong>💡 Vulkan 应用的 Trace 注意</strong>
+  使用 Trace 模式分析 Vulkan 应用时，需同时勾选 <strong>Vulkan Rendering Stages</strong> 和 <strong>Vulkan API Trace</strong> 两个 Metrics。Capture 后可查看 Surface 渲染阶段和详细的 Vulkan API 调用时序。
+</div>
+
+<!-- ==================== 4. GPU 瓶颈快速定位流程 ==================== -->
+<h2 id="quickstart">4. GPU 瓶颈快速定位流程</h2>
+
+<div class="workflow">
+  <span class="step">1. Realtime 确认瓶颈在 GPU</span>
+  <span class="arrow">→</span>
+  <span class="step">2. Trace 定位问题帧</span>
+  <span class="arrow">→</span>
+  <span class="step">3. 查看关键指标</span>
+  <span class="arrow">→</span>
+  <span class="step">4. 判断瓶颈类型</span>
+  <span class="arrow">→</span>
+  <span class="step">5. Snapshot 深入分析</span>
+  <span class="arrow">→</span>
+  <span class="step">6. 优化并验证</span>
+</div>
+
+<h3>Step 1：确认是否 GPU-Bound</h3>
+<p>在 Realtime 模式下，关注以下判断：</p>
+<table>
+  <tr><th>判断依据</th><th>GPU-Bound</th><th>CPU-Bound</th><th>Vsync-Bound</th></tr>
+  <tr><td>GPU % Utilization</td><td>高（>70%）</td><td>低（<40%）</td><td>中</td></tr>
+  <tr><td>CPU 核心利用率</td><td>主线程空闲</td><td>主线程满载</td><td>均不高</td></tr>
+  <tr><td>Rendering Stages</td><td>GPU 阶段明显长于 CPU 提交</td><td>CPU 提交间隙大</td><td>帧等 VSync</td></tr>
+  <tr><td>Frame Time</td><td>稳定超标</td><td>波动大</td><td>呈 16.6ms 整数倍</td></tr>
+</table>
+
+<h3>Step 2：Trace 捕获定位问题帧</h3>
+<ol>
+  <li>启动 Trace Capture，勾选推荐指标（见下表）</li>
+  <li>在设备上操作复现卡顿场景</li>
+  <li>Stop Capture → 在时间线上找到帧率骤降的区间</li>
+</ol>
+
+<p><strong>初始 Trace 推荐指标</strong>（标 ⚡ 为开销较大，初始可跳过）：</p>
+<table>
+  <tr><th>类别</th><th>指标</th><th>说明</th></tr>
+  <tr><td rowspan="3">GPU General</td><td>GPU % Utilization</td><td>GPU 整体利用率</td></tr>
+  <tr><td>GPU % Bus Busy</td><td>总线繁忙度</td></tr>
+  <tr><td>% CP Overhead</td><td>命令处理器开销（应接近 0%，超 20% 需关注）</td></tr>
+  <tr><td rowspan="4">GPU Stalls</td><td>% Stalled on System Memory</td><td>系统内存停顿（最严重，理想 <2%）</td></tr>
+  <tr><td>% Texture Fetch Stall</td><td>纹理读取停顿（理想 <2%）</td></tr>
+  <tr><td>% Vertex Fetch Stall</td><td>顶点读取停顿（理想 ≈0%）</td></tr>
+  <tr><td>% Instruction Cache Miss</td><td>指令缓存未命中</td></tr>
+  <tr><td rowspan="3">Shader</td><td>% Shaders Busy</td><td>着色器忙碌率（接近 100% = ALU Bound）</td></tr>
+  <tr><td>% Time Shading Fragments</td><td>片段着色占比（理想 >60%）</td></tr>
+  <tr><td>% Time Shading Vertices</td><td>顶点着色占比（理想 <10-20%）</td></tr>
+  <tr><td>Memory ⚡</td><td>Texture Memory Read BW</td><td>纹理带宽（大尖峰 = 慢 Shader）</td></tr>
+  <tr><td>Thermal</td><td>GPU Temperature</td><td>温度（>75°C 可能降频）</td></tr>
+</table>
+
+<h3>Step 3-4：判断瓶颈类型</h3>
+<p>根据 Trace 数据判断属于哪种 GPU 瓶颈：</p>
+
+<div class="card-grid">
+  <div class="card" style="border-left:4px solid #e63946;">
+    <div class="label" style="color:#e63946;">🔴 ALU Bound（计算瓶颈）</div>
+    <div class="desc">
+      <strong>特征</strong>：% Shaders Busy ≈100%，Stall 指标低<br>
+      <strong>原因</strong>：着色器指令过多、使用了全精度、EFU 函数过多<br>
+      <strong>对策</strong>：使用 mediump、减少 sin/cos/pow、合并计算
+    </div>
+  </div>
+  <div class="card" style="border-left:4px solid #457b9d;">
+    <div class="label" style="color:#457b9d;">🔵 带宽瓶颈（Memory Bound）</div>
+    <div class="desc">
+      <strong>特征</strong>：% Stalled on System Memory 高，Texture Fetch Stall 高，L2 Miss 高<br>
+      <strong>原因</strong>：纹理过大/未压缩、无 Mipmap、Overdraw 严重<br>
+      <strong>对策</strong>：ASTC 压缩、开 Mipmap、减少 Overdraw
+    </div>
+  </div>
+  <div class="card" style="border-left:4px solid #2d6a4f;">
+    <div class="label" style="color:#2d6a4f;">🟢 几何瓶颈（Vertex Bound）</div>
+    <div class="desc">
+      <strong>特征</strong>：% Time Shading Vertices 高，Vertex Fetch Stall 高<br>
+      <strong>原因</strong>：顶点数过多、顶点属性冗余、Micro-triangles<br>
+      <strong>对策</strong>：LOD、精简顶点属性、使用索引复用
+    </div>
+  </div>
+  <div class="card" style="border-left:4px solid #6a4c93;">
+    <div class="label" style="color:#6a4c93;">🟣 热节流（Thermal Throttling）</div>
+    <div class="desc">
+      <strong>特征</strong>：GPU 温度 >75°C 后帧率骤降、GPU Frequency 下降<br>
+      <strong>原因</strong>：持续高负载导致芯片降频保护<br>
+      <strong>对策</strong>：降低渲染分辨率、减少后处理、动态画质
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 5. 关键 GPU 指标 ==================== -->
+<h2 id="metrics">5. 关键 GPU 指标与阈值速查</h2>
+
+<p>以下为 Snapdragon Profiler 中最常用于 GPU 瓶颈分析的指标，附高通官方推荐阈值：</p>
+
+<h3>5.1 GPU Stalls（停顿指标）</h3>
+
+<div class="metric">
+  <div class="name">% Stalled on System Memory — 系统内存停顿率</div>
+  <div class="thresh">
+    <span class="badge badge-good">理想 &lt;2%</span>
+    <span class="badge badge-warn">短时尖峰 ≤30%</span>
+    <span class="badge badge-bad">持续 >5% = 严重带宽瓶颈</span>
+  </div>
+  <p style="font-size:0.88rem;color:var(--muted);margin-top:6px;">最严重的停顿类型。L2 缓存未命中后等待 DRAM 数据。说明显存带宽不够或缓存完全失效。</p>
+</div>
+
+<div class="metric">
+  <div class="name">% Texture Fetch Stall — 纹理读取停顿率</div>
+  <div class="thresh">
+    <span class="badge badge-good">理想 &lt;2%</span>
+    <span class="badge badge-warn">短时尖峰 ≤20%</span>
+    <span class="badge badge-bad">持续 ≥16% = 纹理瓶颈</span>
+  </div>
+  <p style="font-size:0.88rem;color:var(--muted);margin-top:6px;">着色器因等待纹理数据而空闲。通常由高 L2 Miss 或显存带宽不足引起。</p>
+</div>
+
+<div class="metric">
+  <div class="name">% Vertex Fetch Stall — 顶点读取停顿率</div>
+  <div class="thresh">
+    <span class="badge badge-good">理想 ≈0%</span>
+    <span class="badge badge-warn">尖峰 ≤70%</span>
+  </div>
+  <p style="font-size:0.88rem;color:var(--muted);margin-top:6px;">GPU 因无法及时获取顶点数据而停顿。高值说明顶点数据量过大或 VBO 布局不合理。</p>
+</div>
+
+<div class="metric">
+  <div class="name">% Instruction Cache Miss — 指令缓存未命中</div>
+  <div class="thresh">
+    <span class="badge badge-info">需尽量低</span>
+    <span class="badge badge-warn">尖峰达 80% 也未必瓶颈</span>
+  </div>
+</div>
+
+<h3>5.2 Shader Processing（着色器处理）</h3>
+
+<div class="metric">
+  <div class="name">% Shaders Busy — 着色器忙碌率</div>
+  <div class="thresh">
+    <span class="badge badge-bad">接近 100% = ALU Bound</span>
+  </div>
+</div>
+
+<div class="metric">
+  <div class="name">% Time Shading Fragments — 片段着色时间占比</div>
+  <div class="thresh">
+    <span class="badge badge-good">传统管线理想 >60%</span>
+  </div>
+</div>
+
+<div class="metric">
+  <div class="name">% Time Shading Vertices — 顶点着色时间占比</div>
+  <div class="thresh">
+    <span class="badge badge-good">传统管线理想 &lt;10-20%</span>
+    <span class="badge badge-bad">>20% = 可能有几何瓶颈</span>
+  </div>
+</div>
+
+<div class="metric">
+  <div class="name">% Wave Context Occupancy — Wave 上下文占用</div>
+  <div class="thresh">
+    <span class="badge badge-good">理想平均 ≥50%</span>
+  </div>
+</div>
+
+<h3>5.3 着色器指令密度</h3>
+
+<table>
+  <tr><th>指标</th><th>方向</th><th>说明</th></tr>
+  <tr><td>ALU / Fragment</td><td>越高着色器越复杂</td><td>每片元 ALU 指令数</td></tr>
+  <tr><td>ALU / Vertex</td><td>越高着色器越复杂</td><td>每顶点 ALU 指令数</td></tr>
+  <tr><td>Fragment ALU Instructions (Full)</td><td>越低越好</td><td>全精度（highp）指令数，应远低于 Half</td></tr>
+  <tr><td>Fragment ALU Instructions (Half)</td><td>越高越好</td><td>半精度（mediump）指令数，应远高于 Full</td></tr>
+  <tr><td>Interpolation Instructions / Fragment</td><td>越低越好</td><td>可导致 Stall 的来源</td></tr>
+  <tr><td>Textures / Fragment</td><td>越低越好</td><td>尤其注意 Vertex Shader 中的纹理采样</td></tr>
+</table>
+
+<h3>5.4 Texture Cache</h3>
+
+<div class="metric">
+  <div class="name">Texture Memory Read BW — 纹理内存读取带宽</div>
+  <div class="thresh">
+    <span class="badge badge-good">平均 ≤1 GBps</span>
+    <span class="badge badge-warn">峰值 ≤3 GBps</span>
+  </div>
+</div>
+
+<div class="metric">
+  <div class="name">% Texture L1 Miss — L1 纹理缓存未命中率</div>
+  <div class="thresh">
+    <span class="badge badge-good">理想 &lt;10%</span>
+    <span class="badge badge-warn">波动 0~50%</span>
+  </div>
+</div>
+
+<div class="metric">
+  <div class="name">% Texture L2 Miss — L2 纹理缓存未命中率</div>
+  <div class="thresh">
+    <span class="badge badge-good">波动 0~40%</span>
+    <span class="badge badge-bad">持续 >40% = 严重问题</span>
+  </div>
+  <p style="font-size:0.88rem;color:var(--muted);margin-top:6px;"><strong>关键指标</strong>：L2 Miss 后必须读取系统 DDR，性能断崖式下降。</p>
+</div>
+
+<div class="metric">
+  <div class="name">% Non-Base Level Textures — 非基础级纹理采样率</div>
+  <div class="thresh">
+    <span class="badge badge-good">3D 游戏理想 ≥10%</span>
+    <span class="badge badge-bad">≈0% 且物体很远 = 没开 Mipmap</span>
+  </div>
+</div>
+
+<div class="metric">
+  <div class="name">% Anisotropic Filtered — 各向异性过滤占比</div>
+  <div class="thresh">
+    <span class="badge badge-info">权衡质量与性能</span>
+  </div>
+  <p style="font-size:0.88rem;color:var(--muted);margin-top:6px;">各向异性过滤视觉效果好但 GPU 开销大，需在质量与性能间权衡。</p>
+</div>
+
+<h3>5.5 Vulkan 专用指标</h3>
+<table>
+  <tr><th>指标</th><th>说明</th></tr>
+  <tr><td>% CP Overhead</td><td>命令处理器开销。应接近 0%，超过 20% 需关注</td></tr>
+  <tr><td>Binning Pass 占比</td><td>Adreno TBDR 架构中 binning pass 占 renderpass 比例。理想 10-20%，超过 30% 通常太高</td></tr>
+  <tr><td>Concurrent Binning</td><td>并发 binning 状态</td></tr>
+  <tr><td>Per Drawcall Stages</td><td>每个 DrawCall 的各阶段耗时</td></tr>
+</table>
+
+<!-- ==================== 6. 纹理与带宽瓶颈 ==================== -->
+<h2 id="texture">6. 纹理与带宽瓶颈诊断</h2>
+
+<h3>6.1 诊断流程</h3>
+<div class="workflow">
+  <span class="step">查看 % Stalled on System Memory</span>
+  <span class="arrow">→</span>
+  <span class="step">查看 % Texture Fetch Stall</span>
+  <span class="arrow">→</span>
+  <span class="step">查看 % Texture L2 Miss</span>
+  <span class="arrow">→</span>
+  <span class="step">检查 Mipmap/压缩</span>
+</div>
+
+<h3>6.2 纹理带宽优化检查清单</h3>
+<table>
+  <tr><th>检查项</th><th>问题表现</th><th>解决方案</th></tr>
+  <tr><td>纹理格式</td><td>使用 RGBA8888 未压缩</td><td>改用 ASTC/ETC2 压缩格式</td></tr>
+  <tr><td>纹理尺寸</td><td>4K 贴图占用大带宽</td><td>根据屏幕占比缩小纹理</td></tr>
+  <tr><td>Mipmap</td><td>% Non-Base Level ≈0% 但物体很远</td><td>为所有 3D 纹理开启 Mipmap</td></tr>
+  <tr><td>UV 映射</td><td>L1 Miss Per Pixel 很高</td><td>检查 UV 是否过于混乱/跨越太大</td></tr>
+  <tr><td>各向异性过滤</td><td>% Anisotropic Filtered 很高</td><td>在非必要场景关闭或降低等级</td></tr>
+  <tr><td>POT 纹理</td><td>非 2 的幂次纹理</td><td>尽量使用 POT 尺寸纹理</td></tr>
+</table>
+
+<!-- ==================== 7. 着色器瓶颈 ==================== -->
+<h2 id="shader">7. 着色器瓶颈诊断</h2>
+
+<h3>7.1 判断流程</h3>
+<ol>
+  <li><code>% Shaders Busy</code> 接近 100% 且 Stall 指标低 → <strong>ALU Bound</strong></li>
+  <li>在 Snapshot 模式查看具体着色器：
+    <ul>
+      <li>Fragment ALU Instructions (Full) vs (Half) — Full 占比高 = 精度浪费</li>
+      <li>EFU 指令多（sin/cos/pow/log） — 考虑 LUT 预计算</li>
+      <li>Interpolation Instructions / Fragment 高 — 减少 varying 插值</li>
+    </ul>
+  </li>
+</ol>
+
+<h3>7.2 Full vs Half 精度优化</h3>
+<div class="callout callout-tip">
+  <strong>💡 移动端关键优化</strong>
+  在 Adreno GPU 上，<strong>2 个半精度指令 ≈ 1 个全精度指令的开销</strong>。尽量使用 <code>mediump</code>（16 位浮点），仅在必要时使用 <code>highp</code>（32 位浮点）。这是移动端最常见也最有效的 Shader 优化之一。
+</div>
+
+<h3>7.3 常见着色器优化模式</h3>
+<table>
+  <tr><th>优化方向</th><th>优化前</th><th>优化后</th></tr>
+  <tr><td>阴影计算</td><td>实时 PCF 阴影计算</td><td>预计算阴影纹理 + 采样</td></tr>
+  <tr><td>复杂函数</td><td>Shader 内 sin/cos/pow</td><td>LUT 纹理预计算</td></tr>
+  <tr><td>分支</td><td>动态 if/else 分支</td><td>使用 step/mix 替代分支</td></tr>
+  <tr><td>精度</td><td>所有变量 highp</td><td>颜色/UV 用 mediump</td></tr>
+</table>
+
+<!-- ==================== 8. 几何瓶颈 ==================== -->
+<h2 id="geometry">8. 几何与光栅化瓶颈诊断</h2>
+
+<h3>8.1 关键指标</h3>
+<table>
+  <tr><th>指标</th><th>含义</th><th>阈值/注意</th></tr>
+  <tr><td>% Vertex Fetch Stall</td><td>顶点数据停顿</td><td>理想 ≈0%，高 = VBO 布局有问题</td></tr>
+  <tr><td>% Prims Trivially Rejected</td><td>视口外图元剔除率</td><td>越高越好（确实看不见的）</td></tr>
+  <tr><td>% Prims Clipped</td><td>图元裁剪率</td><td>裁剪昂贵，应利用 Guardband 减少</td></tr>
+  <tr><td>Average Polygon Area</td><td>平均多边形面积</td><td>Adreno TBDR 架构下极小多边形(&lt;5-10像素) = Micro-triangles，分块效率低下</td></tr>
+  <tr><td>Average Vertices / Polygon</td><td>每多边形平均顶点</td><td>接近 1 = 索引优化好</td></tr>
+  <tr><td>Reused Vertices / Second</td><td>顶点复用率</td><td>高 = 索引设置得当，减少 VS 重复计算</td></tr>
+</table>
+
+<h3>8.2 Adreno TBDR 架构特殊注意</h3>
+<div class="callout callout-info">
+  <strong>💡 Adreno 的 TBDR（分块延迟渲染）架构</strong>
+  Adreno GPU 采用 Tile-Based 架构，将屏幕分成小块（Tile）渲染。<br>
+  <ul>
+    <li><strong>Micro-triangles</strong>（极小三角形）会导致分块效率低下</li>
+    <li><strong>Binning Pass</strong> 是将几何分配到 Tile 的阶段，理想占比 10-20%，超过 30% 说明几何量过大</li>
+    <li><strong>Store/Load Action</strong>：Vulkan 中不注意 RenderPass 的 store/load 配置会导致不必要的 Tile ↔ 系统内存拷贝（GMEM 加载/卸载）</li>
+  </ul>
+</div>
+
+<!-- ==================== 9. 发热与降频 ==================== -->
+<h2 id="thermal">9. 发热与降频诊断</h2>
+
+<h3>9.1 降频阈值</h3>
+<table>
+  <tr><th>芯片</th><th>降频触发温度</th><th>降频幅度</th></tr>
+  <tr><td>Adreno 650（骁龙 865）</td><td>~75°C</td><td>降频约 30%</td></tr>
+  <tr><td>Adreno 7xx 系列</td><td>~80-85°C</td><td>逐步降频</td></tr>
+</table>
+
+<div class="callout callout-danger">
+  <strong>⚠️ 温度降频后优化代码无效</strong>
+  当 GPU 温度超过阈值触发降频后，单纯优化渲染代码已无法解决性能问题。必须：
+  <ul>
+    <li>重构渲染流程（降低分辨率、减少后处理 pass）</li>
+    <li>实现动态画质（根据温度调整画质档位）</li>
+    <li>使用散热背夹保持低温</li>
+  </ul>
+</div>
+
+<h3>9.2 温度监控方法</h3>
+<ol>
+  <li>在 Realtime 模式添加 <code>GPU Temperature</code> 指标</li>
+  <li>在 Profiler 中设置温度阈值警报</li>
+  <li>当 SoC 温度超过 85°C 时自动捕获系统状态</li>
+  <li>测试时至少运行 <strong>10 分钟以上</strong>，确保能复现热节流</li>
+</ol>
+
+<!-- ==================== 10. 实战案例 ==================== -->
+<h2 id="practical">10. 实战案例与常见优化</h2>
+
+<h3>10.1 案例：开放世界手游帧率骤降</h3>
+<p><strong>现象</strong>：主角在植被密集区域移动时，帧率从 60fps 骤降到 30fps 以下</p>
+<p><strong>诊断</strong>：Snapdragon Profiler GPU 指标分析，20 分钟内定位</p>
+<p><strong>根因</strong>：过度密集的粒子系统触发了 GPU 的图元处理瓶颈</p>
+
+<h3>10.2 案例：赛车游戏异常雾效（骁龙 888）</h3>
+<p><strong>现象</strong>：某赛车游戏在骁龙 888 上出现异常雾效</p>
+<p><strong>根因</strong>：驱动错误优化了 <code>discard</code> 操作</p>
+<pre><code>// 问题代码
+if(color.a < 0.1) discard;
+
+// 修复方案
+color.a = max(color.a, 0.0001);
+if(color.a < 0.1) return;</code></pre>
+
+<h3>10.3 案例：Draw Call 分布异常</h3>
+<p><strong>现象</strong>：游戏战斗场景帧率低</p>
+<p><strong>诊断步骤</strong>：</p>
+<ol>
+  <li>在战斗场景启动帧捕获</li>
+  <li>查看 Draw Call 分布 → UI 层占用了 43% 的调用</li>
+  <li>检查 Shader 复杂度 → 角色阴影计算异常</li>
+  <li>分析纹理带宽 → 4K 贴图未做 Mipmap</li>
+</ol>
+
+<div class="compare">
+  <div class="compare-item before">
+    <div class="val" style="color:var(--danger);">22ms</div>
+    <div class="lbl">帧时间（优化前）</div>
+  </div>
+  <div class="compare-item after">
+    <div class="val" style="color:var(--success);">16ms</div>
+    <div class="lbl">帧时间（优化后）↓27%</div>
+  </div>
+  <div class="compare-item before">
+    <div class="val" style="color:var(--danger);">215</div>
+    <div class="lbl">Draw Calls（优化前）</div>
+  </div>
+  <div class="compare-item after">
+    <div class="val" style="color:var(--success);">148</div>
+    <div class="lbl">Draw Calls（优化后）↓31%</div>
+  </div>
+</div>
+
+<h3>10.4 常见优化速查</h3>
+<table>
+  <tr><th>问题类型</th><th>具体表现</th><th>优化方案</th></tr>
+  <tr><td>纹理内存</td><td>未压缩的 RGBA8888</td><td>使用 ASTC 压缩格式</td></tr>
+  <tr><td>Mesh 数据</td><td>包含多余顶点属性（如未使用的切线空间）</td><td>精简顶点属性</td></tr>
+  <tr><td>资源泄漏</td><td>场景切换后未释放的 AudioClip</td><td>实现资源卸载机制</td></tr>
+  <tr><td>Shader 变体</td><td>变体数量 1200+（合理值 &lt;300）</td><td>Shader Variant Collection 剔除</td></tr>
+  <tr><td>GMEM 加载</td><td>Vulkan RenderPass 不必要的 store/load</td><td>优化 RenderPass 配置</td></tr>
+  <tr><td>过度绘制</td><td>Overdraw 严重区域</td><td>Snapshot Overdraw 可视化排查</td></tr>
+</table>
+
+<!-- ==================== 11. 高级技巧 ==================== -->
+<h2 id="tips">11. 高级技巧与注意事项</h2>
+
+<h3>11.1 着色器热编辑</h3>
+<ol>
+  <li>在 Snapshot 模式捕获问题帧</li>
+  <li>右键点击 Fragment Shader → 选择 "Edit"</li>
+  <li>修改代码后点击 "Apply to Device"</li>
+  <li>实时观察渲染变化，<strong>无需重新打包</strong></li>
+</ol>
+
+<h3>11.2 Trace 开销控制</h3>
+<div class="callout callout-warn">
+  <strong>⚠️ 指标开销</strong>
+  标记为 <strong>(Slow To Trace)</strong> 的指标（如 GPU Memory Stats 中的 Avg Memory Latency Cycles、Texture Memory Read BW 等）会引入显著开销。初始 Trace 时建议先跳过，等需要时再针对性开启。
+</div>
+
+<h3>11.3 测试最佳实践</h3>
+<ul>
+  <li>至少运行 <strong>10 分钟</strong> 以上，跟踪 CPU 和 GPU 时钟频率变化</li>
+  <li>覆盖至少 <strong>3 款主力机型</strong>（不同 Adreno 代际架构差异大，如 Adreno 6xx vs 7xx）</li>
+  <li>配合 <strong>散热背夹</strong> 使用，避免测试中温度降频干扰指标</li>
+  <li>所有优化都要在<strong>目标设备上验证</strong>，编辑器数据不可靠</li>
+  <li>使用 <code>adb shell setprop debug.hwui.profile true</code> 开启 HWUI profile 辅助</li>
+</ul>
+
+<h3>11.4 GPU Stall 三大常见原因</h3>
+<table>
+  <tr><th>原因</th><th>表现</th><th>解决</th></tr>
+  <tr><td>纹理采样等待过长</td><td>% Texture Fetch Stall 高</td><td>启用压缩格式、开 Mipmap</td></tr>
+  <tr><td>VS 输出与 FS 输入不匹配</td><td>Interpolation Instructions 高</td><td>检查着色器接口定义</td></tr>
+  <tr><td>Compute Shader barrier 同步开销</td><td>并行度低</td><td>优化同步策略减少等待</td></tr>
+</table>
+
+<h3>11.5 Load-Balancing Texture Pipe vs Shader Pipe</h3>
+<p>如果你怀疑着色器瓶颈在 Texture Pipe 或 Shader Pipe，监控以下指标进行实验：</p>
+<table>
+  <tr><th>监控指标</th><th>说明</th></tr>
+  <tr><td>% Texture Pipes Busy</td><td>纹理管线忙碌率</td></tr>
+  <tr><td>SP Memory Read</td><td>Shader 处理器内存读取</td></tr>
+  <tr><td>Texture Memory Read BW</td><td>纹理内存读取带宽</td></tr>
+</table>
+<p>通过调整纹理采样/着色器计算比例，观察 <code>% Texture Pipes Busy</code> 的变化趋势和帧率的关系，找到平衡点。</p>
+
+<!-- ==================== 12. 参考资源 ==================== -->
+<h2 id="refs">12. 参考资源</h2>
+
+<table>
+  <tr><th>资源</th><th>链接</th></tr>
+  <tr><td>Snapdragon Profiler 官方下载</td><td><a href="https://developer.qualcomm.com/software/snapdragon-profiler" target="_blank">developer.qualcomm.com/software/snapdragon-profiler</a></td></tr>
+  <tr><td>Qualcomm Profiler（新版）</td><td><a href="https://www.qualcomm.com/developer/software/qualcomm-profiler" target="_blank">qualcomm.com/developer/software/qualcomm-profiler</a></td></tr>
+  <tr><td>Snapdragon Profiler 官方文档</td><td><a href="https://docs.qualcomm.com/doc/80-78185-2/topic/sdp.html" target="_blank">docs.qualcomm.com/.../sdp.html</a></td></tr>
+  <tr><td>Identify Application Bottlenecks</td><td><a href="https://docs.qualcomm.com/bundle/publicresource/topics/80-71528-1/identify_application_bottlenecks.html" target="_blank">官方瓶颈定位指南</a></td></tr>
+  <tr><td>Adreno GPU SDK & 文档</td><td><a href="https://docs.qualcomm.com/bundle/publicresource/topics/80-70014-19Y/graphics_developer_tools.html" target="_blank">图形开发工具文档</a></td></tr>
+  <tr><td>Android GPU Inspector (AGI)</td><td><a href="https://developer.android.google.cn/agi/sys-trace/texture-memory-bw" target="_blank">纹理带宽分析指南</a></td></tr>
+  <tr><td>高通骁龙性能分析器指标解读</td><td><a href="https://jackwzx.github.io/2025/12/08/高通骁龙性能分析器指标解读/" target="_blank">jackwzx.github.io</a></td></tr>
+  <tr><td>Snapdragon Profiler 实战教程</td><td><a href="https://blog.csdn.net/5b6n7m8/article/details/155550356" target="_blank">CSDN 实战指南</a></td></tr>
+</table>
+
+<div class="callout callout-info" style="margin-top:40px;">
+  <strong>📋 快速上手 Checklist</strong>
+  <ol>
+    <li>✅ 安装 Snapdragon Profiler + 配置 ADB</li>
+    <li>✅ USB 连接设备，确认 adb devices 可见</li>
+    <li>✅ Realtime 模式确认 GPU-Bound</li>
+    <li>✅ Trace 模式用推荐指标捕获问题帧</li>
+    <li>✅ 对照阈值表判断瓶颈类型（ALU / 带宽 / 几何 / 热节流）</li>
+    <li>✅ Snapshot 模式深入分析具体 DrawCall / Shader</li>
+    <li>✅ 实施优化 → 重新 Trace 验证</li>
+  </ol>
+</div>
+
+</div>
+</body>
+</html>
