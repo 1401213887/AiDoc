@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>高通 Adreno GPU 最佳实践系列 · 完整阅读报告</title>
+<style>
+  :root{--bg:#f5f6f8;--card:#fff;--ink:#1f2430;--sub:#5b6472;--line:#e6e9ef;--accent:#c8102e;--accent2:#0a66c2;--soft:#eef2f8;--ok:#1f9d57;--warn:#d98300;--chip:#eef2f8;}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;line-height:1.75;font-size:15.5px;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 22px}
+  header.hero{background:linear-gradient(135deg,#15233b 0%,#1d3a5f 55%,#2a5683 100%);color:#fff;padding:54px 0 60px}
+  .kicker{font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#9cc4ef;font-weight:600}
+  .hero h1{font-size:32px;margin:10px 0 14px;line-height:1.3;font-weight:800}
+  .hero p.lead{font-size:16px;color:#d4e3f5;max-width:780px;margin:0 0 22px}
+  .meta-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+  .meta-chip{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:6px 13px;border-radius:20px;font-size:13px;color:#eaf2fb}
+  .meta-chip b{color:#fff}
+  .notice{background:#eafaf0;border:1px solid #b8e6c8;border-left:4px solid var(--ok);border-radius:10px;padding:16px 18px;margin:26px 0;font-size:14px;color:#1c5b34}
+  .notice b{color:#14512c}
+  section{margin:40px 0}
+  h2.sec{font-size:22px;font-weight:800;margin:0 0 6px;display:flex;align-items:center;gap:10px}
+  h2.sec::before{content:"";width:5px;height:22px;background:var(--accent);border-radius:3px;display:inline-block}
+  .sec-sub{color:var(--sub);font-size:14px;margin:0 0 20px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .ov{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px}
+  .ov h4{margin:0 0 8px;font-size:15px;color:var(--accent2)}
+  .ov p{margin:0;font-size:13.5px;color:var(--sub)}
+  .toc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 8px}
+  .toc-group-title{font-size:12.5px;letter-spacing:1px;color:var(--accent);font-weight:700;padding:12px 14px 6px;text-transform:uppercase}
+  .toc a{display:flex;gap:12px;align-items:baseline;padding:9px 14px;border-radius:8px;color:var(--ink);font-size:14.5px}
+  .toc a:hover{background:var(--soft);text-decoration:none}
+  .toc .no{flex:0 0 46px;font-weight:700;color:var(--accent2);font-variant-numeric:tabular-nums}
+  .toc .tt{flex:1}
+  .toc .tag{font-size:11px;color:var(--sub);background:var(--chip);padding:2px 8px;border-radius:10px;white-space:nowrap}
+  article.post{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 28px;margin:20px 0;box-shadow:0 1px 3px rgba(20,30,50,.04)}
+  .post-head{display:flex;align-items:flex-start;gap:16px;margin-bottom:6px}
+  .badge{flex:0 0 auto;min-width:54px;height:54px;border-radius:12px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;padding:0 10px}
+  .badge.suppl{background:var(--accent2)}
+  .badge.bonus{background:#6b4ea8}
+  .post-title{flex:1}
+  .post-title h3{margin:2px 0 4px;font-size:19px;font-weight:800;line-height:1.4}
+  .post-title .en{color:var(--sub);font-size:13px;margin:0}
+  .post-link{font-size:13px;margin-top:4px;display:inline-block}
+  .post-body{margin-top:14px}
+  .lbl{display:inline-block;font-size:12px;font-weight:700;color:#fff;background:var(--ink);padding:2px 10px;border-radius:6px;margin:14px 0 8px}
+  .lbl.k{background:var(--ok)}.lbl.s{background:var(--accent2)}.lbl.w{background:var(--warn)}
+  .post-body p{margin:8px 0}
+  ul.pts{margin:6px 0;padding-left:0;list-style:none}
+  ul.pts li{position:relative;padding:5px 0 5px 24px;font-size:14.5px}
+  ul.pts li::before{content:"▸";position:absolute;left:4px;top:5px;color:var(--accent);font-weight:700}
+  ul.pts li b{color:var(--ink)}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px;margin:6px 0}
+  .kv dt{color:var(--accent2);font-weight:700}
+  .kv dd{margin:0;color:var(--sub)}
+  code{background:#eef1f6;color:#b1318a;padding:1px 6px;border-radius:5px;font-size:12.5px;font-family:"SF Mono",Consolas,"Cascadia Code",monospace}
+  .scene{background:var(--soft);border-radius:9px;padding:10px 14px;font-size:13.5px;color:var(--sub);margin-top:10px}
+  .scene b{color:var(--ink)}
+  table.cmp{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
+  table.cmp th,table.cmp td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  table.cmp th{background:var(--soft);font-weight:700}
+  table.cmp tr:nth-child(even) td{background:#fafbfd}
+  .metrics{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .m{background:#f0f6ee;border:1px solid #cfe6c8;color:#246b2f;font-size:12.5px;padding:4px 10px;border-radius:8px}
+  footer{margin:50px 0 30px;color:var(--sub);font-size:13px;text-align:center;border-top:1px solid var(--line);padding-top:20px}
+  .back{position:fixed;right:22px;bottom:22px;background:var(--accent);color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 14px rgba(200,16,46,.35);opacity:.9}
+  .back:hover{opacity:1;text-decoration:none}
+  @media(max-width:720px){.grid3{grid-template-columns:1fr}.hero h1{font-size:25px}article.post{padding:20px 16px}.kv{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <div class="kicker">Qualcomm Adreno GPU · Best Practices · Full Edition</div>
+    <h1>高通 Adreno GPU 最佳实践系列 · 完整阅读报告</h1>
+    <p class="lead">知乎专栏作者「知秋」（方向：游戏性能优化）整理翻译的高通 Adreno GPU / 骁龙平台移动端图形优化系列。本报告按篇梳理每一篇的核心内容、关键要点与适用场景，已覆盖专栏全部正文文章，方便系统通读与随手查阅。</p>
+    <div class="meta-row">
+      <span class="meta-chip">专栏作者：<b>知秋</b></span>
+      <span class="meta-chip">主题：<b>移动端 GPU / 骁龙性能优化</b></span>
+      <span class="meta-chip">本报告覆盖：<b>22 篇全文</b></span>
+      <span class="meta-chip">生成日期：<b>2026-06-23</b></span>
+    </div>
+  </div>
+</header>
+<div class="wrap">
+  <div class="notice"><b>覆盖范围：</b>该专栏共 23 条目，其中第 0 篇为「汇总目录」（正文即各篇链接，无独立内容），其余 <b>22 篇技术文章正文已全部抓取并逐篇解析</b>：主系列 实践 1~17、补充 0~2、番外 1~2。下方均基于原文整理，未做任何臆测。</div>
+
+  <section id="overview">
+    <h2 class="sec">系列概览：这套文章在讲什么</h2>
+    <p class="sec-sub">整体围绕「在骁龙 / Adreno GPU 上把移动游戏跑得更快、更省电、更稳」这条主线，可归纳为四大板块。</p>
+    <div class="grid3">
+      <div class="ov"><h4>① 架构与渲染管线</h4><p>Tile-based 分块渲染、GMEM、FlexRender、并发分块、Tile Shading 扩展、LRZ/Early-Z/Fast-Z、渲染图面与带宽压缩 UBWC。</p></div>
+      <div class="ov"><h4>② 着色器与资源优化</h4><p>统一/标量着色器架构、半精度、GPR 最小化、纹理与压缩格式、顶点/索引缓冲、VRS、GPU 驱动渲染、网格着色、光线追踪。</p></div>
+      <div class="ov"><h4>③ 分析工具与方法论</h4><p>骁龙分析器三模式+指标阈值、瓶颈分诊（GPU/CPU/Vsync）、GMEM Loads 排查、查询、内存与生命周期、低功耗策略。</p></div>
+      <div class="ov"><h4>④ 画质与功耗增强</h4><p>True HDR、骁龙游戏超分 SGSR1/2、Adreno 帧运动引擎/插帧、QCOM 专属扩展（图像处理硬件、着色器解析）、Vulkan 预旋转。</p></div>
+    </div>
+  </section>
+
+  <section id="toc">
+    <h2 class="sec">目录</h2>
+    <p class="sec-sub">点击跳转到对应篇目的详细解析。编号沿用原文。</p>
+    <nav class="toc">
+      <div class="toc-group-title">主系列 · 架构与管线（1–4）</div>
+      <a href="#a1"><span class="no">01</span><span class="tt">渲染器架构（Vulkan 优先 / 子通道合并）</span><span class="tag">架构</span></a>
+      <a href="#a2"><span class="no">02</span><span class="tt">Tile-based Rendering（分块渲染 / Tile Shading）</span><span class="tag">架构</span></a>
+      <a href="#a3"><span class="no">03</span><span class="tt">渲染图面（sRGB / 上采样 / UBWC）</span><span class="tag">带宽</span></a>
+      <a href="#a4"><span class="no">04</span><span class="tt">LRZ、Early-Z 与 Fast-Z</span><span class="tag">深度剔除</span></a>
+      <div class="toc-group-title">主系列 · 着色器与资源（5–12）</div>
+      <a href="#a5"><span class="no">05</span><span class="tt">纹理（采样 / 压缩格式）</span><span class="tag">纹理</span></a>
+      <a href="#a6"><span class="no">06</span><span class="tt">着色器（半精度 / GPR / ALU 优化）</span><span class="tag">着色器</span></a>
+      <a href="#a7"><span class="no">07</span><span class="tt">GPU 驱动渲染（实例化 / 间接绘制 / 网格着色）</span><span class="tag">GPU-Driven</span></a>
+      <a href="#a8"><span class="no">08</span><span class="tt">可变速率着色（VRS）</span><span class="tag">VRS</span></a>
+      <a href="#a9"><span class="no">09</span><span class="tt">顶点缓冲区与索引缓冲区</span><span class="tag">几何</span></a>
+      <a href="#a10"><span class="no">10</span><span class="tt">光线追踪（Ray Query / 加速结构）</span><span class="tag">光追</span></a>
+      <a href="#a11"><span class="no">11</span><span class="tt">True HDR（HDR10 / ACES / DPU）</span><span class="tag">HDR</span></a>
+      <a href="#a12"><span class="no">12</span><span class="tt">查询（遮挡 / 时间戳 / 驱动版本）</span><span class="tag">查询</span></a>
+      <div class="toc-group-title">主系列 · 工具与方法论（13–17）</div>
+      <a href="#a13"><span class="no">13</span><span class="tt">Android OS on Snapdragon：内存与生命周期</span><span class="tag">平台</span></a>
+      <a href="#a14"><span class="no">14</span><span class="tt">骁龙分析器三模式与指标阈值</span><span class="tag">工具</span></a>
+      <a href="#a15"><span class="no">15</span><span class="tt">理解并解决图形内存加载（GMEM Loads）</span><span class="tag">优化</span></a>
+      <a href="#a16"><span class="no">16</span><span class="tt">识别游戏性能瓶颈（卡顿分析方法）</span><span class="tag">方法论</span></a>
+      <a href="#a17"><span class="no">17</span><span class="tt">插帧（AFME / G-FRC 概览）</span><span class="tag">插帧</span></a>
+      <div class="toc-group-title">补充篇（官方文档翻译 + 注解）</div>
+      <a href="#s0"><span class="no">补0</span><span class="tt">为低功耗游戏优化性能与图形表现</span><span class="tag">策略</span></a>
+      <a href="#s1"><span class="no">补1</span><span class="tt">高阶滤波与块匹配：VK_QCOM_image_processing</span><span class="tag">Vulkan 扩展</span></a>
+      <a href="#s2"><span class="no">补2</span><span class="tt">骁龙游戏超级分辨率（SGSR1 / SGSR2）深度解析</span><span class="tag">超分</span></a>
+      <div class="toc-group-title">番外篇（专题）</div>
+      <a href="#b1"><span class="no">外1</span><span class="tt">VK_QCOM_render_pass_shader_resolve</span><span class="tag">Vulkan 扩展</span></a>
+      <a href="#b2"><span class="no">外2</span><span class="tt">图面旋转的合理运用（Pre-rotation）</span><span class="tag">Vulkan</span></a>
+    </nav>
+  </section>
+
+  <section>
+    <h2 class="sec">主系列 · 架构与渲染管线</h2>
+
+    <article class="post" id="a1">
+      <div class="post-head"><div class="badge">01</div><div class="post-title"><h3>渲染器架构 —— 设计高效 Adreno 渲染器的核心准则</h3><p class="en">Renderer Architecture：Vulkan 优先、子通道合并、资源选型</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1956724228700233810" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <p>全系列的纲领篇，列出设计 Adreno 渲染器时必须牢记的一系列宏观准则。</p>
+        <span class="lbl k">核心准则</span>
+        <ul class="pts">
+          <li><b>API 选型：</b>优先 Vulkan 而非 OpenGL ES（性能、可调试性、功能更优）。</li>
+          <li><b>渲染通道：</b>尽量减少通道数；同格式连续通道合并；合并结果优先用 Alpha 混合而非 discard/分支/模板/计算。</li>
+          <li><b>子通道合并：</b>良好的 Vulkan 渲染通道应满足——子通道数 &gt;1、含输入附件、每个解析附件仅用于一个子通道、正确设置 access mask。配置得当最多省 <b>10%+ 帧时间</b>，让 GPU「逐瓦片」执行整条子通道链。</li>
+          <li><b>尽早失效帧缓冲：</b>Vulkan 用 <code>LOAD_OP_CLEAR</code>/<code>DONT_CARE</code>；OpenGL ES 用 <code>glInvalidateFramebuffer</code>/<code>glClear</code>/<code>EXT_discard_framebuffer</code>，避免 GMEM 不必要解析到系统内存。</li>
+          <li><b>深度预通道：</b>空片段着色器 + 禁帧缓冲写入，以启用 Fast-Z。</li>
+        </ul>
+        <span class="lbl s">资源与数据传递</span>
+        <ul class="pts">
+          <li>UBO 优于 push constants；VBO &gt; UBO &gt; 纹理 &gt; SSBO；单着色器全部 UBO 总和 &lt; 8K 的 90%（≈7372 字节），超限用静态索引。</li>
+          <li>大数据量随机访问优先纹理（缓存优势）；仅渲染通道内用的缓冲（MSAA 附件、Z-buffer）标 <code>LAZILY_ALLOCATED_BIT</code>。</li>
+          <li>交换链：Android 上 <code>FIFO</code>+<code>minImageCount=3</code> 最高效；<code>MAILBOX</code> 优化延迟但费电；建议预旋转。</li>
+          <li>图形提交与计算派发尽量分开、避免交错切换。</li>
+        </ul>
+        <span class="lbl w">应避免的 Vulkan 特性</span>
+        <ul class="pts">
+          <li><code>MUTABLE_FORMAT_BIT</code>（A750 前）、<code>conditional_rendering</code>、<code>vertex_input_dynamic_state</code>（静态管线更优）、细分曲面阶段、客户端顶点数组、用户裁剪平面；三角形理想覆盖 ≥4 像素。</li>
+        </ul>
+        <div class="scene"><b>适用场景：</b>从零设计或重构移动端渲染器时的「总纲检查表」。</div>
+      </div>
+    </article>
+
+    <article class="post" id="a2">
+      <div class="post-head"><div class="badge">02</div><div class="post-title"><h3>Tile-based Rendering —— 分块渲染架构与 Tile Shading 扩展</h3><p class="en">移动 GPU 省带宽的根本机制</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1956771279777543398" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <span class="lbl k">分块渲染原理</span>
+        <ul class="pts">
+          <li>帧缓冲拆成小矩形 tile，逐个用片上高速 <b>GMEM</b> 渲染，避免访问带宽受限的系统内存。</li>
+          <li>两阶段：<b>分块阶段</b>生成「可见性流」标记三角形落在哪些 tile→存系统内存；<b>渲染阶段</b>读可见性流仅渲各 tile 可见图元，完成后 GMEM 归并回系统内存。</li>
+        </ul>
+        <span class="lbl s">关键特性</span>
+        <ul class="pts">
+          <li><b>Bin 最小化：</b>降分辨率/VRS/减 MSAA 采样/减渲染目标/简化顶点着色器。</li>
+          <li><b>FlexRender™：</b>分块与直接渲染间自动切换（顶点纹理采样比高、绘制少、用细分/几何着色器倾向直接模式）。</li>
+          <li><b>并发分块（A7x）：</b>无依赖时 binning 可在顶点着色器前异步跑；复用深度缓冲不清除有助于并发。</li>
+          <li><b>Tile Shading（A840+）：</b><code>tile_memory_heap</code>+<code>tile_shading</code> <b>必须同时启用</b>，让计算着色器直接访问 GMEM、跨通道驻留资源、per-tile draw；per-tile block 用 <code>vkCmdBeginPerTileExecutionQCOM</code> 括起并带 <code>BY_REGION_BIT</code>。</li>
+          <li><b>MSAA：</b>硬件在 tile 内做，无需额外系统内存与 blit。</li>
+        </ul>
+        <div class="scene"><b>适用场景：</b>理解一切带宽优化的底层逻辑；落地延迟渲染/Tile Shading。</div>
+      </div>
+    </article>
+
+    <article class="post" id="a3">
+      <div class="post-head"><div class="badge">03</div><div class="post-title"><h3>渲染图面（Render Surfaces）—— sRGB、上采样与带宽压缩</h3><p class="en">颜色/深度格式选型 + UBWC</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1956783089708696786" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <span class="lbl s">格式选型</span>
+        <ul class="pts">
+          <li><b>sRGB 纹理</b>与显示屏一致；Vulkan 原生支持，OpenGL ES 需额外处理。</li>
+          <li><b>颜色：</b><code>R10G10B10A2</code>（首选）&gt; <code>R11G11B10</code>（无 Alpha）&gt; <code>RGBA16</code>（渐变透明/高色深）。</li>
+          <li><b>深度：</b><code>D16</code>（无模板且精度够）&gt; <code>D24_S8</code>（需模板）&gt; <code>D32</code>（无模板但 D16 不够）。</li>
+        </ul>
+        <span class="lbl k">上采样（降渲染分辨率）</span>
+        <ul class="pts">
+          <li>低分辨率渲再放大（1080p→720p）。方法：<b>骁龙 GSR</b>（单通道空间超分，比双线性清晰）、<code>vkCmdBlitImage</code>、OpenGL ES blit（比渲全屏四边形快）、Android <code>setFixedSize</code> 让 SurfaceFlinger 缩放。</li>
+        </ul>
+        <span class="lbl k">带宽优化 + UBWC</span>
+        <ul class="pts">
+          <li>减缓存未命中：压缩纹理（4×4 块单次读 16 像素）、紧凑顶点格式、索引绘制+最小索引类型。</li>
+          <li><b>UBWC（A5x 起全系）：</b>预测性实时压缩 GPU↔内存数据，对开发者透明，Vulkan 用 <code>TILING_OPTIMAL</code> 启用。与 ASTC 等本质不同：UBWC 解决「传得快/耗得少」，压缩纹理解决「存得小」。</li>
+        </ul>
+        <div class="scene"><b>适用场景：</b>带宽/功耗受限时的格式选型与降分辨率渲染。</div>
+      </div>
+    </article>
+
+    <article class="post" id="a4">
+      <div class="post-head"><div class="badge">04</div><div class="post-title"><h3>LRZ、Early-Z 与 Fast-Z —— 三种深度优化的协同</h3><p class="en">宏观剔除 + 像素级剔除 + 深度写入加速</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1956802653955785478" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <table class="cmp">
+          <tr><th>技术</th><th>层级 / 目标</th><th>开发者控制</th></tr>
+          <tr><td><b>LRZ</b>（A5x 低分辨率深度通道）</td><td>分块/图元级粗剔除，<b>与绘制顺序无关</b>，CPU 开销极小</td><td>间接（优化设计提升生效概率）</td></tr>
+          <tr><td><b>Early-Z</b></td><td>像素级，着色前剔除遮挡片段，最高 <b>4 倍填充率</b>剔除</td><td>直接（控深度函数、禁 discard/改深度）</td></tr>
+          <tr><td><b>Fast-Z</b></td><td>仅深度写入 <b>2 倍速</b>（阴影/深度预通道）</td><td>间接（设计仅深度通道）</td></tr>
+        </table>
+        <span class="lbl w">失效场景（重要）</span>
+        <ul class="pts">
+          <li><b>LRZ 禁用：</b>改深度方向、深度函数设 ALWAYS/NOT_EQUAL、混合后深度写、颜色掩码/部分 MRT 写、模板操作、帧缓冲获取、高级混合；片段着色器写 UAV/深度/模板；alpha-to-coverage、discard。</li>
+          <li><b>Early-Z 禁用：</b>写深度/模板、discard、alpha-to-coverage（建议图元从前到后排序）。</li>
+          <li><b>Fast-Z：</b>空片段着色器+禁写掩码；间接绘制用 <code>layout(early_fragment_tests) in;</code>。</li>
+        </ul>
+        <p style="font-size:13.5px;color:var(--sub)">原文「图书馆找书」类比：LRZ=看楼层平面图筛区域，Early-Z=到书架摸一下，Fast-Z=只贴标签开绿色通道。三者协同——深度预通道用 Fast-Z 快速建深度，为主通道 LRZ/Early-Z 创造剔除条件。</p>
+        <div class="scene"><b>适用场景：</b>深度复杂度高的场景做剔除优化、排查 LRZ 意外失效。</div>
+      </div>
+    </article>
+  </section>
+
+  <section>
+    <h2 class="sec">主系列 · 着色器与资源优化</h2>
+
+    <article class="post" id="a5">
+      <div class="post-head"><div class="badge">05</div><div class="post-title"><h3>纹理 —— 采样模式与压缩格式</h3><p class="en">Bindless 采样、压缩格式优先级</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1956839017757774506" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body"><ul class="pts">
+        <li><b>采样：</b>用 <code>COMBINED_IMAGE_SAMPLER</code> 走更优的无绑定路径；独立采样器填充率通常低 2%–5%。</li>
+        <li><b>多纹理：</b>单多边形多张纹理，可减过度绘制、降 ALU、避免多余顶点变换。</li>
+        <li><b>压缩格式优先级：</b><code>ASTC</code>（可变块、sRGB 高效）&gt; <code>ETC2</code> &gt; <code>ATC</code>（Adreno 专属）&gt; <code>ETC</code> &gt; <code>DXT</code> &gt; <code>BC</code>；ASTC 支持 HDR/LDR；Vulkan 需离线预压缩。</li>
+        <li><b>转换方式：</b>设备端（启动耗时）/ 预打包（最优但需多版本 APK）/ 下载式（需检测 GPU+网络，最精准）。</li>
+        <li>支持 FP16/FP32 浮点纹理、无缝立方体贴图、视频纹理（无独立显存，由驱动从系统内存分配）。</li>
+      </ul><div class="scene"><b>适用场景：</b>纹理格式选型与采样器配置。</div></div>
+    </article>
+
+    <article class="post" id="a6">
+      <div class="post-head"><div class="badge">06</div><div class="post-title"><h3>着色器（Shaders）—— 半精度、GPR 与 ALU 优化</h3><p class="en">系列里着色器侧信息密度最高的一篇</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1956845808163992205" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <span class="lbl s">架构基础</span>
+        <ul class="pts">
+          <li><b>统一着色器架构：</b>顶点/片段/计算共用 ALU，4 个一组作为 wave 处理，停滞时 ALU 可调度给其他任务。</li>
+          <li><b>标量架构+半精度：</b>片段着色器用 16 位 mediump 而非 32 位 highp，能效与性能可<b>翻倍</b>。</li>
+        </ul>
+        <span class="lbl k">指令数与 GPR 最小化</span>
+        <ul class="pts">
+          <li>指令数应适配指令缓存；过大则拆分（中间结果存 GMEM 最快）。降 GPR 提升并发 wave；<b>不展开循环</b>常可省 GPR；避免「超级着色器」。</li>
+        </ul>
+        <span class="lbl k">ALU 优化技巧</span>
+        <ul class="pts">
+          <li>最小化类型转换（<code>int4+1.0</code> 这类不匹配会从 1 条暴增到 8 条指令）。</li>
+          <li>分支按性能：编译时常量 &gt; 统一变量 &gt; 着色器内修改变量；打包插值器/标量常量触发 mad 指令；优先内置函数；避免 discard/改深度。</li>
+        </ul>
+        <span class="lbl w">资源限制与延迟隐藏</span>
+        <ul class="pts">
+          <li>A7X 超整数倍即可能掉性能：顶点缓冲 32、UBO 16、纹理+SSBO 总数 16；LPAC 计算指令 2256。</li>
+          <li>编译器把只读 SSBO 访问转为纹理获取隐藏延迟；纹理瓶颈时优先 VBO、按数据簇访问（硬件按 2×2 块）、用 mipmap、慎用三线性/各向异性。</li>
+          <li>初始化期编译（Vulkan 调 <code>vkCreateGraphicsPipelines</code>；ES 用二进制 blob）；<b>Adreno 驱动从不重编译着色器</b>。</li>
+          <li>能用片段着色器就别用计算（有并发解析硬件）；计算工作组 ≥64 避免 CPU 等 GPU；同步优先原子操作。</li>
+        </ul>
+        <div class="scene"><b>适用场景：</b>着色器逐行调优、排查 GPR/指令缓存导致的性能问题。</div>
+      </div>
+    </article>
+
+    <article class="post" id="a7">
+      <div class="post-head"><div class="badge">07</div><div class="post-title"><h3>GPU 驱动渲染（GPU-Driven Rendering）</h3><p class="en">实例化、间接绘制、网格着色</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1957191590872322932" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body"><ul class="pts">
+        <li><b>几何实例化：</b>一次绘制渲多个同网格副本，仅存一份顶点/索引+实例变换流，省内存。</li>
+        <li><b>间接绘制：</b>开销从 CPU 转 GPU，GPU 自决绘制内容；仅深度通道配 SSBO 用 <code>layout(early_fragment_tests) in;</code> 激活 Fast-Z。</li>
+        <li><b>顶点流 &gt; 属性获取</b>（GPU 驱动架构下）；<b>LPAC</b> 适合延迟不敏感的毫秒级计算，与图形管道并发。</li>
+        <li><b>2D 硬件加速：</b>blit、表面清除、预旋转、旋转、卷积核（<code>VK_QCOM_image_processing</code>）。</li>
+        <li><b>网格着色（A8x）：</b>比几何/外壳/域/细分更高效，支持 meshlet 级剔除；设最优 wave（A7x/A8x=64）、逐顶点属性优于逐图元、payload ≤32kB 倍数。</li>
+      </ul><div class="scene"><b>适用场景：</b>大规模重复几何、GPU 驱动管线、A8x 网格着色。</div></div>
+    </article>
+
+    <article class="post" id="a8">
+      <div class="post-head"><div class="badge">08</div><div class="post-title"><h3>可变速率着色（Variable Rate Shading, VRS）</h3><p class="en">一个片段着色一组像素，降负载省电</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1957206229647614661" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body"><ul class="pts">
+        <li><b>原理：</b>与抗锯齿相反——颜色变化不剧烈或后续会模糊的区域降低着色频率，用对则几乎无画质损失却大幅减 GPU 工作量。</li>
+        <li><b>API：</b>Vulkan <code>VK_KHR_fragment_shading_rate</code>（传 <code>VkExtent2D</code>）；OpenGL ES <code>QCOM_shading_rate</code>（如 <code>GL_SHADING_RATE_1X2_PIXELS_QCOM</code>）。</li>
+        <li><b>适用区域：</b>颜色差异低、会被运动模糊/景深降采样的区域、运动体积渲染。</li>
+      </ul><div class="scene"><b>适用场景：</b>片段着色受限的高负载场景，配合运动模糊/景深/注视点渲染。</div></div>
+    </article>
+
+    <article class="post" id="a9">
+      <div class="post-head"><div class="badge">09</div><div class="post-title"><h3>顶点缓冲区与索引缓冲区</h3><p class="en">布局、压缩、批处理、索引类型</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1957210933135913921" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body"><ul class="pts">
+        <li>A7X 顶点缓存 32 个 4D 顶点；传单个顶点缓冲。</li>
+        <li><b>布局：</b>开头放影响位置的属性交错数组（xyz|xyz），其后放其他属性——配合「仅位置顶点着色器」。</li>
+        <li><b>压缩：</b>尽量压缩属性，已知范围数据映射打包格式（法线用 <code>GL_UNSIGNED_INT_2_10_10_10_REV</code>）；ES 顶点半精度用 <code>GL_OES_vertex_half_float</code>（Vulkan 顶点暂不支持）。</li>
+        <li><b>缓存友好：</b>共享顶点的三角形聚集；动态改 VBO 时先批量更新再统一绘制。</li>
+        <li><b>索引类型：</b>优先 8 位 &gt; 16 位 &gt; 尽量避免 32 位。</li>
+      </ul><div class="scene"><b>适用场景：</b>几何数据布局与顶点带宽优化。</div></div>
+    </article>
+
+    <article class="post" id="a10">
+      <div class="post-head"><div class="badge">10</div><div class="post-title"><h3>光线追踪（Ray Tracing）</h3><p class="en">作为光栅化补充，Ray Query + 加速结构</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1958285518396720440" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <span class="lbl s">基础</span>
+        <ul class="pts">
+          <li>通常作为光栅化的<b>补充</b>（阴影/反射/次表面散射）。暴力求交不可行，必须用<b>加速结构</b>（<code>VK_KHR_acceleration_structure</code>，建议 GPU 构建）+ <code>VK_KHR_ray_query</code> 任意阶段查询碰撞。</li>
+        </ul>
+        <span class="lbl k">优化要点</span>
+        <ul class="pts">
+          <li>指令缓存优化、16 位精度、几何剔除（视锥/portal/LOD）。</li>
+          <li>GPU 构建 AS（A8x 最优 32）、查询子组 A8x=64、并发用 LPAC；变形小用「重构」、大用「重建」。</li>
+          <li><b>Ray Query 优于 Ray Pipeline</b>；减少 <code>rayQueryProceed()</code>（会内联）；复用单个最小查询对象；用内置函数访问数据；「首次匹配即接受」无需 while 循环。</li>
+        </ul>
+        <div class="scene"><b>适用场景：</b>移动端光追阴影/反射落地与调优。</div>
+      </div>
+    </article>
+
+    <article class="post" id="a11">
+      <div class="post-head"><div class="badge">11</div><div class="post-title"><h3>True HDR —— 移动端端到端 HDR 方案</h3><p class="en">HDR10 / ACES / DPU 色域体积映射</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1958630117963170376" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <span class="lbl s">基础概念</span>
+        <ul class="pts">
+          <li>HDR 亮度远超 SDR；宽色域 WCG（BT.2020 &gt; DCI-P3 &gt; BT.709）；亮度+色域=颜色体积。</li>
+          <li>高通「真 HDR」是移动首个端到端方案，用 <code>R10G10B10A2</code>/BT2020，<b>色域体积映射由 DPU 执行</b>，兼容 HDR10（10 位+BT2020+ST2084-PQ+SMPTE ST2086）。</li>
+        </ul>
+        <span class="lbl k">流程</span>
+        <ul class="pts">
+          <li><b>传统 HDR：</b>渲染→后处理→颜色分级→色调映射（Reinhard/Crytek/Filmic/ACESFilm）→伽马。</li>
+          <li><b>真 HDR：</b>场景参考图像→后处理→色域+色调映射→UI 色调映射+缩放→合成→ST2084-PQ 编码；EOTF/色调/色域映射交 DPU。</li>
+          <li><b>ACES：</b>AP0/AP1 色域，RRT（→0–10000nit）+ ODT（→设备范围，如 ODT_1000nits）。</li>
+        </ul>
+        <span class="lbl w">OpenGL ES 配置</span>
+        <ul class="pts">
+          <li>需 <code>EGL_EXT_gl_colorspace_bt2020_pq</code> 等；EGL 表面设 R10G10B10A2、色域 BT2020_PQ、配 SMPTE2086 元数据。Android Vulkan WSI 仅支持 DISPLAY_P3_NONLINEAR。</li>
+        </ul>
+        <div class="scene"><b>适用场景：</b>骁龙 OLED 设备落地 HDR 游戏渲染管线。</div>
+      </div>
+    </article>
+
+    <article class="post" id="a12">
+      <div class="post-head"><div class="badge">12</div><div class="post-title"><h3>查询（Queries）—— 遮挡查询、时间戳、驱动版本</h3><p class="en">正确用 query 才能既准又省</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1958831610804831746" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body"><ul class="pts">
+        <li><b>遮挡查询：</b>尽量「直接模式」（CP 开销 4%–6% vs 分箱 20%–40%），flush 后批量提交。A5x 活跃 ≤512，结果 3 帧延迟。</li>
+        <li><b>时间戳查询：</b>务必在 renderpass 内发起保精度；分箱模式覆盖所有 tile，单 draw 给每 tile 带 2–5μs 开销。</li>
+        <li><b>驱动版本：</b><code>driverVersion</code>（主10/次10/修订12，看次版本号）或 <code>adb shell dumpsys SurfaceFlinger | grep GLES</code>；着色器统计需次版本 ≥636。</li>
+        <li><b>Vulkan Adreno Layer：</b>检测可优化点并经 logcat 给建议（如 VKDBGUTILWARN003=子通道未正确合并）；文末列 Adreno 支持的全部 API（ES 1.x–3.2、Vulkan 1.0/1.1、OpenCL、DirectX 11/12）。</li>
+      </ul><div class="scene"><b>适用场景：</b>遮挡剔除/精确计时，按驱动版本做兼容 workaround。</div></div>
+    </article>
+  </section>
+
+  <section>
+    <h2 class="sec">主系列 · 工具与方法论</h2>
+
+    <article class="post" id="a13">
+      <div class="post-head"><div class="badge">13</div><div class="post-title"><h3>Android OS on Snapdragon —— 内存管理与应用生命周期</h3><p class="en">面向原生 C++ 高性能游戏</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1965392299086307480" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <span class="lbl k">内存（统一内存架构）</span>
+        <ul class="pts">
+          <li>CPU 与 GPU 共享内存空间互相挤占。真正可用 = <code>availMem − threshold</code>。</li>
+          <li>图形内存 ≈ <code>Gfx dev + EGL mtrack + GL mtrack</code>；root 下读 <code>/sys/.../kgsl</code> 精细分类；<code>--unreachable</code> 粗查泄漏。</li>
+        </ul>
+        <span class="lbl s">生命周期</span>
+        <ul class="pts">
+          <li><code>onDestroy</code>/<code>onStop</code> 极端压力下可能不调用；<code>onStop</code> 是存档好时机；处理 <code>onTrimMemory()</code> 是防被杀最可靠手段（RUNNING_* 立即存档+每分钟再存）。</li>
+          <li>资源留进程内、避免额外服务、显式禁分屏。</li>
+        </ul>
+        <div class="scene"><b>适用场景：</b>原生游戏内存排查、防 OOM、存档时机设计。</div>
+      </div>
+    </article>
+
+    <article class="post" id="a14">
+      <div class="post-head"><div class="badge">14</div><div class="post-title"><h3>骁龙分析器（Snapdragon Profiler）—— 三种模式与关键指标</h3><p class="en">附大量指标参考阈值</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1965400031554147993" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <span class="lbl s">三种模式</span>
+        <dl class="kv">
+          <dt>实时 Realtime</dt><dd>图表实时呈现 CPU/GPU/内存/功耗/温度等计数器。</dd>
+          <dt>追踪 Trace</dt><dd>捕获一段时间数据可缩放检查；支持 Vulkan/OpenGL ES/DSP。</dd>
+          <dt>快照 Snapshot</dt><dd>单帧完整视图：绘制调用、资源、着色器复杂度、像素历史、过度绘制。</dd>
+        </dl>
+        <span class="lbl k">关键阈值（节选）</span>
+        <ul class="pts">
+          <li>平均多边形面积 ≥4 不超 bin；裁剪/trivial 剔除 &lt;2%；ALU 利用率/着色器繁忙 50–100%；着色器停滞 &lt;10%；纹理获取停滞 &lt;2%（持续 ≥16% 偏高）；Vulkan 分箱占渲染通道 10–20%（30% 偏高）；CP 开销近 0%、绝不超 20%。</li>
+        </ul>
+        <span class="lbl w">测试纪律</span>
+        <ul class="pts"><li>连续跑 ≥10 分钟看热节流；分析器约带 5% CPU 开销；间隔 ~21°C 冷却 ≥20 分钟；加载界面性能特征与游戏内不同。</li></ul>
+        <div class="scene"><b>适用场景：</b>建立性能基线、指标体检时的「阈值速查表」。</div>
+      </div>
+    </article>
+
+    <article class="post" id="a15">
+      <div class="post-head"><div class="badge">15</div><div class="post-title"><h3>理解并解决图形内存加载（GMEM Loads / Unresolves）</h3><p class="en">移动 Tile 架构最常见的 GPU 性能问题之一</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1965450329563828373" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body"><ul class="pts">
+        <li><b>一句话对策：</b>对所有帧缓冲附件做 <b>Clear 或 Invalidate</b>，告诉 GPU 无需把上一帧 tile 数据搬回 GMEM。</li>
+        <li><b>两大成因：</b>提示不当（未清除缓冲，OpenGL ES 多发）、算法问题（<code>glReadPixels</code>/<code>glFlush</code> 强制刷新）。</li>
+        <li><b>实测：</b>未清除模板附件触发的 GMEM 加载约占 9% 渲染时间，显式清除后帧时间缩短约 9%。</li>
+      </ul><div class="scene"><b>适用场景：</b>PC/主机移植后帧时间偏高、追踪见红色「GMEM Loads」区块时。</div></div>
+    </article>
+
+    <article class="post" id="a16">
+      <div class="post-head"><div class="badge">16</div><div class="post-title"><h3>识别游戏性能瓶颈（卡顿分析方法）</h3><p class="en">GPU-bound / CPU-bound / Vsync-bound 分诊</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1965454064683843764" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <ul class="pts"><li><b>起点帧率：</b>看平均帧率+稳定性；目标只取 30 或 60fps。</li></ul>
+        <table class="cmp">
+          <tr><th>类型</th><th>判定</th><th>处理</th></tr>
+          <tr><td>GPU-bound</td><td>GPU 利用率稳定 98–100%、无空闲间隙</td><td>减过度绘制、简化着色器、超分降分辨率</td></tr>
+          <tr><td>CPU-bound</td><td>非 GPU 限制+帧时间 &gt;16ms；利用率不可靠，看线程调度</td><td>采样找热点（案例 <code>SatisfyConstraints()</code> 占 98%），多线程化</td></tr>
+          <tr><td>Vsync-bound</td><td>非 CPU/GPU 限制，单帧≈16ms，帧尾等待间隙</td><td>已达硬件上限，仍可优化功耗/发热</td></tr>
+        </table>
+        <div class="scene"><b>适用场景：</b>拿到掉帧游戏不知从哪下手时的「分诊台」。</div>
+      </div>
+    </article>
+
+    <article class="post" id="a17">
+      <div class="post-head"><div class="badge">17</div><div class="post-title"><h3>插帧（Adreno Frame Motion Engine / G-FRC 概览）</h3><p class="en">高通插帧技术演进（演讲式概览）</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1967900796483014908" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <p>偏概览/演讲提纲（正文较短）。插帧算法闭源，是降功耗、提流畅度的有效手段。</p>
+        <ul class="pts">
+          <li><b>AFME 1.0：</b>接口在 Khronos 文档，传资源即可调用，纯 GPU 图像插帧、效果有限。</li>
+          <li><b>AFME 2.0：</b>引入三维信息，集成更难但画质更好（尤其 3D），对难处理 case 定向优化。</li>
+          <li><b>G-FRC+：</b>跨代升级，并发插帧+超分、部分算法上 NPU 做 AI 优化、集成在高通源码自动提取资源，最易用。</li>
+          <li><b>现状（2025.10）：</b>手机插帧已成熟；除高通外华为、荣耀均发布 AI 插帧；趋势是高倍率、融合插帧、算法倒逼硬件升级。</li>
+        </ul>
+        <div class="scene"><b>适用场景：</b>了解移动插帧全景与高通方案选型（不含代码）。</div>
+      </div>
+    </article>
+  </section>
+
+  <section>
+    <h2 class="sec">补充篇解析</h2>
+    <p class="sec-sub">官方开发者文档的翻译 + 作者注解，更偏「官方口径」。</p>
+
+    <article class="post" id="s0">
+      <div class="post-head"><div class="badge suppl">补0</div><div class="post-title"><h3>为低功耗游戏优化性能与图形表现</h3><p class="en">译自《Optimize performance and graphics for Adreno GPU for low power gaming》</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1961502637515084666" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <span class="lbl w">先理解约束</span>
+        <ul class="pts"><li>散热限制、电池续航、设备差异、闲置唤醒、帧时序不稳——五类机制决定优化方向。</li></ul>
+        <span class="lbl s">两大工具</span>
+        <ul class="pts"><li><b>骁龙分析器</b>（150+ 计数器实时洞察）+ <b>AOC</b>（导入 SPIR-V/HLSL/GLSL 给指令数/寄存器，可接 CI）= 实时诊断+离线调优闭环。</li></ul>
+        <span class="lbl k">8 条策略</span>
+        <ul class="pts"><li>① 真实散热负载下分析；② 减过度绘制与着色器开销；③ 散热压力下动态降特效；④ 规划可变性能配置（DVFS）；⑤ 管后台线程；⑥ VRR 匹配场景（菜单 30Hz/战斗 60Hz）；⑦ 自动化分析接 CI；⑧ 用 SGSR 降分辨率渲染再升频。</li></ul>
+        <div class="scene"><b>适用场景：</b>立项期制定性能/功耗策略，或优化总检查清单。</div>
+      </div>
+    </article>
+
+    <article class="post" id="s1">
+      <div class="post-head"><div class="badge suppl">补1</div><div class="post-title"><h3>高阶滤波与块匹配：VK_QCOM_image_processing 扩展</h3><p class="en">用专用硬件做大核/自定义核采样</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1961897336759367161" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <p>大核/自定义核采样在着色器里手写会造成纹理单元↔着色器单元大量数据往返，该扩展开放专用硬件来做。</p>
+        <span class="lbl k">四个新 GLSL 函数</span>
+        <ul class="pts">
+          <li><code>textureWeightedQCOM</code>：二维权重核相乘求和（支持「相位」处理非中心采样；可分离滤波器水平权重放第0层、垂直放第1层）。</li>
+          <li><code>textureBoxFilterQCOM</code>：矩形区域加权平均。</li>
+          <li><code>textureBlockMatchSAD/SSDQCOM</code>：目标块与参考块相关性，返回绝对差/平方差之和（特征检测、运动跟踪、图像对齐）。</li>
+          <li>仅支持 2D，不支持 mipmap/多层/多重采样/深度模板。</li>
+        </ul>
+        <span class="lbl s">实测收益</span>
+        <div class="metrics"><span class="m">运行时间缩短 &gt;75%</span><span class="m">能耗降低 ~90%</span><span class="m">平台 SM8550</span></div>
+        <span class="lbl w">启用条件</span>
+        <ul class="pts"><li>Vulkan SDK ≥1.3.222；硬件 ≥SM8550；Adreno 驱动 ≥512.649。运动估计/光流建议改用 <code>GL_QCOM_motion_estimation</code>/<code>VK_NV_optical_flow</code>。</li></ul>
+        <div class="scene"><b>适用场景：</b>模糊/锐化/边缘检测/上下采样/mipmap 生成、bloom 等大核或自定义核处理。</div>
+      </div>
+    </article>
+
+    <article class="post" id="s2">
+      <div class="post-head"><div class="badge suppl">补2</div><div class="post-title"><h3>骁龙游戏超级分辨率（SGSR1 / SGSR2）深度解析</h3><p class="en">从原理到 Shader 代码逐段剖析，全系列篇幅最长</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1963656109723190345" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <span class="lbl s">SGSR1（空间超分）</span>
+        <ul class="pts">
+          <li><b>定位：</b>单通道空间感知超分，针对 Adreno tiled 架构定制，号称比其他移动超分性能高一倍。</li>
+          <li><b>三特点：</b>升频+锐化整合进单个着色器通道；12-tap 类 Lanczos 缩放+自适应锐化；仅需单输入纹理。</li>
+          <li><b>为何快：</b>12 核窗口、仅用绿色通道算亮度，每像素仅采样一个分量做三分量插值，总共仅 15 条纹理指令，着色器利用率 100%。文中给出启用 <code>UseEdgeDirection</code> 的完整片段着色器（fastLanczos2/weightY/edgeDirection 逐段注释）。</li>
+        </ul>
+        <span class="lbl s">SGSR2（时域超分）</span>
+        <ul class="pts">
+          <li>核心两阶段：转换 convert pass + 上采样 upscale pass；引入运动向量与历史帧，画质更高但更复杂。</li>
+          <li>三变体：<code>2-pass-fs</code>（推荐）等；内部资源含 Colorluma（R32UI）、PrevHistory。</li>
+          <li>关键技术：<code>textureGather</code> 采深度、深度一致性检测、8×8 计算着色器并行 64 像素、运动补偿重投影、9 点上采样、YCoCg↔RGB、边界框做历史颜色裁剪与时域混合。</li>
+        </ul>
+        <span class="lbl w">价值</span>
+        <ul class="pts"><li>低分辨率渲染再升频，显著降 GPU 负载/功耗/发热，保留接近原生清晰度——补0 策略反复推荐的手段。</li></ul>
+        <div class="scene"><b>适用场景：</b>理解移动超分原理、或在自研引擎集成/移植 SGSR 时的逐行参考。</div>
+      </div>
+    </article>
+  </section>
+
+  <section>
+    <h2 class="sec">番外篇解析</h2>
+    <p class="sec-sub">围绕具体 Vulkan 特性的专题，偏实现细节。</p>
+
+    <article class="post" id="b1">
+      <div class="post-head"><div class="badge bonus">外1</div><div class="post-title"><h3>VK_QCOM_render_pass_shader_resolve</h3><p class="en">用自定义着色器替代固定功能 MSAA 解析</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1958901619044378271" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <p>允许用可编程片段着色器替代传统固定功能 MSAA 解析，实现更高质量抗锯齿或特殊后处理。</p>
+        <table class="cmp">
+          <tr><th>维度</th><th>传统硬件 MSAA 解析</th><th>Shader Resolve</th></tr>
+          <tr><td>解析方式</td><td>固定硬件算法</td><td>可编程着色器</td></tr>
+          <tr><td>控制粒度</td><td>受限</td><td>高，可自由写解析逻辑</td></tr>
+          <tr><td>平台依赖</td><td>通用</td><td>Qualcomm 设备专属</td></tr>
+          <tr><td>适用</td><td>标准抗锯齿，性能可预测</td><td>自定义过滤/特殊后处理</td></tr>
+        </table>
+        <span class="lbl k">实现关键</span>
+        <ul class="pts"><li>SubPass 设 <code>VK_SUBPASS_DESCRIPTION_SHADER_RESOLVE_BIT_QCOM</code>，着色器开 <code>GL_QCOM_render_pass_shader_resolve</code>，用 <code>subpassLoad(multisampledColor, i)</code> 读样本做自定义解析（文中有完整 C++/GLSL 示例）。</li></ul>
+        <span class="lbl w">代价/限制</span>
+        <ul class="pts"><li>仅 Adreno 支持，跨平台需回退；需自写/调试解析着色器（约多 2–3 周）；实现不当性能可能不及固定功能；部分硬件 MSAA 特性需手动实现。</li></ul>
+        <div class="scene"><b>适用场景：</b>主攻高通、对画质要求极高、需定制抗锯齿/融合后处理时；追求广兼容/赶工期则用标准硬件 MSAA。</div>
+      </div>
+    </article>
+
+    <article class="post" id="b2">
+      <div class="post-head"><div class="badge bonus">外2</div><div class="post-title"><h3>图面旋转的合理运用（Pre-rotation 预旋转）</h3><p class="en">在 Vulkan 中正确处理设备旋转，避免额外带宽</p><a class="post-link" href="https://zhuanlan.zhihu.com/p/1959223725527396495" target="_blank">阅读原文 ↗</a></div></div>
+      <div class="post-body">
+        <p>OpenGL ES 由驱动透明处理旋转，但 <b>Vulkan 规范要求应用自行处理</b>。</p>
+        <span class="lbl s">三种旋转方式</span>
+        <ul class="pts">
+          <li><b>DPU 硬件旋转：</b>最高效透明，仅支持设备可用。</li>
+          <li><b>Android 合成器旋转：</b>引入合成通道，透明但有额外内存带宽/GPU 负载。</li>
+          <li><b>应用预旋转（推荐）：</b>直接渲到与显示面板物理方向匹配的窗口图面，省去合成器旋转——唯一能确保避免额外开销的方法。</li>
+        </ul>
+        <span class="lbl k">实现要点</span>
+        <ul class="pts">
+          <li>清单加 <code>configChanges="orientation|screenSize"</code>；用 <code>APP_CMD_CONTENT_RECT_CHANGED</code> 跟踪方向。</li>
+          <li>重建交换链时 <code>preTransform</code> 设为 <code>currentTransform</code>；旋转 90/270° 交换 width/height；给相机 MVP 乘 <code>pre_rotate_mat</code>。</li>
+        </ul>
+        <span class="lbl w">实测影响</span>
+        <ul class="pts"><li>无 DPU 旋转设备（Mali-G72）：未预旋转时内存读停顿 12%→22%、写停顿 7%→17%，2D 旋转模块占大量带宽掉性能费电。</li></ul>
+        <div class="scene"><b>适用场景：</b>Vulkan 移动应用横竖屏切换、排查旋转带来的额外带宽/耗电。</div>
+      </div>
+    </article>
+  </section>
+
+  <section id="takeaways">
+    <h2 class="sec">通读小结：一条主线、三组抓手</h2>
+    <p class="sec-sub">把 22 篇串起来，可以这样记忆这套方法论。</p>
+    <div class="grid3">
+      <div class="ov"><h4>测得准</h4><p>骁龙分析器三模式+指标阈值（14）→ 帧率分诊 GPU/CPU/Vsync（16）→ 真机长跑防热节流（补0）→ 查询精确计时（12）。先量化，再优化。</p></div>
+      <div class="ov"><h4>省带宽 / 省内存</h4><p>Tile 架构是核心（02）：Clear/Invalidate 消除 GMEM Loads（01/15）、UBWC 压缩（03）、子通道合并、LRZ/Early-Z/Fast-Z 剔除（04）、预旋转省合成带宽（外2）、统一内存下管好生命周期（13）。</p></div>
+      <div class="ov"><h4>用硬件 / 算法换效率</h4><p>半精度/GPR/纹理调优（05/06/09）、VRS 降着色（08）、GPU 驱动渲染与网格着色（07）、光追（10）、QCOM 专属扩展（补1/外1）；HDR（11）+ SGSR 超分（补2）+ AFME 插帧（17）以更低原生负载换画质与流畅。</p></div>
+    </div>
+  </section>
+
+  <footer>
+    本报告基于知乎专栏「高通 Adreno GPU 最佳实践」系列原文整理，内容与观点归原作者「知秋」所有，仅作学习阅读用途。<br>
+    报告生成：2026-06-23 · 共解析 22 篇全文（专栏第 0 篇为汇总目录，无独立正文）。
+  </footer>
+</div>
+<a href="#" class="back" title="回到顶部">↑</a>
+</body>
+</html>
