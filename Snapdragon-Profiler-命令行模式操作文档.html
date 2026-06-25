@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Snapdragon Profiler 命令行模式操作文档 (qprof CLI)</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a2e;
+    --muted: #6b7280;
+    --accent: #e63946;
+    --accent2: #457b9d;
+    --card: #f8f9fa;
+    --border: #e5e7eb;
+    --code-bg: #f1f3f5;
+    --success: #2d6a4f;
+    --warn: #e9c46a;
+    --danger: #d62828;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, "Segoe UI", "Noto Sans SC", sans-serif; color:var(--fg); background:var(--bg); line-height:1.7; }
+  .container { max-width:1100px; margin:0 auto; padding:24px 32px 80px; }
+
+  .hero { background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%); color:#fff; padding:48px 32px; border-radius:16px; margin-bottom:40px; position:relative; overflow:hidden; }
+  .hero::after { content:''; position:absolute; right:-60px; top:-60px; width:240px; height:240px; border-radius:50%; background:rgba(230,57,70,0.15); }
+  .hero h1 { font-size:2rem; font-weight:800; margin-bottom:8px; }
+  .hero .sub { font-size:1.05rem; opacity:0.85; font-weight:300; }
+  .hero .meta { margin-top:16px; font-size:0.85rem; opacity:0.6; }
+
+  .toc { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px 28px; margin-bottom:36px; }
+  .toc h2 { font-size:1rem; font-weight:700; margin-bottom:12px; color:var(--accent); border:none; padding:0; }
+  .toc ol { padding-left:20px; }
+  .toc li { margin-bottom:4px; }
+  .toc a { color:var(--accent2); text-decoration:none; font-size:0.95rem; }
+  .toc a:hover { text-decoration:underline; }
+
+  h2 { font-size:1.5rem; font-weight:700; margin:40px 0 16px; padding-bottom:8px; border-bottom:3px solid var(--accent); display:inline-block; }
+  h3 { font-size:1.15rem; font-weight:700; margin:28px 0 10px; color:#16213e; }
+  h4 { font-size:1rem; font-weight:600; margin:20px 0 8px; color:var(--accent2); }
+  p { margin-bottom:12px; }
+  ul,ol { padding-left:24px; margin-bottom:12px; }
+  li { margin-bottom:6px; }
+
+  .card-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin:16px 0 24px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:20px; transition:box-shadow .2s; }
+  .card:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); }
+  .card .icon { font-size:1.6rem; margin-bottom:8px; }
+  .card .label { font-weight:700; margin-bottom:4px; }
+  .card .desc { font-size:0.88rem; color:var(--muted); }
+
+  table { width:100%; border-collapse:collapse; margin:12px 0 20px; font-size:0.9rem; }
+  th { background:#16213e; color:#fff; text-align:left; padding:10px 14px; font-weight:600; }
+  td { padding:9px 14px; border-bottom:1px solid var(--border); vertical-align:top; }
+  tr:nth-child(even) td { background:var(--card); }
+  tr:hover td { background:#eef2ff; }
+
+  code { background:var(--code-bg); padding:2px 6px; border-radius:4px; font-size:0.88em; font-family:"Cascadia Code","Fira Code",monospace; color:#c0392b; }
+  pre { background:#1a1a2e; color:#e0e0e0; padding:16px 20px; border-radius:8px; overflow-x:auto; margin:12px 0 16px; font-size:0.86rem; line-height:1.55; }
+  pre code { background:none; padding:0; color:inherit; }
+  .cmd-label { font-size:0.78rem; color:var(--muted); margin:14px 0 2px; font-weight:600; letter-spacing:0.02em; }
+
+  .callout { border-radius:10px; padding:16px 20px; margin:16px 0; font-size:0.92rem; }
+  .callout-tip { background:#e8f5e9; border-left:4px solid var(--success); }
+  .callout-warn { background:#fff8e1; border-left:4px solid var(--warn); }
+  .callout-danger { background:#ffebee; border-left:4px solid var(--danger); }
+  .callout-info { background:#e3f2fd; border-left:4px solid var(--accent2); }
+  .callout strong { display:block; margin-bottom:4px; }
+
+  .workflow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:16px 0; }
+  .step { background:var(--accent); color:#fff; padding:8px 16px; border-radius:20px; font-size:0.88rem; font-weight:600; white-space:nowrap; }
+  .arrow { color:var(--muted); font-size:1.2rem; }
+
+  .badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:0.78rem; font-weight:600; }
+  .badge-good { background:#d4edda; color:#155724; }
+  .badge-warn { background:#fff3cd; color:#856404; }
+  .badge-bad { background:#f8d7da; color:#721c24; }
+  .badge-info { background:#d1ecf1; color:#0c5460; }
+
+  @media(max-width:700px) {
+    .container { padding:16px; }
+    .hero { padding:28px 16px; }
+    .hero h1 { font-size:1.5rem; }
+    .card-grid { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Hero -->
+<div class="hero">
+  <h1>Snapdragon Profiler 命令行模式操作文档</h1>
+  <div class="sub">qprof CLI — 无 GUI 自动化性能采集与离线分析指南</div>
+  <div class="meta">整理于 2026-06-25 · 适用于 Qualcomm Profiler CLI（qprof）· Android / Linux / QNX / Windows on Snapdragon</div>
+</div>
+
+<!-- TOC -->
+<div class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#intro">命令行模式是什么 / 适用场景</a></li>
+    <li><a href="#install">安装路径与可执行文件位置</a></li>
+    <li><a href="#env">环境变量配置（各平台）</a></li>
+    <li><a href="#connect">连接设备与服务器配置</a></li>
+    <li><a href="#capabilities">查询可用能力（capabilities）</a></li>
+    <li><a href="#commands">顶层命令与参数速查表</a></li>
+    <li><a href="#profile">采集数据：qprof --profile 详解</a></li>
+    <li><a href="#examples">完整示例命令集</a></li>
+    <li><a href="#offline">离线分析：Perfetto / WPA</a></li>
+    <li><a href="#paths">日志与结果文件路径</a></li>
+    <li><a href="#troubleshoot">常见问题排查</a></li>
+  </ol>
+</div>
+
+<!-- 1 -->
+<h2 id="intro">1. 命令行模式是什么 / 适用场景</h2>
+<p>Snapdragon Profiler（高通骁龙性能分析器，新版品牌名为 <strong>Qualcomm Profiler</strong>）除了图形界面外，还提供一个命令行工具 <code>qprof</code>。命令行模式让你可以在<strong>没有图形界面</strong>的情况下完成性能数据采集，特别适合以下场景：</p>
+<div class="card-grid">
+  <div class="card">
+    <div class="icon">🤖</div>
+    <div class="label">自动化 / CI 集成</div>
+    <div class="desc">把性能采集写进脚本，每次出包后自动跑一轮，回归性能数据。</div>
+  </div>
+  <div class="card">
+    <div class="icon">🖥️</div>
+    <div class="label">无头服务器 / 远程设备</div>
+    <div class="desc">通过 SSH 或 adb shell 在没有桌面的环境直接采集。</div>
+  </div>
+  <div class="card">
+    <div class="icon">⏱️</div>
+    <div class="label">精确可控的采集</div>
+    <div class="desc">指定采集时长、采样率、能力集，结果可复现，便于横向对比。</div>
+  </div>
+  <div class="card">
+    <div class="icon">📊</div>
+    <div class="label">多工具协作分析</div>
+    <div class="desc">导出 trace / ETW 格式，交给 Perfetto 或 Windows Performance Analyzer 离线分析。</div>
+  </div>
+</div>
+
+<div class="callout callout-info">
+  <strong>核心工作流</strong>
+  <div class="workflow">
+    <span class="step">配置服务器 IP</span><span class="arrow">→</span>
+    <span class="step">查询 capabilities</span><span class="arrow">→</span>
+    <span class="step">qprof --profile 采集</span><span class="arrow">→</span>
+    <span class="step">导出 trace/etw</span><span class="arrow">→</span>
+    <span class="step">Perfetto/WPA 分析</span>
+  </div>
+</div>
+
+<div class="callout callout-warn">
+  <strong>关于工具命名的说明</strong>
+  「Snapdragon Profiler」是经典版（GUI 为主）的名称；高通新一代统一品牌为「Qualcomm Profiler」，其命令行工具即 <code>qprof</code>。本文所有命令行能力均以官方 <code>qprof</code> CLI 文档为准。经典版 Snapdragon Profiler 的 GUI 截帧/实时分析能力请参考工作区另一篇《高通 SDP 工具使用教程》。
+</div>
+
+<!-- 2 -->
+<h2 id="install">2. 安装路径与可执行文件位置</h2>
+<p>命令行工具 <code>qprof</code> 随 Qualcomm Profiler 安装包一同安装。各平台默认安装位置如下：</p>
+<table>
+  <thead>
+    <tr><th>平台</th><th>CLI / 示例命令目录</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Windows (x86)</td><td><code>C:\Program Files (x86)\Qualcomm\QualcommProfiler\CLI\</code></td></tr>
+    <tr><td>Windows on Snapdragon (Arm)</td><td><code>C:\Program Files (Arm)\Qualcomm\QualcommProfiler\CLI\</code></td></tr>
+    <tr><td>Linux</td><td><code>/opt/qcom/QualcommProfiler/CLI/</code></td></tr>
+  </tbody>
+</table>
+<p>官方在 <code>CLI\documents\sample-commands\</code> 目录下提供了一组<strong>示例命令与示例配置（config.json）</strong>，可直接套用后按需修改：</p>
+<table>
+  <thead><tr><th>平台</th><th>sample-commands 路径</th></tr></thead>
+  <tbody>
+    <tr><td>Windows (x86) / Linux / Android / QNX</td><td><code>C:\Program Files (x86)\Qualcomm\QualcommProfiler\CLI\documents\sample-commands\</code></td></tr>
+    <tr><td>Windows on Snapdragon</td><td><code>C:\Program Files (Arm)\Qualcomm\QualcommProfiler\CLI\documents\sample-commands\</code></td></tr>
+    <tr><td>Linux</td><td><code>/opt/qcom/QualcommProfiler/CLI/documents/sample-commands/</code></td></tr>
+  </tbody>
+</table>
+<div class="callout callout-tip">
+  <strong>建议</strong>
+  把 <code>qprof</code> 所在目录加入系统 <code>PATH</code>，即可在任意位置直接调用 <code>qprof</code> 命令。
+</div>
+
+<!-- 3 -->
+<h2 id="env">3. 环境变量配置（各平台）</h2>
+<p>在<strong>设备端</strong>（target）运行 qprof 时，通常需要先设置库路径环境变量。注意：<strong>每开一个新的 adb shell / 设备 shell 都要重新 export 一次</strong>。</p>
+
+<div class="cmd-label">Android（adb shell 内）</div>
+<pre><code>export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/vendor/qprof/libs</code></pre>
+
+<div class="cmd-label">Qualcomm Linux（设备 shell 内）</div>
+<pre><code>export PATH=/data/shared/QualcommProfiler/bins:$PATH
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/var/QualcommProfiler/libs</code></pre>
+
+<div class="cmd-label">HGY（设备 shell 内）</div>
+<pre><code>export PATH=/data/shared/QualcommProfiler/bins:$PATH
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/data/shared/QualcommProfiler/libs</code></pre>
+
+<div class="cmd-label">Ubuntu 主机（host 端）</div>
+<pre><code>export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/qcom/Shared/QualcommProfiler/API/host-ubuntu/libs/</code></pre>
+
+<div class="callout callout-warn">
+  <strong>路径可能因版本而异</strong>
+  不同安装版本/芯片平台的库路径可能有差异，请以实际安装目录为准。若 <code>qprof</code> 启动报找不到 so 库，多半是 <code>LD_LIBRARY_PATH</code> 没配对。
+</div>
+
+<!-- 4 -->
+<h2 id="connect">4. 连接设备与服务器配置</h2>
+<p>Qualcomm Profiler 采用 <strong>客户端（host）— 服务器（target 设备）</strong>架构。客户端通过 IP + 端口与设备上运行的分析服务器通信。从 Windows (x86) 主机采集时，数据只能从 <strong>Android 和 QNX</strong> 设备流式传输。</p>
+
+<h3>4.1 配置服务器 IP 与端口</h3>
+<div class="cmd-label">语法</div>
+<pre><code>qprof --configure --server-ip &lt;ServerIP&gt; --port &lt;ServerPort&gt;</code></pre>
+<div class="cmd-label">示例</div>
+<pre><code>qprof --configure --server-ip 10.73.93.35 --port 62472</code></pre>
+<p><code>--port</code> 为可选参数，仅当你确知另一个端口可用时才指定，否则可省略由工具默认处理。</p>
+
+<h3>4.2 查看当前服务器配置</h3>
+<pre><code>qprof --get-server-info
+
+Configured server IP : 10.213.121.106 port : 62472</code></pre>
+
+<div class="callout callout-info">
+  <strong>平台命令支持差异</strong>
+  <ul style="margin-bottom:0;margin-top:6px;">
+    <li><code>--configure</code>：<strong>Windows on Snapdragon (WoS) 不支持</strong>。</li>
+    <li><code>--get-server-info</code>：<strong>Arm 上的 Windows 不支持</strong>。</li>
+    <li><code>--launch-app</code>：仅在<strong>设备客户端</strong>上可用。</li>
+  </ul>
+</div>
+
+<!-- 5 -->
+<h2 id="capabilities">5. 查询可用能力（capabilities）</h2>
+<p>「capability（能力）」即可被分析的子系统 / IP 块。采集前先用下列命令列出当前设备支持的所有能力，再从中挑选需要的能力放进 <code>--capabilities-list</code>。</p>
+<div class="cmd-label">列出全部可用能力</div>
+<pre><code>qprof --capabilities</code></pre>
+
+<p>常见 capability 名称（按子系统分类）：</p>
+<table>
+  <thead><tr><th>子系统</th><th>Capability 名称</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td>CPU</td><td><code>profiler:apps-proc-cpu-metrics</code></td><td>应用处理器 CPU 指标</td></tr>
+    <tr><td>CPU (WoS)</td><td><code>profiler:wos-apps-proc-cpu-metrics</code></td><td>Windows on Snapdragon 的 CPU 指标</td></tr>
+    <tr><td>DDR / 带宽</td><td><code>profiler:apps-proc-ddr-metrics</code></td><td>应用处理器 DDR 内存指标</td></tr>
+    <tr><td>DDR / 带宽</td><td><code>profiler:bw-profiler-ddr-metrics</code></td><td>带宽分析器 DDR 指标</td></tr>
+    <tr><td>GPU</td><td><code>profiler:proc-gpu-specific-metrics</code></td><td>GPU 专用指标</td></tr>
+    <tr><td>DSP (NSP)</td><td><code>profiler:nsp-dsp-metrics</code></td><td>NSP DSP 指标</td></tr>
+    <tr><td>DSP (aDSP)</td><td><code>profiler:adsp-dsp-metrics</code></td><td>aDSP DSP 指标</td></tr>
+    <tr><td>温度 (WoS)</td><td><code>profiler:wos-apps-proc-thermal-metrics</code></td><td>WoS 温度/热指标</td></tr>
+  </tbody>
+</table>
+<p>可在一条命令里同时传入多个能力（如 GPU + CPU + NSP），用空格分隔。</p>
+
+<div class="callout callout-tip">
+  <strong>采样率限制（部分能力）</strong>
+  <ul style="margin-bottom:0;margin-top:6px;">
+    <li><code>apps-proc-ddr-metrics</code>：10–100 毫秒</li>
+    <li><code>wos-apps-proc-cpu-metrics</code>：50–200 毫秒</li>
+    <li><code>wos-apps-proc-thermal-metrics</code>：100–200 毫秒</li>
+  </ul>
+</div>
+
+<!-- 6 -->
+<h2 id="commands">6. 顶层命令与参数速查表</h2>
+
+<h3>6.1 顶层命令</h3>
+<table>
+  <thead><tr><th>命令</th><th>含义</th><th>平台限制</th></tr></thead>
+  <tbody>
+    <tr><td><code>--capabilities</code></td><td>列出可用于分析的所有子系统和 IP 块</td><td>—</td></tr>
+    <tr><td><code>--profile</code></td><td>启用并把分析数据流式传输到客户端（核心采集命令）</td><td>—</td></tr>
+    <tr><td><code>--configure</code></td><td>配置 Profiler CLI（服务器 IP/端口等）</td><td>WoS 不支持</td></tr>
+    <tr><td><code>--generate-config</code></td><td>为指定能力生成配置文件，可经 <code>--trace-options</code> 传给 profile</td><td>—</td></tr>
+    <tr><td><code>--launch-app</code></td><td>在设备上启动应用程序</td><td>仅设备客户端</td></tr>
+    <tr><td><code>--get-server-info</code></td><td>查看当前 Profiler CLI 服务器配置信息</td><td>Arm Windows 不支持</td></tr>
+  </tbody>
+</table>
+
+<h3>6.2 常用参数</h3>
+<table>
+  <thead><tr><th>参数</th><th>含义</th><th>取值示例</th></tr></thead>
+  <tbody>
+    <tr><td><code>--server-ip</code></td><td>分析服务器 IP 地址</td><td><code>10.73.93.35</code></td></tr>
+    <tr><td><code>--port</code></td><td>服务器端口（可选）</td><td><code>62472</code></td></tr>
+    <tr><td><code>--capabilities-list</code></td><td>要采集的能力列表（空格分隔多个）</td><td><code>profiler:apps-proc-cpu-metrics</code></td></tr>
+    <tr><td><code>--profile-type</code></td><td>分析类型</td><td><code>async</code></td></tr>
+    <tr><td><code>--profile-time</code></td><td>采集持续时间（秒）</td><td><code>10</code> / <code>15</code></td></tr>
+    <tr><td><code>--streaming-rate</code></td><td>采样率（毫秒）</td><td><code>200</code> / <code>500</code> / <code>1000</code></td></tr>
+    <tr><td><code>--result-format</code></td><td>结果输出格式</td><td><code>verbose</code> / <code>trace</code> / <code>etw</code></td></tr>
+    <tr><td><code>--file-format</code></td><td>文件格式</td><td><code>json</code></td></tr>
+    <tr><td><code>--live</code></td><td>实时把输出打印到标准输出</td><td>（开关，无值）</td></tr>
+    <tr><td><code>--metric-id-list</code></td><td>按 metric-id 筛选要采集的指标</td><td><code>6401</code></td></tr>
+  </tbody>
+</table>
+
+<!-- 7 -->
+<h2 id="profile">7. 采集数据：qprof --profile 详解</h2>
+<p><code>--profile</code> 是命令行模式最核心的采集命令。一条完整的采集命令通常由这几部分组成：</p>
+
+<table>
+  <thead><tr><th>组成部分</th><th>对应参数</th><th>作用</th></tr></thead>
+  <tbody>
+    <tr><td>① 启动采集</td><td><code>--profile</code></td><td>开始把数据流式传给客户端</td></tr>
+    <tr><td>② 采集模式</td><td><code>--profile-type async</code></td><td>异步采集（官方示例均用此值）</td></tr>
+    <tr><td>③ 采什么</td><td><code>--capabilities-list ...</code></td><td>指定一个或多个能力</td></tr>
+    <tr><td>④ 采多久</td><td><code>--profile-time N</code></td><td>持续 N 秒</td></tr>
+    <tr><td>⑤ 多快采一次</td><td><code>--streaming-rate N</code></td><td>每 N 毫秒采样一次</td></tr>
+    <tr><td>⑥ 输出什么格式</td><td><code>--result-format ...</code></td><td>verbose / trace / etw</td></tr>
+  </tbody>
+</table>
+
+<h3>7.1 结果格式（result-format）说明</h3>
+<div class="card-grid">
+  <div class="card">
+    <div class="label"><code>verbose</code> <span class="badge badge-info">详细</span></div>
+    <div class="desc">在终端输出详细文本数据，配合 <code>--live</code> 可实时观察。</div>
+  </div>
+  <div class="card">
+    <div class="label"><code>trace</code> <span class="badge badge-good">Perfetto</span></div>
+    <div class="desc">跟踪事件格式，导入 Perfetto / Qualcomm Profiler GUI 做离线时间线分析。</div>
+  </div>
+  <div class="card">
+    <div class="label"><code>etw</code> <span class="badge badge-warn">WoS</span></div>
+    <div class="desc">Windows 事件跟踪格式，配合 WPR/WPA 在 Windows on Snapdragon 上分析。</div>
+  </div>
+</div>
+
+<h3>7.2 生成 / 复用配置（generate-config）</h3>
+<p>对于复杂的能力组合，可先生成配置再采集：</p>
+<div class="cmd-label">Windows (x86) / Linux / Android / QNX</div>
+<pre><code>qprof --generate-config profiler:nsp-dsp-metrics profiler:adsp-dsp-metrics</code></pre>
+<div class="cmd-label">Windows on Snapdragon</div>
+<pre><code>qprof --generate-config --capabilities-list profiler:nsp-dsp-metrics profiler:adsp-dsp-metrics</code></pre>
+
+<!-- 8 -->
+<h2 id="examples">8. 完整示例命令集</h2>
+
+<h3>8.1 异步采集 + 实时详细输出（CPU + 温度）</h3>
+<pre><code>qprof --profile --profile-type async --file-format json \
+  --capabilities-list profiler:wos-apps-proc-cpu-metrics profiler:wos-apps-proc-thermal-metrics \
+  --profile-time 10 --streaming-rate 500 --result-format verbose --live</code></pre>
+
+<h3>8.2 按 metric-id 筛选采集</h3>
+<pre><code>qprof --profile --profile-type async --file-format json \
+  --capabilities-list profiler:wos-apps-proc-cpu-metrics \
+  --profile-time 10 --streaming-rate 1000 --live \
+  --metric-id-list 6401 --result-format verbose</code></pre>
+
+<h3>8.3 采集为 Perfetto trace 格式（CPU + DSP）</h3>
+<pre><code>qprof --profile --profile-type async \
+  --capabilities-list profiler:apps-proc-cpu-metrics profiler:nsp-dsp-metrics \
+  --profile-time 15 --streaming-rate 200 --result-format trace</code></pre>
+<p>采集完成后，在 Qualcomm Profiler GUI 中打开生成的 trace 文件查看时间线。</p>
+
+<h3>8.4 采集为 ETW 格式（带宽 + GPU，用于 WoS）</h3>
+<pre><code>qprof --profile --profile-type async \
+  --capabilities-list profiler:bw-profiler-ddr-metrics profiler:proc-gpu-specific-metrics \
+  --profile-time 10 --result-format etw</code></pre>
+
+<div class="callout callout-tip">
+  <strong>实战建议</strong>
+  采集 GPU 瓶颈数据时，先用 <code>--capabilities</code> 确认设备支持 <code>profiler:proc-gpu-specific-metrics</code>；采样率不宜过密（200ms 起步），过密会增大工具自身开销、干扰真实性能。真机测试连续 ≥10 分钟才能暴露热节流。
+</div>
+
+<!-- 9 -->
+<h2 id="offline">9. 离线分析：Perfetto / WPA</h2>
+
+<h3>9.1 用 Perfetto 查看 trace</h3>
+<p>以 <code>--result-format trace</code> 采集后，得到跟踪事件格式文件，可直接拖入 <a href="https://ui.perfetto.dev" target="_blank">Perfetto UI</a> 或 Qualcomm Profiler GUI 进行时间线 / counter 分析。</p>
+
+<h3>9.2 用 Windows Performance Analyzer (WPA) 查看 ETW（仅 WoS）</h3>
+<p>在 Windows on Snapdragon 上，ETW 格式数据需要配合 WPR（Windows Performance Recorder）与 WPA 使用，完整四步：</p>
+
+<div class="cmd-label">步骤 1 — 用 WPR 开始录制 Profiler 指标</div>
+<pre><code>wpr -start QualcommProfilerETW.wprp!QualcommProfilerETW.Light -filemode</code></pre>
+
+<div class="cmd-label">步骤 2 — 用 qprof 以 ETW 格式采集数据</div>
+<pre><code>qprof --profile --profile-type async \
+  --capabilities-list profiler:bw-profiler-ddr-metrics profiler:proc-gpu-specific-metrics \
+  --profile-time 10 --result-format etw</code></pre>
+
+<div class="cmd-label">步骤 3 — 停止录制，输出 .etl 文件</div>
+<pre><code>wpr -stop demo.qualcommprofiler.etl</code></pre>
+
+<div class="cmd-label">步骤 4 — 在 WPA 中打开 .etl 文件</div>
+<pre><code>wpa -i demo.qualcommprofiler.etl \
+  -addsearchdir "C:\Program Files(Arm)\Qualcomm\Shared\QualcommProfiler\API\target-wos\libs" \
+  -mode single</code></pre>
+<p>打开后即可在 WPA 中以图表与数据表的形式查看 Qualcomm Profiler 指标。</p>
+
+<!-- 10 -->
+<h2 id="paths">10. 日志与结果文件路径</h2>
+<p>采集产生的<strong>日志</strong>与<strong>结果</strong>分别保存在各平台的指定目录：</p>
+<table>
+  <thead><tr><th>平台</th><th>日志位置</th><th>结果位置</th></tr></thead>
+  <tbody>
+    <tr><td>Windows (x86)</td><td><code>C:\ProgramData\Qualcomm\QualcommProfiler\logs</code></td><td><code>C:\ProgramData\Qualcomm\QualcommProfiler\profilingresults</code></td></tr>
+    <tr><td>Windows on Snapdragon</td><td><code>C:\ProgramData\Qualcomm\QualcommProfiler\logs</code></td><td><code>C:\ProgramData\Qualcomm\QualcommProfiler\profilingresults</code></td></tr>
+    <tr><td>Android</td><td>Logcat（<code>adb logcat</code> 或 <code>adb logcat | grep QPROF</code>）</td><td><code>/data/shared/QualcommProfiler/ProfilingResults</code></td></tr>
+    <tr><td>QNX</td><td><code>/var/data/QualcommProfiler/logs</code></td><td><code>/var/data/QualcommProfiler/ProfilingResults</code></td></tr>
+    <tr><td>Ubuntu</td><td><code>/opt/Qualcomm/QualcommProfiler/logs/</code></td><td><code>/opt/Qualcomm/QualcommProfiler/profilingresults/</code></td></tr>
+    <tr><td>LE</td><td>Syslog（<code>/var/log/messages</code>）</td><td><code>/data/shared/QualcommProfiler/profilingresults/</code></td></tr>
+    <tr><td>HGY</td><td>Syslog（<code>journalctl --no-pager | grep QPROF</code>）</td><td><code>/data/shared/QualcommProfiler/profilingresults/</code></td></tr>
+  </tbody>
+</table>
+
+<!-- 11 -->
+<h2 id="troubleshoot">11. 常见问题排查</h2>
+<table>
+  <thead><tr><th>现象</th><th>可能原因</th><th>处理</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>启动 qprof 报找不到 .so 库</td>
+      <td><code>LD_LIBRARY_PATH</code> 未设置或路径错误</td>
+      <td>按第 3 节为对应平台重新 export 库路径；注意每个新 shell 都要设</td>
+    </tr>
+    <tr>
+      <td>连接服务器失败 / 超时</td>
+      <td>设备 IP、端口配置不对，或设备端服务器未启动</td>
+      <td>检查 <code>--server-ip</code>/<code>--port</code>，用 <code>--get-server-info</code> 核对；确认 adb/网络连通</td>
+    </tr>
+    <tr>
+      <td><code>--configure</code> 命令报不支持</td>
+      <td>当前在 Windows on Snapdragon 平台</td>
+      <td>WoS 不支持 configure，改用 <code>--get-server-info</code> 查看现有配置</td>
+    </tr>
+    <tr>
+      <td><code>--capabilities</code> 列不出 GPU/DSP 能力</td>
+      <td>该平台不支持对应子系统，或库未加载</td>
+      <td>确认设备/平台是否支持该 IP 块（DSP 并非所有平台都有）</td>
+    </tr>
+    <tr>
+      <td>采样率被拒绝</td>
+      <td>超出该能力允许的采样率区间</td>
+      <td>参考第 5 节采样率限制，调整 <code>--streaming-rate</code></td>
+    </tr>
+    <tr>
+      <td>采集数据偏离真实性能</td>
+      <td>采样率过密导致工具自身开销过大</td>
+      <td>放宽 <code>--streaming-rate</code>（200ms 起），并连续测试 ≥10 分钟暴露热节流</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-danger">
+  <strong>重要提醒</strong>
+  CLI 各平台的库路径、能力名称会随 Qualcomm Profiler 版本更新而变化。生产环境请以你实际安装版本的 <code>CLI\documents\sample-commands\</code> 示例和 <code>qprof --capabilities</code> 的真实输出为准，不要照搬本文路径。
+</div>
+
+<div class="callout callout-info">
+  <strong>参考来源</strong>
+  Qualcomm 官方文档 — Command line interface (CLI)：<br>
+  <code>https://docs.qualcomm.com/bundle/publicresource/topics/80-54323-2/command-line-interface.html</code><br>
+  Snapdragon Profiler 产品页：<code>https://www.qualcomm.com/developer/software/snapdragon-profiler</code>
+</div>
+
+<p style="text-align:center;color:var(--muted);font-size:0.82rem;margin-top:40px;">
+  本文档整理自 Qualcomm 官方 CLI 文档 · 仅供学习参考 · 2026-06-25
+</p>
+
+</div>
+</body>
+</html>
