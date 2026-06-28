@@ -1,0 +1,120 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FateTrigger 单帧三角面数统计</title>
+<style>
+:root{--bg:#f6f8fa;--card:#fff;--line:#e3e8ef;--ink:#1f2933;--sub:#6b7280;--acc:#2563eb;--warn:#b45309;--warnbg:#fef3c7}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.6}
+.wrap{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+h1{font-size:24px;margin:0 0 4px}.meta{color:var(--sub);font-size:13px;margin-bottom:22px}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.card .k{font-size:12px;color:var(--sub)}.card .v{font-size:26px;font-weight:700;margin-top:4px}
+.card .v small{font-size:13px;font-weight:500;color:var(--sub)}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:20px}
+h2{font-size:16px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+h2:before{content:"";width:4px;height:16px;background:var(--acc);border-radius:2px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left}
+th{background:#f0f3f8;font-weight:600;color:#374151;position:sticky;top:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tr:hover td{background:#f9fafb}
+.note{background:var(--warnbg);border:1px solid #fcd34d;color:#78350f;border-radius:10px;padding:12px 16px;font-size:13px;margin-bottom:20px}
+.note b{color:var(--warn)}
+.scroll{max-height:560px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+code{background:#eef2f7;padding:1px 5px;border-radius:4px;font-size:12px}
+.foot{color:var(--sub);font-size:12px;margin-top:8px}
+</style></head><body><div class="wrap">
+<h1>FateTrigger 单帧三角面数统计报告</h1>
+<div class="meta">捕获文件 <code>TDM8Gen3.rdc</code> · API: Vulkan · Frame 7779 · 统计时间 2026-06-28</div>
+
+<div class="cards">
+<div class="card"><div class="k">Draw 操作总数</div><div class="v">600</div></div>
+<div class="card"><div class="k">三角面渲染总量</div><div class="v">948,962<small> tris</small></div></div>
+<div class="card"><div class="k">索引总数</div><div class="v">2,197,057</div></div>
+<div class="card"><div class="k">渲染 Pass 数</div><div class="v">37</div></div>
+</div>
+
+<div class="note"><b>⚠ 重要说明：</b>此处 <b>948,962</b> 是<b>本帧 GPU 实际提交的三角形渲染吞吐量</b>，<u>并非场景中唯一几何体的面数</u>。同一个 Mesh 通常会被多个 Pass 重复绘制（Depth Prepass → BasePass → Velocity → ShadowDepth → Outline 等），因此该数值已包含重复计数。计算口径：<code>三角形 = floor(索引数 / 3) × 实例数</code>（按索引三角形列表）。Indirect 绘制(⚡)的索引数为 RenderDoc 从间接缓冲读取的实际值。</div>
+
+<section><h2>按渲染 Pass 汇总</h2>
+<table><thead><tr><th>渲染 Pass（最内层 Marker）</th><th class="n">Draw 数</th><th class="n">三角面数</th><th class="n">占比</th></tr></thead>
+<tbody><tr><td>MobileBasePass</td><td class='n'>222</td><td class='n'>403,031</td><td class='n'>42.5%</td></tr>
+<tr><td>MobileRenderPrePass</td><td class='n'>204</td><td class='n'>333,790</td><td class='n'>35.2%</td></tr>
+<tr><td>MMHRenderShadowDepths(Non-Nanite)</td><td class='n'>2</td><td class='n'>65,884</td><td class='n'>6.9%</td></tr>
+<tr><td>Velocity</td><td class='n'>14</td><td class='n'>58,653</td><td class='n'>6.2%</td></tr>
+<tr><td>ShadowDepthPass</td><td class='n'>8</td><td class='n'>42,118</td><td class='n'>4.4%</td></tr>
+<tr><td>Mobile_PreOutline_Pass</td><td class='n'>7</td><td class='n'>41,398</td><td class='n'>4.4%</td></tr>
+<tr><td>Translucency</td><td class='n'>5</td><td class='n'>2,330</td><td class='n'>0.2%</td></tr>
+<tr><td>ElementBatch</td><td class='n'>91</td><td class='n'>1,028</td><td class='n'>0.1%</td></tr>
+<tr><td>CanvasBatchedElements</td><td class='n'>1</td><td class='n'>672</td><td class='n'>0.1%</td></tr>
+<tr><td>PerObject BP_GameCharacter_C_2147465690</td><td class='n'>1</td><td class='n'>12</td><td class='n'>0.0%</td></tr>
+<tr><td>DownsampleHZB(mip=0) 512x256</td><td class='n'>3</td><td class='n'>3</td><td class='n'>0.0%</td></tr>
+<tr><td>DownsampleHZB(mip=1) 256x128</td><td class='n'>3</td><td class='n'>3</td><td class='n'>0.0%</td></tr>
+<tr><td>DownsampleHZB(mip=2) 128x64</td><td class='n'>3</td><td class='n'>3</td><td class='n'>0.0%</td></tr>
+<tr><td>DownsampleHZB(mip=3) 64x32</td><td class='n'>3</td><td class='n'>3</td><td class='n'>0.0%</td></tr>
+<tr><td>DownsampleHZB(mip=4) 32x16</td><td class='n'>3</td><td class='n'>3</td><td class='n'>0.0%</td></tr>
+<tr><td>DownsampleHZB(mip=5) 16x8</td><td class='n'>3</td><td class='n'>3</td><td class='n'>0.0%</td></tr>
+<tr><td>DownsampleHZB(mip=6) 8x4</td><td class='n'>3</td><td class='n'>3</td><td class='n'>0.0%</td></tr>
+<tr><td>DownsampleHZB(mip=7) 4x2</td><td class='n'>3</td><td class='n'>3</td><td class='n'>0.0%</td></tr>
+<tr><td>DownsampleHZB(mip=8) 2x1</td><td class='n'>3</td><td class='n'>3</td><td class='n'>0.0%</td></tr>
+<tr><td>MP_Map_1.BP_ParentCommonEnvLight1_Cloud</td><td class='n'>1</td><td class='n'>2</td><td class='n'>0.0%</td></tr>
+<tr><td>AmbientOcclusion_HorizonSearchIntegral 507x252 (PS)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>AmbientOcclusion_SpatialFilter 507x252 (PS)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>MMH::ShadowMapProjection</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>MobileToonOutlinePass</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>BloomSetup 254x126 (PS)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>BloomDown 127x63 (PS)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>BloomDown 64x32 (PS)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>BloomDown 32x16 (PS)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>BloomDown 16x8 (PS)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>BloomUp 32x16 (PS)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>BloomUp 64x32 (PS)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>BloomUp 127x63 (PS)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>SunMerge 254x126 (PS)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>TAA(Main Quality=High) 1014x504 -&gt; 1014x504</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>Tonemap 1014x504 (PS GammaOnly=0)</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>Upscale(PrimaryToOutput Method=1) -1944829244x1014 -&gt; 504x1448</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr>
+<tr><td>CopyImageToBackBuffer</td><td class='n'>1</td><td class='n'>1</td><td class='n'>0.0%</td></tr></tbody>
+<tfoot><tr><th>合计</th><th class="n">600</th><th class="n">948,962</th><th class="n">100%</th></tr></tfoot>
+</table></section>
+
+<section><h2>三角面数分布（按 Draw 大小分桶）</h2>
+<table><thead><tr><th>单 Draw 三角面区间</th><th class="n">Draw 数</th><th class="n">三角面合计</th><th class="n">占比</th></tr></thead>
+<tbody><tr><td>≥20k</td><td class='n'>13</td><td class='n'>402,628</td><td class='n'>42.4%</td></tr><tr><td>5k–20k</td><td class='n'>27</td><td class='n'>275,672</td><td class='n'>29.0%</td></tr><tr><td>1k–5k</td><td class='n'>81</td><td class='n'>204,192</td><td class='n'>21.5%</td></tr><tr><td><1k</td><td class='n'>479</td><td class='n'>66,470</td><td class='n'>7.0%</td></tr></tbody></table>
+<div class="foot">少数重型 Draw 贡献了绝大部分三角面，是几何剔除/LOD 优化的重点对象。</div></section>
+
+<section><h2>Top 30 重型 Draw 操作</h2>
+<div class="scroll"><table><thead><tr><th class="n">EventID</th><th>渲染 Pass</th><th class="n">索引数</th><th class="n">实例</th><th class="n">三角面数</th><th>间接</th></tr></thead>
+<tbody><tr><td class='n'>729</td><td>MMHRenderShadowDepths(Non-Nanite)</td><td class='n'>49,338</td><td class='n'>4</td><td class='n'><b>65,784</b></td><td>⚡</td></tr>
+<tr><td class='n'>1769</td><td>MobileRenderPrePass</td><td class='n'>109,098</td><td class='n'>1</td><td class='n'><b>36,366</b></td><td></td></tr>
+<tr><td class='n'>3443</td><td>MobileBasePass</td><td class='n'>109,098</td><td class='n'>1</td><td class='n'><b>36,366</b></td><td></td></tr>
+<tr><td class='n'>1789</td><td>MobileRenderPrePass</td><td class='n'>90,273</td><td class='n'>1</td><td class='n'><b>30,091</b></td><td></td></tr>
+<tr><td class='n'>3463</td><td>MobileBasePass</td><td class='n'>90,273</td><td class='n'>1</td><td class='n'><b>30,091</b></td><td></td></tr>
+<tr><td class='n'>797</td><td>ShadowDepthPass</td><td class='n'>88,110</td><td class='n'>1</td><td class='n'><b>29,370</b></td><td></td></tr>
+<tr><td class='n'>2046</td><td>Velocity</td><td class='n'>88,110</td><td class='n'>1</td><td class='n'><b>29,370</b></td><td></td></tr>
+<tr><td class='n'>2377</td><td>Mobile_PreOutline_Pass</td><td class='n'>88,110</td><td class='n'>1</td><td class='n'><b>29,370</b></td><td></td></tr>
+<tr><td class='n'>3567</td><td>MobileBasePass</td><td class='n'>88,110</td><td class='n'>1</td><td class='n'><b>29,370</b></td><td></td></tr>
+<tr><td class='n'>1794</td><td>MobileRenderPrePass</td><td class='n'>68,199</td><td class='n'>1</td><td class='n'><b>22,733</b></td><td></td></tr>
+<tr><td class='n'>3468</td><td>MobileBasePass</td><td class='n'>68,199</td><td class='n'>1</td><td class='n'><b>22,733</b></td><td></td></tr>
+<tr><td class='n'>1799</td><td>MobileRenderPrePass</td><td class='n'>61,476</td><td class='n'>1</td><td class='n'><b>20,492</b></td><td></td></tr>
+<tr><td class='n'>3473</td><td>MobileBasePass</td><td class='n'>61,476</td><td class='n'>1</td><td class='n'><b>20,492</b></td><td></td></tr>
+<tr><td class='n'>1779</td><td>MobileRenderPrePass</td><td class='n'>57,384</td><td class='n'>1</td><td class='n'><b>19,128</b></td><td></td></tr>
+<tr><td class='n'>3453</td><td>MobileBasePass</td><td class='n'>57,384</td><td class='n'>1</td><td class='n'><b>19,128</b></td><td></td></tr>
+<tr><td class='n'>1748</td><td>MobileRenderPrePass</td><td class='n'>50,391</td><td class='n'>1</td><td class='n'><b>16,797</b></td><td></td></tr>
+<tr><td class='n'>3421</td><td>MobileBasePass</td><td class='n'>50,391</td><td class='n'>1</td><td class='n'><b>16,797</b></td><td></td></tr>
+<tr><td class='n'>2067</td><td>Velocity</td><td class='n'>49,338</td><td class='n'>1</td><td class='n'><b>16,446</b></td><td></td></tr>
+<tr><td class='n'>2627</td><td>MobileBasePass</td><td class='n'>49,338</td><td class='n'>1</td><td class='n'><b>16,446</b></td><td></td></tr>
+<tr><td class='n'>1920</td><td>MobileRenderPrePass</td><td class='n'>6,708</td><td class='n'>7</td><td class='n'><b>15,652</b></td><td></td></tr>
+<tr><td class='n'>3683</td><td>MobileBasePass</td><td class='n'>6,708</td><td class='n'>7</td><td class='n'><b>15,652</b></td><td></td></tr>
+<tr><td class='n'>3553</td><td>MobileBasePass</td><td class='n'>16,572</td><td class='n'>2</td><td class='n'><b>11,048</b></td><td></td></tr>
+<tr><td class='n'>1784</td><td>MobileRenderPrePass</td><td class='n'>32,985</td><td class='n'>1</td><td class='n'><b>10,995</b></td><td></td></tr>
+<tr><td class='n'>3458</td><td>MobileBasePass</td><td class='n'>32,985</td><td class='n'>1</td><td class='n'><b>10,995</b></td><td></td></tr>
+<tr><td class='n'>1835</td><td>MobileRenderPrePass</td><td class='n'>6,354</td><td class='n'>4</td><td class='n'><b>8,472</b></td><td></td></tr>
+<tr><td class='n'>944</td><td>MobileRenderPrePass</td><td class='n'>1,800</td><td class='n'>14</td><td class='n'><b>8,400</b></td><td></td></tr>
+<tr><td class='n'>2874</td><td>MobileBasePass</td><td class='n'>1,800</td><td class='n'>14</td><td class='n'><b>8,400</b></td><td></td></tr>
+<tr><td class='n'>1347</td><td>MobileRenderPrePass</td><td class='n'>22,590</td><td class='n'>1</td><td class='n'><b>7,530</b></td><td></td></tr>
+<tr><td class='n'>3242</td><td>MobileBasePass</td><td class='n'>22,590</td><td class='n'>1</td><td class='n'><b>7,530</b></td><td></td></tr>
+<tr><td class='n'>908</td><td>MobileRenderPrePass</td><td class='n'>3,660</td><td class='n'>6</td><td class='n'><b>7,320</b></td><td></td></tr></tbody></table></div>
+<div class="foot">完整每-Draw 明细见同目录 CSV：FateTrigger_TDM8Gen3_三角面数统计.csv（共 600 行）</div></section>
+
+</div></body></html>
