@@ -10,29 +10,72 @@
     --line:#e4e7ec; --accent:#c8501e; --accent-soft:#fdf0e9;
     --key:#9a3412; --key-bg:#fff4ed; --key-line:#f3c9b0;
     --code:#0f6e56; --code-bg:#e8f4ef;
+    --minor:#8a929c;
   }
   *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
   body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
     background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
-  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 80px}
-  header{margin-bottom:28px}
+
+  /* ---------- layout ---------- */
+  .layout{max-width:1180px;margin:0 auto;display:grid;
+    grid-template-columns:220px minmax(0,1fr);gap:28px;padding:28px 20px 80px}
+  @media(max-width:880px){.layout{grid-template-columns:1fr;padding:18px 14px 60px}}
+
+  /* ---------- sidebar ---------- */
+  aside{position:sticky;top:18px;align-self:start;max-height:calc(100vh - 36px);
+    overflow-y:auto;padding-right:4px}
+  @media(max-width:880px){aside{position:static;max-height:none;margin-bottom:8px}}
+  aside .brand{font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;
+    letter-spacing:1px;margin-bottom:12px}
+  aside nav a{display:block;padding:7px 12px;border-radius:8px;color:#374151;
+    text-decoration:none;font-size:13.5px;margin-bottom:3px;border-left:3px solid transparent;transition:.15s}
+  aside nav a:hover{background:var(--accent-soft);color:var(--key)}
+  aside nav a.active{background:var(--key-bg);color:var(--key);border-left-color:var(--accent);font-weight:600}
+  aside nav a .ct{float:right;color:var(--minor);font-size:12px;font-weight:400}
+  @media(max-width:880px){aside nav{display:flex;flex-wrap:wrap;gap:6px}
+    aside nav a{margin:0;border-left:none;border:1px solid var(--line)}}
+
+  /* ---------- header ---------- */
+  header{margin-bottom:22px}
   header h1{font-size:26px;font-weight:600;letter-spacing:.3px;margin-bottom:10px}
   header .sub{color:var(--muted);font-size:14px;line-height:1.7}
+
   .intro{background:var(--card);border:1px solid var(--line);border-radius:12px;
-    padding:18px 22px;margin:22px 0 28px;color:#3a414b;font-size:14.5px}
-  .intro p{margin-bottom:10px}
-  .intro p:last-child{margin-bottom:0}
+    padding:18px 22px;margin:18px 0;color:#3a414b;font-size:14.5px}
+  .intro p{margin-bottom:10px}.intro p:last-child{margin-bottom:0}
+  .intro.hw{background:#f7f9fb}
+  .intro .t{font-weight:600;color:#1f2328;margin-bottom:8px}
 
-  nav.toc{background:var(--card);border:1px solid var(--line);border-radius:12px;
-    padding:16px 20px;margin-bottom:30px}
-  nav.toc h2{font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;
-    letter-spacing:1px;margin-bottom:10px}
-  nav.toc ul{list-style:none;display:flex;flex-wrap:wrap;gap:8px 10px}
-  nav.toc a{display:inline-block;padding:5px 12px;background:#f1f3f5;border-radius:20px;
-    color:#374151;text-decoration:none;font-size:13.5px;border:1px solid transparent;transition:.15s}
-  nav.toc a:hover{background:var(--accent-soft);border-color:var(--key-line);color:var(--key)}
+  /* ---------- key metrics summary ---------- */
+  .summary{background:linear-gradient(135deg,#fff,var(--key-bg));border:1px solid var(--key-line);
+    border-radius:12px;padding:18px 22px;margin:18px 0 24px}
+  .summary h2{font-size:16px;color:var(--key);margin-bottom:4px}
+  .summary .desc{font-size:13px;color:var(--muted);margin-bottom:14px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chips a{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--key-line);
+    color:var(--key);text-decoration:none;font-size:13px;font-family:"SF Mono",Consolas,monospace;
+    padding:6px 12px;border-radius:20px;transition:.15s}
+  .chips a:hover{background:var(--key);color:#fff}
+  .chips a::before{content:"★";font-size:11px;opacity:.7}
 
-  section{margin-bottom:34px}
+  /* ---------- toolbar ---------- */
+  .toolbar{position:sticky;top:0;z-index:20;background:rgba(245,246,248,.92);
+    backdrop-filter:blur(8px);padding:12px 0;margin-bottom:14px;
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-bottom:1px solid var(--line)}
+  .search{flex:1;min-width:200px;position:relative}
+  .search input{width:100%;padding:9px 14px 9px 36px;border:1px solid var(--line);border-radius:9px;
+    font-size:14px;background:#fff;color:var(--ink);outline:none;transition:.15s}
+  .search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);opacity:.45}
+  .filters{display:flex;gap:6px}
+  .filters button{padding:8px 14px;border:1px solid var(--line);background:#fff;border-radius:8px;
+    font-size:13px;color:#475467;cursor:pointer;transition:.15s;font-family:inherit}
+  .filters button:hover{border-color:var(--accent);color:var(--accent)}
+  .filters button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+
+  /* ---------- sections ---------- */
+  section{margin-bottom:30px;scroll-margin-top:70px}
   .sec-head{display:flex;align-items:center;gap:10px;margin-bottom:14px;
     padding-bottom:8px;border-bottom:2px solid var(--accent)}
   .sec-head h2{font-size:19px;font-weight:600}
@@ -40,328 +83,441 @@
 
   .note{background:#fbfbfc;border-left:3px solid #cbd5e1;border-radius:0 8px 8px 0;
     padding:12px 16px;margin:12px 0;color:#475467;font-size:14px;line-height:1.7}
+  .note.warn{border-left-color:var(--accent);background:var(--accent-soft)}
 
   .metric{background:var(--card);border:1px solid var(--line);border-radius:10px;
     padding:14px 18px;margin-bottom:10px;transition:.15s}
   .metric:hover{border-color:#cbd5e1;box-shadow:0 2px 10px rgba(16,24,40,.05)}
   .metric.key{border-color:var(--key-line);background:linear-gradient(0deg,#fff,var(--key-bg))}
+  .metric.hide{display:none}
   .m-name{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:5px}
   .m-name code{font-family:"SF Mono",Consolas,Monaco,monospace;font-size:14px;
     color:var(--code);background:var(--code-bg);padding:2px 8px;border-radius:6px;font-weight:600}
   .metric.key .m-name code{color:var(--key);background:#ffe9da}
   .badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;letter-spacing:.5px}
   .badge.key{background:var(--key);color:#fff}
-  .badge.minor{background:#eef0f2;color:#8a929c}
+  .badge.minor{background:#eef0f2;color:var(--minor)}
   .m-desc{color:#3a414b;font-size:14px;line-height:1.7}
   .m-desc b{color:var(--key);font-weight:600}
 
+  .empty{display:none;text-align:center;color:var(--muted);padding:40px 0;font-size:14px}
+  .empty.show{display:block}
+
   footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);
     color:var(--muted);font-size:13px;text-align:center}
-  @media(max-width:600px){.wrap{padding:20px 14px 60px}header h1{font-size:22px}}
+
+  /* ---------- back to top ---------- */
+  #top{position:fixed;right:24px;bottom:24px;width:44px;height:44px;border-radius:50%;
+    background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:20px;
+    box-shadow:0 4px 14px rgba(200,80,30,.4);opacity:0;pointer-events:none;transition:.25s;z-index:30}
+  #top.show{opacity:1;pointer-events:auto}
+  #top:hover{background:var(--key)}
 </style>
 </head>
 <body>
-<div class="wrap">
-<header>
-  <h1>Snapdragon Profiler 性能指标详解</h1>
-  <div class="sub">Adreno GPU 性能分析 · 基于 SDP v2022.5 "System Trace Analysis" Mode · 以 8gen2 模块配比为例</div>
-</header>
+<div class="layout">
 
-<div class="intro">
-  <p>Snapdragon Profiler（SDP）是高通提供给用户用于对 Adreno GPU 做性能分析的工具，类似于 NVIDIA NSight。虽然功能不如 NSight 强大，但灵活运用确实能带来很多 GPU 内部的运行时信息。</p>
-  <p>SDP 的性能指标是按 <b>Surface</b> 采样的。在 Direct Mode，一般指具有相同 FrameBuffer Binding 的连续 Draw Calls；在 Binning Mode 下，Binning Pass 有自己的采样，每一个 Bin 的 Render Pass 也有自己的采样。鼠标悬停到条状图上，会显示这段 Surface 的 Bin Size、Binning Mode 及 Framebuffer 信息，以便与 API 层渲染步骤对应。</p>
-  <p>总体来说，SDP 的 Metrics 设计不算太合理，缺乏对 Bandwidth Utilization 的呈现（即 NSight 旧术语里的 SOL，Speed of Light），无法快速得到各 Engine Working 的全貌。</p>
+  <!-- ===== sidebar ===== -->
+  <aside>
+    <div class="brand">目录导航</div>
+    <nav id="toc">
+      <a href="#general">GPU General <span class="ct">1</span></a>
+      <a href="#memory">Memory Stats <span class="ct">6</span></a>
+      <a href="#preempt">Preemption <span class="ct">2</span></a>
+      <a href="#prim">Primitive <span class="ct">6</span></a>
+      <a href="#shader">Shader Processing <span class="ct">23</span></a>
+      <a href="#stalls">GPU Stalls <span class="ct">8</span></a>
+      <a href="#api">Vulkan / GLES <span class="ct">4</span></a>
+    </nav>
+  </aside>
+
+  <!-- ===== main ===== -->
+  <main>
+    <header>
+      <h1>Snapdragon Profiler 性能指标详解</h1>
+      <div class="sub">Adreno GPU 性能分析 · 基于 SDP v2022.5 "System Trace Analysis" Mode · 以 8gen2 模块配比为例</div>
+    </header>
+
+    <div class="intro">
+      <p>Snapdragon Profiler（SDP）是高通提供给用户用于对 Adreno GPU 做性能分析的工具，类似于 NVIDIA NSight。虽然功能不如 NSight 强大，但灵活运用确实能带来很多 GPU 内部的运行时信息。</p>
+      <p>SDP 的性能指标是按 <b>Surface</b> 采样的。在 Direct Mode，一般指具有相同 FrameBuffer Binding 的连续 Draw Calls；在 Binning Mode 下，Binning Pass 有自己的采样，每一个 Bin 的 Render Pass 也有自己的采样。鼠标悬停到条状图上，会显示这段 Surface 的 Bin Size、Binning Mode 及 Framebuffer 信息，以便与 API 层渲染步骤对应。</p>
+      <p>总体来说，SDP 的 Metrics 设计不算太合理，缺乏对 Bandwidth Utilization 的呈现（即 NSight 旧术语里的 SOL，Speed of Light），无法快速得到各 Engine Working 的全貌。</p>
+    </div>
+
+    <div class="intro hw">
+      <p class="t">硬件背景：8gen2 模块配比</p>
+      <p>8gen2 有 6 个 Shader Core（8gen1 为 4 个）。每个 Shader Core 含两个 micro shader core，每个 micro shader core 含两个 64-lane ALU cluster。按 680MHz 计算，32bit float 算力约 <b>2.12 TFLOPs</b>。</p>
+      <p>每个 micro shader core 对应一个 Texture Engine（每周期可为两个 Pixel Quad 计算 Half-precision 双线性过滤）；每个 Shader Core 对应一个 Raster Backend（每周期可为两个 Pixel Quad 计算 Half-precision Blending）。这种 256ALU / 16TEX / 8ZC 的配比在各种 GPU 中很常见。</p>
+      <p>对比：NVIDIA 的 ALU 是 16 个一组，因此不太怕 Shader Divergence；独立 GPU 的 Raster Backend 配比更低（Shader 更复杂、RB 工作量比例小），且有显存，在 Z/C Caching 上压力较小。Adreno 每个 micro shader core 的 GPR register file 比 NVIDIA 小，但比上一代 A6xx（骁龙 888）大。</p>
+    </div>
+
+    <!-- ===== key summary ===== -->
+    <div class="summary">
+      <h2>★ 关键指标速览</h2>
+      <div class="desc">作者标注的重要指标，定位性能瓶颈时优先关注。点击跳转到详细说明。</div>
+      <div class="chips">
+        <a href="#m-readtotal">Read Total Bytes</a>
+        <a href="#m-writetotal">Write Total Bytes</a>
+        <a href="#m-preclipped">Pre-clipped Polygon</a>
+        <a href="#m-reused">Reused Vertices</a>
+        <a href="#m-aluutil">% Shader ALU Capacity Utilized</a>
+        <a href="#m-shaderbusy">% Shader Busy</a>
+        <a href="#m-occupancy">% Wave Context Occupancy</a>
+        <a href="#m-fragshaded">Fragment Shaded</a>
+        <a href="#m-vertshaded">Vertices Shaded</a>
+      </div>
+    </div>
+
+    <!-- ===== toolbar ===== -->
+    <div class="toolbar">
+      <div class="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5b6470" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="q" type="text" placeholder="搜索指标名称或说明，例如 Texture、Stall、Wave…">
+      </div>
+      <div class="filters">
+        <button class="on" data-f="all">全部</button>
+        <button data-f="key">★ 重要</button>
+        <button data-f="minor">导出量</button>
+      </div>
+    </div>
+
+    <p class="empty" id="empty">没有匹配的指标，换个关键词试试。</p>
+
+    <!-- ===== sections ===== -->
+    <section id="general">
+      <div class="sec-head"><h2>GPU General</h2></div>
+      <div class="metric">
+        <div class="m-name"><code>Clocks</code></div>
+        <div class="m-desc">表示此 Surface 的总周期数。</div>
+      </div>
+    </section>
+
+    <section id="memory">
+      <div class="sec-head"><h2>GPU Memory Stats</h2></div>
+      <div class="note">Memory Path 的数据传输关系：Display Engine 理解 GPU 的压缩算法；CPU 和 GPU 各有自己的 MMU，所以 GPU Virtual Address 只给 GPU API 使用；GMEM 用于 Tiled Rendering 架构下存放每个 Bin 的 Z/C 数据。</div>
+
+      <div class="metric" data-minor>
+        <div class="m-name"><code>Avg Bytes / Fragment</code><span class="badge minor">导出量</span></div>
+        <div class="m-desc">字面意义，用处不大。Avg Bytes 指总线上的纹理数据量。</div>
+      </div>
+      <div class="metric" data-minor>
+        <div class="m-name"><code>Avg Bytes / Vertex</code><span class="badge minor">导出量</span></div>
+        <div class="m-desc">字面意义，用处不大。Avg Bytes 指总线上的 Vertex Buffer 数据量。</div>
+      </div>
+      <div class="metric key" id="m-readtotal" data-key>
+        <div class="m-name"><code>Read Total Bytes</code><span class="badge key">重要指标</span></div>
+        <div class="m-desc">AXI 总线 Read 数据总量。AXI 总线分控制线和数据线，Read 和 Write 双工（读写并行互不影响）。一般旗舰机读或写总线的 peak bandwidth 均为 <b>256bit × 2 × AXI Frequency（650–960MHz）</b>，大概 50GB/s。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>SP Memory Read Bytes</code></div>
+        <div class="m-desc">AXI 总线数据中来自 SP 内部 Load Store Engine 的部分，这是在 L2 Cache 之后的数据量。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Texture Memory Read BW Bytes</code></div>
+        <div class="m-desc">AXI 总线数据中来自 Texture Engine 的部分，是在 L2 Cache 之后并且 UBWC 压缩之后的数据量。如果 Compute 开启了 UAV 的 UBWC 压缩（probably at 8gen2），这个数据可能不准，有可能包含 UAV 的数据量。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Vertex Memory Read Bytes</code></div>
+        <div class="m-desc">AXI 总线数据中来自 Vertex Fetch Engine 的部分。</div>
+      </div>
+      <div class="metric key" id="m-writetotal" data-key>
+        <div class="m-name"><code>Write Total Bytes</code><span class="badge key">重要指标</span></div>
+        <div class="m-desc">AXI 总线 Write 数据总量。</div>
+      </div>
+    </section>
+
+    <section id="preempt">
+      <div class="sec-head"><h2>GPU Preemption</h2></div>
+      <div class="note">GPU 有两种切换进程的方法：<b>协作式 Context Switch</b>（允许当前 GPU 执行完 Command Buffer，可理解为 Vulkan 的一次 Queue submit，在 Command Buffer Boundary 切换，不需要保存太多中间状态）与 <b>Pre-emption</b>（当高优先级进程急需 GPU，GPU 必须以最快速度保存未完成的中间状态，切回时恢复）。DX10 早期微软曾对 Context Switch 有极严格要求，但厂商都觉得难做；目前 GPU 的切换粒度不是特别激进。</div>
+
+      <div class="metric">
+        <div class="m-name"><code>Avg Preemption Delay</code></div>
+        <div class="m-desc">字面意思，切换时延。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Preemptions</code></div>
+        <div class="m-desc">切换次数。</div>
+      </div>
+    </section>
+
+    <section id="prim">
+      <div class="sec-head"><h2>GPU Primitive Processing</h2></div>
+      <div class="metric">
+        <div class="m-name"><code>% Prims Clipped</code></div>
+        <div class="m-desc">字面意思。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Prims Trivially Rejected</code></div>
+        <div class="m-desc">字面意思。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Average Polygon Area</code></div>
+        <div class="m-desc">字面意思。</div>
+      </div>
+      <div class="metric" data-minor>
+        <div class="m-name"><code>Average Vertice / Polygon</code><span class="badge minor">导出量</span></div>
+        <div class="m-desc">字面意义，用处不大。</div>
+      </div>
+      <div class="metric key" id="m-preclipped" data-key>
+        <div class="m-name"><code>Pre-clipped Polygon</code><span class="badge key">重要指标</span></div>
+        <div class="m-desc">指送往 Clip 和 Rasterization Engine 的三角形数。Adreno 的三角形 Throughput 相对 Intel、NVIDIA 较小。以 8gen2 为例，一个 cycle 可执行一个 visible triangle，或 kill 两个 invisible triangle，那么 680MHz 的 8gen2 每秒执行 <b>680M visible triangles</b>，但大三角形在 Rasterization 会花多个 cycle。对 back-facing triangle，每秒可 kill <b>1360M 个</b>。</div>
+      </div>
+      <div class="metric key" id="m-reused" data-key>
+        <div class="m-name"><code>Reused Vertices</code><span class="badge key">重要指标</span></div>
+        <div class="m-desc">如果 index 指向的 vertex id 已执行过 vertex shader，且执行结果（post-vs attributes）仍在 vertex cache 中，称这次 vertex shading 被 reuse。该指标表示<b>避免了多少次重复的 VS Shading</b>。如果 Vertex Cache 未命中，即使是以前执行过的 vertex id 也需重新执行。</div>
+      </div>
+    </section>
+
+    <section id="shader">
+      <div class="sec-head"><h2>GPU Shader Processing</h2></div>
+      <div class="note">Micro Shader Core 内部结构中，比较重要的是 <b>Local buffer</b>，此模块承担 const pre-loading、VS→PS Varying、compute local memory、sGPR 等职责，可对应到 AMD 的 LDS。</div>
+      <div class="note warn">⚠️ SDP 有很多名为 <b>Busy</b> 的 Metrics，不是十分可靠。一个模块 Busy 不代表它在 Working，比如 Texture Pipe Busy 可能指它在等 memory return，并没有在做 filtering、也没接受新 request。只要它还能接受 shader 的 request，就不应称其为 busy——这就是这些 Counter 不太好用的原因。</div>
+
+      <div class="metric" data-minor>
+        <div class="m-name"><code>% Anisotropic Filtered</code><span class="badge minor">用处不大</span></div>
+        <div class="m-desc">字面意思。</div>
+      </div>
+      <div class="metric" data-minor>
+        <div class="m-name"><code>% Linear Filtered</code><span class="badge minor">用处不大</span></div>
+        <div class="m-desc">字面意思。</div>
+      </div>
+      <div class="metric" data-minor>
+        <div class="m-name"><code>% Nearest Filtered</code><span class="badge minor">用处不大</span></div>
+        <div class="m-desc">字面意思。</div>
+      </div>
+      <div class="metric" data-minor>
+        <div class="m-name"><code>% Non-Base Level Textures</code><span class="badge minor">用处不大</span></div>
+        <div class="m-desc">字面意思。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% RTU Busy</code></div>
+        <div class="m-desc">8gen2 开始，SP 内部每个 microSP 带一个 RTU，它是 <b>single hop ray node intersection</b> 模块。BVH node 可以是 AABB 或 Primitive（BLAS 的 leaf node）。single hop 指每次 RTU 只做一次 ray node intersection，BVH Tree Traverse 的中间状态（stack info）仍在 Shader Program 中：RTU 做完一层求交，回到 SP 处理 stack info，再寻找新 node 求交。NVIDIA 是 multiple hop RTU（可自治完成整棵树遍历，只返还最终 intersection 结果），AMD 目前也是 single hop。</div>
+      </div>
+      <div class="metric key" id="m-aluutil" data-key>
+        <div class="m-name"><code>% Shader ALU Capacity Utilized</code><span class="badge key">重要指标</span></div>
+        <div class="m-desc">当存在 Divergence 时，此值会小于 "% Time ALUs Working"。例如 % Time ALUs Working 为 50%、% Shader ALU Capacity Utilized 为 25%，意味着<b>一半的 fiber 不工作</b>（masked due to divergence 或 triangle coverage）。</div>
+      </div>
+      <div class="metric key" id="m-shaderbusy" data-key>
+        <div class="m-name"><code>% Shader Busy</code><span class="badge key">重要指标</span></div>
+        <div class="m-desc">表示 Shader Core 是否工作。<b>若小于 75% 则非常需要优化</b>。四类原因：① vertex data 多但 VS 不复杂——需借助 Concurrent Binning 或减少 vertex input；② GPU Command Processor 太慢（不常见，可能是 indirect draw call）；③ rhi/render thread 太慢，GPU（含 Command Processor）根本无事可做；④ 小 draw call 个数太多，每个 draw 都有固定启动/收尾成本，Binning Mode 下成本更大（skipping invisible draw calls 也有成本）。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Shader Stalled</code></div>
+        <div class="m-desc">指没有任何 execution unit（主要指 ALU、texture、load/store）在工作的 cycle 占总 cycle 的比例。Memory fetch stalled 不一定意味着 Shader Stalled——如果 shader 还能找个 wave 执行 ALU 就不算 stall。该指标意味着 <b>IPC（instruction per cycle）下降</b>。</div>
+      </div>
+      <div class="metric" data-minor>
+        <div class="m-name"><code>% Texture Pipes Busy</code><span class="badge minor">用处不大</span></div>
+        <div class="m-desc">如上所述，不是十分有用。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Time ALUs Working</code></div>
+        <div class="m-desc">SP busy 的 cycle 里，多少比例的 cycle ALU Engine 在工作。一个 Wave 即使只有一个 fiber active，此指标也加一——这点与 Fragment ALU Instructions Full/Half 不同。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Time Compute</code></div>
+        <div class="m-desc">高通结构中 CS 与 PS 基本无法并行（除 Async Compute，但高通称驱动仍未开启支持），所以该值基本上不是 100% 就是 0%。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Time EFUs Working</code></div>
+        <div class="m-desc">SP busy 的 cycle 里，多少比例 EFU Engine 在工作。EFU 计算 sin、pow、rcp 等数学函数，很少成为瓶颈。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Time Shading Fragments</code></div>
+        <div class="m-desc">字面意义。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Time Shading Vertices</code></div>
+        <div class="m-desc">因为 Adreno 的 SP 可同时运行 VS 和 PS，所以即使该值很大有时也不说明有问题。比如 PS 运行 900 cycle，其中 100 cycle 同时运行了 VS，那么 10% 在 shading vertices——但这 100 cycle 藏在 900 cycle 里，VS 也不占什么资源，几乎是 free 的。</div>
+      </div>
+      <div class="metric key" id="m-occupancy" data-key>
+        <div class="m-name"><code>% Wave Context Occupancy</code><span class="badge key">重要指标</span></div>
+        <div class="m-desc">若为 100%，意味着 micro shader core 在运行 16 条 wave。一般至少 4 条 128-fiber wave（25% 占用）或 6–8 条 64-fiber wave 可满足 <b>Memory Latency Hiding</b> 要求。但 SDP 没告诉我们 Wave 有几个 Fiber，可通过 Offline Compiler 间接猜测（参见下方 Overall Register Footprint Per Shader Instance）。</div>
+      </div>
+      <div class="metric" data-minor>
+        <div class="m-name"><code>ALU / Fragment</code> · <code>ALU / Vertex</code><span class="badge minor">导出量</span></div>
+        <div class="m-desc">字面意义，用处不大。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Average BVH Fetch Latency Cycles</code></div>
+        <div class="m-desc">从 RTU 发出 BVH node fetch 请求，到 memory path 返还的 cycle 数。一般 <b>170 cycle 以内</b>不是大问题；若 RTU Cache hit rate 高，可能小至 50 以内。</div>
+      </div>
+      <div class="metric" data-minor>
+        <div class="m-name"><code>EFU / Fragment</code> · <code>EFU / Vertex</code><span class="badge minor">导出量</span></div>
+        <div class="m-desc">字面意义，用处不大。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Fragment ALU Instructions (Full)</code></div>
+        <div class="m-desc">32bit floating point 总指令数。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Fragment ALU Instructions (Half)</code></div>
+        <div class="m-desc">16bit floating point 总指令数。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Fragment EFU Instructions</code></div>
+        <div class="m-desc">EFU 总指令数。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Fragment Instructions</code></div>
+        <div class="m-desc">PS 总指令数。GPU 以 quad 为单位测量，即使一个 quad 三个点在三角形外（masked in PS），此 Counter 仍加 4。</div>
+      </div>
+      <div class="metric key" id="m-fragshaded" data-key>
+        <div class="m-name"><code>Fragment Shaded</code><span class="badge key">重要指标</span></div>
+        <div class="m-desc">表示执行了多少个 fiber 的 pixel shader。GPU 以 quad 为单位测量，即使一个 quad 三个点在三角形外仍加 4。<b>Compute Shader 的 fiber 数也计入此指标</b>。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>RTU Ray Box Intersections Per Instruction</code></div>
+        <div class="m-desc">表示每次 HLSL 级 TraceRay() 会产生多少次中间 node（即 Box）的访问。模型复杂则该值大；Shadow Ray（any hit ray）该值不会很大。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>RTU Ray Triangle Intersections Per Instruction</code></div>
+        <div class="m-desc">与 Ray Box Intersections 类似，表示每次 TraceRay() 产生多少次 leaf node（即 triangle）的访问。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Textures / Fragment</code></div>
+        <div class="m-desc">字面意义。该值乘以 Fragment Shaded 可得 TP 的工作量；除以 <code>Clocks × 8 × #TP</code> 可能得到 TP 的 bandwidth utilization（有待验证）。</div>
+      </div>
+      <div class="metric" data-minor>
+        <div class="m-name"><code>Textures / Vertex</code><span class="badge minor">导出量</span></div>
+        <div class="m-desc">字面意义。该值不为 0 意味着 VS 里有 Texture Fetch，对 Binning Mode 不友好，但这种情况驱动一般会察觉并改用 direct mode。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Vertex Instructions</code></div>
+        <div class="m-desc">VS 总指令数。</div>
+      </div>
+      <div class="metric key" id="m-vertshaded" data-key>
+        <div class="m-name"><code>Vertices Shaded</code><span class="badge key">重要指标</span></div>
+        <div class="m-desc">表示执行了多少个 fiber 的 vertex shader。</div>
+      </div>
+    </section>
+
+    <section id="stalls">
+      <div class="sec-head"><h2>GPU Stalls</h2></div>
+      <div class="note">Stall Metrics 仅供参考。一个模块 Stall 它的上一个模块，不一定表示该模块工作多，也许是它的下一个模块太慢、Stall 被反向传导回来。如果 Stall 太大，一般意味着这个模块、或其后整条流水线链的某处可能有问题。</div>
+
+      <div class="metric">
+        <div class="m-name"><code>% BVH Fetch Stall</code></div>
+        <div class="m-desc">从 Cache 模块反向传导回 BVH Fetch Engine（位于 SP 的 RTU 内）的 Stall。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Instruction Cache Miss</code></div>
+        <div class="m-desc">不要让 Shader（编译后机器）指令超过 <b>2000 条</b>（VS+PS），用 SDP 的 Offline Compiler 可看到指令数。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Stalled on System Memory</code></div>
+        <div class="m-desc">AXI 总线对 L2 Cache 的反向压力。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Texture Fetch Stall</code></div>
+        <div class="m-desc">Texture Engine 不能接受 Shader Core request 时的反向压力 cycle。若很大，意味着 TP 或其 Downstream Block 太忙。SDP 的问题是没给出 Texture L1 的真正压力百分比——<b>Stall 并不等于压力</b>。比如 TP filtering utilization 10% 时，即使 stall 25%、L1 miss 70% 也不是问题（TP 根本没什么活干）；但 utilization 60% 时，即使 stall 10%、L1 miss 20% 也是问题。Texture 数据量才是压力大来源，可参考 Textures / Fragment 再综合本指标。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Texture L1 Miss</code></div>
+        <div class="m-desc">Adreno L1 Size 不大（<b>2KB</b>），容易被不好的 Shader 写法 thrash；有时 Compiler 行为也会影响 Access Pattern，导致 L1 Miss Rate 过高。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Texture L2 Miss</code></div>
+        <div class="m-desc">L2 并非只为 Texture 服务，但此指标只反映 Texture L1 送来的 request 在 L2 中的 Miss Rate。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>% Vertex Fetch Stall</code></div>
+        <div class="m-desc">不一定是 Vertex Fetch Engine 有问题，也许是整个 Memory System 处于压力中——压力可能来自同时运行的 PS，或来自 VS 里的 texture load。</div>
+      </div>
+      <div class="metric" data-minor>
+        <div class="m-name"><code>L1 Texture Cache Miss Per Pixel</code><span class="badge minor">导出量</span></div>
+        <div class="m-desc">字面意义，用处不大。</div>
+      </div>
+    </section>
+
+    <section id="api">
+      <div class="sec-head"><h2>Vulkan / OpenGL ES</h2></div>
+
+      <div class="metric">
+        <div class="m-name"><code>Rendering stages</code></div>
+        <div class="m-desc">从 8gen1 开始，"GPU Binning Pipe" 显示的是 <b>Concurrent Binning</b> 的 Surfaces。Binning 可与 Main Pipe 并行，但驱动有权选择把 Binning 放在异步 "GPU Binning Pipe" 还是主 Pipe（GPU Render Pipe）。放在主 Pipe 可得到更多计算资源，所以无干扰时同一个 Binning 在主 Pipe 会比 Concurrent Binning Pipe 快一些。未来该问题或被解决，届时驱动会不加选择地把 Binning 放入 Concurrent Binning Pipe。<br><br>这种异步 Binning Pass 对 GPU Driven Render 是个挑战，因为 VS 可能依赖之前的 Compute 结果。建议在 Compute Visibility 与使用 Visibility 的 VS 之间安插其他无数据依赖的 Render Pass，这样 Concurrent Binning VS 才可能与这些无关 Pass 并行。上图的 Pipe 可展开，能看到 Resolve/Blt 等。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>OpenGL ES 注意事项</code></div>
+        <div class="m-desc">担忧 GLES 版本的 SDP 在 Surface 边界加入了太多 wait for idle，导致不能反映非 Profile 时的并行度。比如 GLES 也支持 Concurrent Binning，但很少在 SDP 看到并行运行的 Binning Surface。另外 Resolve 本可与 Bin Render 并行，但 SDP 为独立统计 Resolve 的 Perf Counter，强行让 Resolve 独立运行了。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Rendering workloads</code></div>
+        <div class="m-desc">暂不知何用。</div>
+      </div>
+      <div class="metric">
+        <div class="m-name"><code>Vulkan API Trace</code></div>
+        <div class="m-desc">CPU perf samples。显示 Vulkan API Call 的时间点，因为是 Driver 层行为，往往超前于上面的 GPU Metrics。但 SDP 显示了 Command Buffer 被 submit 到 GPU 的时间点，这很不错。</div>
+      </div>
+    </section>
+
+    <footer>
+      Snapdragon Profiler 性能指标详解 · 整理自 SDP counters 笔记 · 仅供 Adreno GPU 性能分析参考
+    </footer>
+  </main>
 </div>
 
-<div class="intro" style="background:#f7f9fb">
-  <p style="font-weight:600;color:#1f2328;margin-bottom:8px">硬件背景：8gen2 模块配比</p>
-  <p>8gen2 有 6 个 Shader Core（8gen1 为 4 个）。每个 Shader Core 含两个 micro shader core，每个 micro shader core 含两个 64-lane ALU cluster。按 680MHz 计算，32bit float 算力约 <b>2.12 TFLOPs</b>。</p>
-  <p>每个 micro shader core 对应一个 Texture Engine（每周期可为两个 Pixel Quad 计算 Half-precision 双线性过滤）；每个 Shader Core 对应一个 Raster Backend（每周期可为两个 Pixel Quad 计算 Half-precision Blending）。这种 256ALU / 16TEX / 8ZC 的配比在各种 GPU 中很常见。</p>
-  <p>对比：NVIDIA 的 ALU 是 16 个一组，因此不太怕 Shader Divergence；独立 GPU 的 Raster Backend 配比更低（Shader 更复杂、RB 工作量比例小），且有显存，在 Z/C Caching 上压力较小。Adreno 每个 micro shader core 的 GPR register file 比 NVIDIA 小，但比上一代 A6xx（骁龙 888）大。</p>
-</div>
+<button id="top" title="回到顶部">↑</button>
 
-<nav class="toc">
-  <h2>目录</h2>
-  <ul>
-    <li><a href="#general">GPU General</a></li>
-    <li><a href="#memory">GPU Memory Stats</a></li>
-    <li><a href="#preempt">GPU Preemption</a></li>
-    <li><a href="#prim">Primitive Processing</a></li>
-    <li><a href="#shader">Shader Processing</a></li>
-    <li><a href="#stalls">GPU Stalls</a></li>
-    <li><a href="#api">Vulkan / OpenGL ES</a></li>
-  </ul>
-</nav>
+<script>
+(function(){
+  var metrics = Array.prototype.slice.call(document.querySelectorAll('.metric'));
+  var sections = Array.prototype.slice.call(document.querySelectorAll('section'));
+  var input = document.getElementById('q');
+  var empty = document.getElementById('empty');
+  var filterBtns = Array.prototype.slice.call(document.querySelectorAll('.filters button'));
+  var curFilter = 'all';
 
-<section id="general">
-  <div class="sec-head"><h2>GPU General</h2></div>
-  <div class="metric">
-    <div class="m-name"><code>Clocks</code></div>
-    <div class="m-desc">表示此 Surface 的总周期数。</div>
-  </div>
-</section>
+  function apply(){
+    var kw = input.value.trim().toLowerCase();
+    var anyShown = false;
+    metrics.forEach(function(m){
+      var isKey = m.hasAttribute('data-key');
+      var isMinor = m.hasAttribute('data-minor');
+      var passF = curFilter==='all' || (curFilter==='key'&&isKey) || (curFilter==='minor'&&isMinor);
+      var passK = !kw || m.textContent.toLowerCase().indexOf(kw)>-1;
+      var show = passF && passK;
+      m.classList.toggle('hide', !show);
+      if(show) anyShown = true;
+    });
+    // hide empty sections
+    sections.forEach(function(sec){
+      var visible = sec.querySelectorAll('.metric:not(.hide)').length;
+      sec.style.display = visible? '' : 'none';
+    });
+    empty.classList.toggle('show', !anyShown);
+  }
 
-<section id="memory">
-  <div class="sec-head"><h2>GPU Memory Stats</h2></div>
-  <div class="note">Memory Path 的数据传输关系：Display Engine 理解 GPU 的压缩算法；CPU 和 GPU 各有自己的 MMU，所以 GPU Virtual Address 只给 GPU API 使用；GMEM 用于 Tiled Rendering 架构下存放每个 Bin 的 Z/C 数据。</div>
+  input.addEventListener('input', apply);
+  filterBtns.forEach(function(b){
+    b.addEventListener('click', function(){
+      filterBtns.forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on');
+      curFilter = b.getAttribute('data-f');
+      apply();
+    });
+  });
 
-  <div class="metric">
-    <div class="m-name"><code>Avg Bytes / Fragment</code><span class="badge minor">导出量</span></div>
-    <div class="m-desc">字面意义，用处不大。Avg Bytes 指总线上的纹理数据量。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Avg Bytes / Vertex</code><span class="badge minor">导出量</span></div>
-    <div class="m-desc">字面意义，用处不大。Avg Bytes 指总线上的 Vertex Buffer 数据量。</div>
-  </div>
-  <div class="metric key">
-    <div class="m-name"><code>Read Total Bytes</code><span class="badge key">重要指标</span></div>
-    <div class="m-desc">AXI 总线 Read 数据总量。AXI 总线分控制线和数据线，Read 和 Write 双工（读写并行互不影响）。一般旗舰机读或写总线的 peak bandwidth 均为 <b>256bit × 2 × AXI Frequency（650–960MHz）</b>，大概 50GB/s。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>SP Memory Read Bytes</code></div>
-    <div class="m-desc">AXI 总线数据中来自 SP 内部 Load Store Engine 的部分，这是在 L2 Cache 之后的数据量。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Texture Memory Read BW Bytes</code></div>
-    <div class="m-desc">AXI 总线数据中来自 Texture Engine 的部分，是在 L2 Cache 之后并且 UBWC 压缩之后的数据量。如果 Compute 开启了 UAV 的 UBWC 压缩（probably at 8gen2），这个数据可能不准，有可能包含 UAV 的数据量。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Vertex Memory Read Bytes</code></div>
-    <div class="m-desc">AXI 总线数据中来自 Vertex Fetch Engine 的部分。</div>
-  </div>
-  <div class="metric key">
-    <div class="m-name"><code>Write Total Bytes</code><span class="badge key">重要指标</span></div>
-    <div class="m-desc">AXI 总线 Write 数据总量。</div>
-  </div>
-</section>
+  // scrollspy
+  var links = Array.prototype.slice.call(document.querySelectorAll('#toc a'));
+  var map = {};
+  links.forEach(function(a){ map[a.getAttribute('href').slice(1)] = a; });
+  var obs = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){
+        links.forEach(function(a){a.classList.remove('active')});
+        if(map[e.target.id]) map[e.target.id].classList.add('active');
+      }
+    });
+  }, {rootMargin:'-20% 0px -70% 0px'});
+  sections.forEach(function(s){ obs.observe(s); });
 
-<section id="preempt">
-  <div class="sec-head"><h2>GPU Preemption</h2></div>
-  <div class="note">GPU 有两种切换进程的方法：<b>协作式 Context Switch</b>（允许当前 GPU 执行完 Command Buffer，可理解为 Vulkan 的一次 Queue submit，在 Command Buffer Boundary 切换，不需要保存太多中间状态）与 <b>Pre-emption</b>（当高优先级进程急需 GPU，GPU 必须以最快速度保存未完成的中间状态，切回时恢复）。DX10 早期微软曾对 Context Switch 有极严格要求，但厂商都觉得难做；目前 GPU 的切换粒度不是特别激进。</div>
-
-  <div class="metric">
-    <div class="m-name"><code>Avg Preemption Delay</code></div>
-    <div class="m-desc">字面意思，切换时延。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Preemptions</code></div>
-    <div class="m-desc">切换次数。</div>
-  </div>
-</section>
-
-<section id="prim">
-  <div class="sec-head"><h2>GPU Primitive Processing</h2></div>
-  <div class="metric">
-    <div class="m-name"><code>% Prims Clipped</code></div>
-    <div class="m-desc">字面意思。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Prims Trivially Rejected</code></div>
-    <div class="m-desc">字面意思。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Average Polygon Area</code></div>
-    <div class="m-desc">字面意思。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Average Vertice / Polygon</code><span class="badge minor">导出量</span></div>
-    <div class="m-desc">字面意义，用处不大。</div>
-  </div>
-  <div class="metric key">
-    <div class="m-name"><code>Pre-clipped Polygon</code><span class="badge key">重要指标</span></div>
-    <div class="m-desc">指送往 Clip 和 Rasterization Engine 的三角形数。Adreno 的三角形 Throughput 相对 Intel、NVIDIA 较小。以 8gen2 为例，一个 cycle 可执行一个 visible triangle，或 kill 两个 invisible triangle，那么 680MHz 的 8gen2 每秒执行 <b>680M visible triangles</b>，但大三角形在 Rasterization 会花多个 cycle。对 back-facing triangle，每秒可 kill <b>1360M 个</b>。</div>
-  </div>
-  <div class="metric key">
-    <div class="m-name"><code>Reused Vertices</code><span class="badge key">重要指标</span></div>
-    <div class="m-desc">如果 index 指向的 vertex id 已执行过 vertex shader，且执行结果（post-vs attributes）仍在 vertex cache 中，称这次 vertex shading 被 reuse。该指标表示<b>避免了多少次重复的 VS Shading</b>。如果 Vertex Cache 未命中，即使是以前执行过的 vertex id 也需重新执行。</div>
-  </div>
-</section>
-
-<section id="shader">
-  <div class="sec-head"><h2>GPU Shader Processing</h2></div>
-  <div class="note">Micro Shader Core 内部结构中，比较重要的是 <b>Local buffer</b>，此模块承担 const pre-loading、VS→PS Varying、compute local memory、sGPR 等职责，可对应到 AMD 的 LDS。</div>
-  <div class="note" style="border-left-color:var(--accent)">⚠️ SDP 有很多名为 <b>Busy</b> 的 Metrics，不是十分可靠。一个模块 Busy 不代表它在 Working，比如 Texture Pipe Busy 可能指它在等 memory return，并没有在做 filtering、也没接受新 request。只要它还能接受 shader 的 request，就不应称其为 busy——这就是这些 Counter 不太好用的原因。</div>
-
-  <div class="metric">
-    <div class="m-name"><code>% Anisotropic Filtered</code><span class="badge minor">用处不大</span></div>
-    <div class="m-desc">字面意思。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Linear Filtered</code><span class="badge minor">用处不大</span></div>
-    <div class="m-desc">字面意思。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Nearest Filtered</code><span class="badge minor">用处不大</span></div>
-    <div class="m-desc">字面意思。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Non-Base Level Textures</code><span class="badge minor">用处不大</span></div>
-    <div class="m-desc">字面意思。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% RTU Busy</code></div>
-    <div class="m-desc">8gen2 开始，SP 内部每个 microSP 带一个 RTU，它是 <b>single hop ray node intersection</b> 模块。BVH node 可以是 AABB 或 Primitive（BLAS 的 leaf node）。single hop 指每次 RTU 只做一次 ray node intersection，BVH Tree Traverse 的中间状态（stack info）仍在 Shader Program 中：RTU 做完一层求交，回到 SP 处理 stack info，再寻找新 node 求交。NVIDIA 是 multiple hop RTU（可自治完成整棵树遍历，只返还最终 intersection 结果），AMD 目前也是 single hop。</div>
-  </div>
-  <div class="metric key">
-    <div class="m-name"><code>% Shader ALU Capacity Utilized</code><span class="badge key">重要指标</span></div>
-    <div class="m-desc">当存在 Divergence 时，此值会小于 "% Time ALUs Working"。例如 % Time ALUs Working 为 50%、% Shader ALU Capacity Utilized 为 25%，意味着<b>一半的 fiber 不工作</b>（masked due to divergence 或 triangle coverage）。</div>
-  </div>
-  <div class="metric key">
-    <div class="m-name"><code>% Shader Busy</code><span class="badge key">重要指标</span></div>
-    <div class="m-desc">表示 Shader Core 是否工作。<b>若小于 75% 则非常需要优化</b>。四类原因：① vertex data 多但 VS 不复杂——需借助 Concurrent Binning 或减少 vertex input；② GPU Command Processor 太慢（不常见，可能是 indirect draw call）；③ rhi/render thread 太慢，GPU（含 Command Processor）根本无事可做；④ 小 draw call 个数太多，每个 draw 都有固定启动/收尾成本，Binning Mode 下成本更大（skipping invisible draw calls 也有成本）。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Shader Stalled</code></div>
-    <div class="m-desc">指没有任何 execution unit（主要指 ALU、texture、load/store）在工作的 cycle 占总 cycle 的比例。Memory fetch stalled 不一定意味着 Shader Stalled——如果 shader 还能找个 wave 执行 ALU 就不算 stall。该指标意味着 <b>IPC（instruction per cycle）下降</b>。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Texture Pipes Busy</code><span class="badge minor">用处不大</span></div>
-    <div class="m-desc">如上所述，不是十分有用。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Time ALUs Working</code></div>
-    <div class="m-desc">SP busy 的 cycle 里，多少比例的 cycle ALU Engine 在工作。一个 Wave 即使只有一个 fiber active，此指标也加一——这点与 Fragment ALU Instructions Full/Half 不同。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Time Compute</code></div>
-    <div class="m-desc">高通结构中 CS 与 PS 基本无法并行（除 Async Compute，但高通称驱动仍未开启支持），所以该值基本上不是 100% 就是 0%。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Time EFUs Working</code></div>
-    <div class="m-desc">SP busy 的 cycle 里，多少比例 EFU Engine 在工作。EFU 计算 sin、pow、rcp 等数学函数，很少成为瓶颈。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Time Shading Fragments</code></div>
-    <div class="m-desc">字面意义。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Time Shading Vertices</code></div>
-    <div class="m-desc">因为 Adreno 的 SP 可同时运行 VS 和 PS，所以即使该值很大有时也不说明有问题。比如 PS 运行 900 cycle，其中 100 cycle 同时运行了 VS，那么 10% 在 shading vertices——但这 100 cycle 藏在 900 cycle 里，VS 也不占什么资源，几乎是 free 的。</div>
-  </div>
-  <div class="metric key">
-    <div class="m-name"><code>% Wave Context Occupancy</code><span class="badge key">重要指标</span></div>
-    <div class="m-desc">若为 100%，意味着 micro shader core 在运行 16 条 wave。一般至少 4 条 128-fiber wave（25% 占用）或 6–8 条 64-fiber wave 可满足 <b>Memory Latency Hiding</b> 要求。但 SDP 没告诉我们 Wave 有几个 Fiber，可通过 Offline Compiler 间接猜测（参见下方 Overall Register Footprint Per Shader Instance）。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>ALU / Fragment</code> · <code>ALU / Vertex</code><span class="badge minor">导出量</span></div>
-    <div class="m-desc">字面意义，用处不大。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Average BVH Fetch Latency Cycles</code></div>
-    <div class="m-desc">从 RTU 发出 BVH node fetch 请求，到 memory path 返还的 cycle 数。一般 <b>170 cycle 以内</b>不是大问题；若 RTU Cache hit rate 高，可能小至 50 以内。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>EFU / Fragment</code> · <code>EFU / Vertex</code><span class="badge minor">导出量</span></div>
-    <div class="m-desc">字面意义，用处不大。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Fragment ALU Instructions (Full)</code></div>
-    <div class="m-desc">32bit floating point 总指令数。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Fragment ALU Instructions (Half)</code></div>
-    <div class="m-desc">16bit floating point 总指令数。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Fragment EFU Instructions</code></div>
-    <div class="m-desc">EFU 总指令数。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Fragment Instructions</code></div>
-    <div class="m-desc">PS 总指令数。GPU 以 quad 为单位测量，即使一个 quad 三个点在三角形外（masked in PS），此 Counter 仍加 4。</div>
-  </div>
-  <div class="metric key">
-    <div class="m-name"><code>Fragment Shaded</code><span class="badge key">重要指标</span></div>
-    <div class="m-desc">表示执行了多少个 fiber 的 pixel shader。GPU 以 quad 为单位测量，即使一个 quad 三个点在三角形外仍加 4。<b>Compute Shader 的 fiber 数也计入此指标</b>。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>RTU Ray Box Intersections Per Instruction</code></div>
-    <div class="m-desc">表示每次 HLSL 级 TraceRay() 会产生多少次中间 node（即 Box）的访问。模型复杂则该值大；Shadow Ray（any hit ray）该值不会很大。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>RTU Ray Triangle Intersections Per Instruction</code></div>
-    <div class="m-desc">与 Ray Box Intersections 类似，表示每次 TraceRay() 产生多少次 leaf node（即 triangle）的访问。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Textures / Fragment</code></div>
-    <div class="m-desc">字面意义。该值乘以 Fragment Shaded 可得 TP 的工作量；除以 <code>Clocks × 8 × #TP</code> 可能得到 TP 的 bandwidth utilization（有待验证）。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Textures / Vertex</code><span class="badge minor">导出量</span></div>
-    <div class="m-desc">字面意义。该值不为 0 意味着 VS 里有 Texture Fetch，对 Binning Mode 不友好，但这种情况驱动一般会察觉并改用 direct mode。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Vertex Instructions</code></div>
-    <div class="m-desc">VS 总指令数。</div>
-  </div>
-  <div class="metric key">
-    <div class="m-name"><code>Vertices Shaded</code><span class="badge key">重要指标</span></div>
-    <div class="m-desc">表示执行了多少个 fiber 的 vertex shader。</div>
-  </div>
-</section>
-
-<section id="stalls">
-  <div class="sec-head"><h2>GPU Stalls</h2></div>
-  <div class="note">Stall Metrics 仅供参考。一个模块 Stall 它的上一个模块，不一定表示该模块工作多，也许是它的下一个模块太慢、Stall 被反向传导回来。如果 Stall 太大，一般意味着这个模块、或其后整条流水线链的某处可能有问题。</div>
-
-  <div class="metric">
-    <div class="m-name"><code>% BVH Fetch Stall</code></div>
-    <div class="m-desc">从 Cache 模块反向传导回 BVH Fetch Engine（位于 SP 的 RTU 内）的 Stall。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Instruction Cache Miss</code></div>
-    <div class="m-desc">不要让 Shader（编译后机器）指令超过 <b>2000 条</b>（VS+PS），用 SDP 的 Offline Compiler 可看到指令数。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Stalled on System Memory</code></div>
-    <div class="m-desc">AXI 总线对 L2 Cache 的反向压力。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Texture Fetch Stall</code></div>
-    <div class="m-desc">Texture Engine 不能接受 Shader Core request 时的反向压力 cycle。若很大，意味着 TP 或其 Downstream Block 太忙。SDP 的问题是没给出 Texture L1 的真正压力百分比——<b>Stall 并不等于压力</b>。比如 TP filtering utilization 10% 时，即使 stall 25%、L1 miss 70% 也不是问题（TP 根本没什么活干）；但 utilization 60% 时，即使 stall 10%、L1 miss 20% 也是问题。Texture 数据量才是压力大来源，可参考 Textures / Fragment 再综合本指标。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Texture L1 Miss</code></div>
-    <div class="m-desc">Adreno L1 Size 不大（<b>2KB</b>），容易被不好的 Shader 写法 thrash；有时 Compiler 行为也会影响 Access Pattern，导致 L1 Miss Rate 过高。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Texture L2 Miss</code></div>
-    <div class="m-desc">L2 并非只为 Texture 服务，但此指标只反映 Texture L1 送来的 request 在 L2 中的 Miss Rate。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>% Vertex Fetch Stall</code></div>
-    <div class="m-desc">不一定是 Vertex Fetch Engine 有问题，也许是整个 Memory System 处于压力中——压力可能来自同时运行的 PS，或来自 VS 里的 texture load。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>L1 Texture Cache Miss Per Pixel</code><span class="badge minor">导出量</span></div>
-    <div class="m-desc">字面意义，用处不大。</div>
-  </div>
-</section>
-
-<section id="api">
-  <div class="sec-head"><h2>Vulkan / OpenGL ES</h2></div>
-
-  <div class="metric">
-    <div class="m-name"><code>Rendering stages</code></div>
-    <div class="m-desc">从 8gen1 开始，"GPU Binning Pipe" 显示的是 <b>Concurrent Binning</b> 的 Surfaces。Binning 可与 Main Pipe 并行，但驱动有权选择把 Binning 放在异步 "GPU Binning Pipe" 还是主 Pipe（GPU Render Pipe）。放在主 Pipe 可得到更多计算资源，所以无干扰时同一个 Binning 在主 Pipe 会比 Concurrent Binning Pipe 快一些。未来该问题或被解决，届时驱动会不加选择地把 Binning 放入 Concurrent Binning Pipe。<br><br>这种异步 Binning Pass 对 GPU Driven Render 是个挑战，因为 VS 可能依赖之前的 Compute 结果。建议在 Compute Visibility 与使用 Visibility 的 VS 之间安插其他无数据依赖的 Render Pass，这样 Concurrent Binning VS 才可能与这些无关 Pass 并行。上图的 Pipe 可展开，能看到 Resolve/Blt 等。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>OpenGL ES 注意事项</code></div>
-    <div class="m-desc">担忧 GLES 版本的 SDP 在 Surface 边界加入了太多 wait for idle，导致不能反映非 Profile 时的并行度。比如 GLES 也支持 Concurrent Binning，但很少在 SDP 看到并行运行的 Binning Surface。另外 Resolve 本可与 Bin Render 并行，但 SDP 为独立统计 Resolve 的 Perf Counter，强行让 Resolve 独立运行了。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Rendering workloads</code></div>
-    <div class="m-desc">暂不知何用。</div>
-  </div>
-  <div class="metric">
-    <div class="m-name"><code>Vulkan API Trace</code></div>
-    <div class="m-desc">CPU perf samples。显示 Vulkan API Call 的时间点，因为是 Driver 层行为，往往超前于上面的 GPU Metrics。但 SDP 显示了 Command Buffer 被 submit 到 GPU 的时间点，这很不错。</div>
-  </div>
-</section>
-
-<footer>
-  Snapdragon Profiler 性能指标详解 · 整理自 SDP counters 笔记 · 仅供 Adreno GPU 性能分析参考
-</footer>
-</div>
+  // back to top
+  var topBtn = document.getElementById('top');
+  window.addEventListener('scroll', function(){
+    topBtn.classList.toggle('show', window.scrollY>400);
+  });
+  topBtn.addEventListener('click', function(){ window.scrollTo({top:0,behavior:'smooth'}); });
+})();
+</script>
 </body>
 </html>

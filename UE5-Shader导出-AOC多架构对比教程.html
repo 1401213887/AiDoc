@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5 Shader 导出 + AOC 多架构对比教程</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a2e;
+    --muted: #6b7280;
+    --accent: #e63946;
+    --accent2: #457b9d;
+    --card: #f8f9fa;
+    --border: #e5e7eb;
+    --code-bg: #f1f3f5;
+    --success: #2d6a4f;
+    --warn: #e9c46a;
+    --danger: #d62828;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, "Segoe UI", "Noto Sans SC", sans-serif; color:var(--fg); background:var(--bg); line-height:1.7; }
+  .container { max-width:1100px; margin:0 auto; padding:24px 32px 80px; }
+
+  .hero { background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%); color:#fff; padding:48px 32px; border-radius:16px; margin-bottom:40px; position:relative; overflow:hidden; }
+  .hero::after { content:''; position:absolute; right:-60px; top:-60px; width:240px; height:240px; border-radius:50%; background:rgba(230,57,70,0.15); }
+  .hero h1 { font-size:2rem; font-weight:800; margin-bottom:8px; }
+  .hero .sub { font-size:1.05rem; opacity:0.85; font-weight:300; }
+  .hero .meta { margin-top:16px; font-size:0.85rem; opacity:0.6; }
+
+  .toc { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px 28px; margin-bottom:36px; }
+  .toc h2 { font-size:1rem; font-weight:700; margin-bottom:12px; color:var(--accent); border:none; padding:0; }
+  .toc ol { padding-left:20px; }
+  .toc li { margin-bottom:4px; }
+  .toc a { color:var(--accent2); text-decoration:none; font-size:0.95rem; }
+  .toc a:hover { text-decoration:underline; }
+
+  h2 { font-size:1.5rem; font-weight:700; margin:40px 0 16px; padding-bottom:8px; border-bottom:3px solid var(--accent); display:inline-block; }
+  h3 { font-size:1.15rem; font-weight:700; margin:28px 0 10px; color:#16213e; }
+  h4 { font-size:1rem; font-weight:600; margin:20px 0 8px; color:var(--accent2); }
+  p { margin-bottom:12px; }
+  ul,ol { padding-left:24px; margin-bottom:12px; }
+  li { margin-bottom:6px; }
+
+  .card-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin:16px 0 24px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:20px; transition:box-shadow .2s; }
+  .card:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); }
+  .card .icon { font-size:1.6rem; margin-bottom:8px; }
+  .card .label { font-weight:700; margin-bottom:4px; }
+  .card .desc { font-size:0.88rem; color:var(--muted); }
+
+  table { width:100%; border-collapse:collapse; margin:12px 0 20px; font-size:0.9rem; }
+  th { background:#16213e; color:#fff; text-align:left; padding:10px 14px; font-weight:600; }
+  td { padding:9px 14px; border-bottom:1px solid var(--border); vertical-align:top; }
+  tr:nth-child(even) td { background:var(--card); }
+  tr:hover td { background:#eef2ff; }
+
+  code { background:var(--code-bg); padding:2px 6px; border-radius:4px; font-size:0.88em; font-family:"Cascadia Code","Fira Code",monospace; }
+  pre { background:#1a1a2e; color:#e0e0e0; padding:16px 20px; border-radius:8px; overflow-x:auto; margin:12px 0 16px; font-size:0.88rem; line-height:1.5; }
+  pre code { background:none; padding:0; color:inherit; }
+  .cmt { color:#6b9b6b; }
+  .kw { color:#82aaff; }
+
+  .callout { border-radius:10px; padding:16px 20px; margin:16px 0; font-size:0.92rem; }
+  .callout-tip { background:#e8f5e9; border-left:4px solid var(--success); }
+  .callout-warn { background:#fff8e1; border-left:4px solid var(--warn); }
+  .callout-danger { background:#ffebee; border-left:4px solid var(--danger); }
+  .callout-info { background:#e3f2fd; border-left:4px solid var(--accent2); }
+  .callout strong { display:block; margin-bottom:4px; }
+
+  .workflow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:16px 0; }
+  .step { background:var(--accent); color:#fff; padding:8px 16px; border-radius:20px; font-size:0.88rem; font-weight:600; white-space:nowrap; }
+  .arrow { color:var(--muted); font-size:1.2rem; }
+
+  .badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:0.78rem; font-weight:600; }
+  .badge-good { background:#d4edda; color:#155724; }
+  .badge-warn { background:#fff3cd; color:#856404; }
+  .badge-bad { background:#f8d7da; color:#721c24; }
+  .badge-info { background:#d1ecf1; color:#0c5460; }
+
+  @media(max-width:700px) {
+    .container { padding:16px; }
+    .hero { padding:28px 16px; }
+    .hero h1 { font-size:1.5rem; }
+    .card-grid { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="hero">
+  <h1>UE5 Shader 导出 + AOC 多架构对比</h1>
+  <div class="sub">从 Unreal Engine 拿到 shader，用 Adreno Offline Compiler 对比不同手机的 GPU 架构差异</div>
+  <div class="meta">整理于 2026-06-29 · 目标 API: Vulkan (SPIR-V) · 对比架构: a650 / a740 / a750</div>
+</div>
+
+<div class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#concept">核心概念：对比"手机"=切换 -arch</a></li>
+    <li><a href="#format">AOC 接受的 shader 格式</a></li>
+    <li><a href="#paths">两条取 SPIR-V 路径：RenderDoc vs UE dump</a></li>
+    <li><a href="#renderdoc">路径A：RenderDoc 抓真机帧导 SPIR-V（推荐）</a></li>
+    <li><a href="#dump">路径B：开启 UE shader dump</a></li>
+    <li><a href="#platform">路径B：切平台 + 强制重编</a></li>
+    <li><a href="#locate">定位并取出 shader 文件</a></li>
+    <li><a href="#aoc">AOC 下载（需 tencent 邮箱）+ 多架构编译对比</a></li>
+    <li><a href="#metrics">关键对比指标解读</a></li>
+    <li><a href="#archmap">机型 ↔ Adreno 架构对照表</a></li>
+    <li><a href="#pitfall">常见坑与注意事项</a></li>
+  </ol>
+</div>
+
+<!-- 1 -->
+<h2 id="concept">1. 核心概念：对比"手机" = 切换 <code>-arch</code></h2>
+<p>这是最容易误解的一点。用 AOC 验证<strong>不同手机之间的差别</strong>，并不是去每台真机里把它各自编译好的 shader 掏出来对比，而是：</p>
+<div class="callout callout-info">
+  <strong>同一份 shader 源，分别用不同的 <code>-arch</code> 参数编译，对比各架构上的指令数 / 寄存器占用 / 纹理开销。</strong>
+  shader 源码是同一份，差别完全来自 AOC 针对不同 Adreno 架构（a650 / a740 / a750…）的编译结果。
+</div>
+<p>所以任务拆成两步：① 从 UE 拿到 <strong>一份</strong> shader；② 用不同 <code>-arch</code> 分别编译并对比输出。</p>
+<div class="workflow">
+  <span class="step">取 SPIR-V（RenderDoc 抓帧 或 UE dump）</span><span class="arrow">→</span>
+  <span class="step">AOC 多 arch 编译</span><span class="arrow">→</span>
+  <span class="step">对比指令数/寄存器</span>
+</div>
+
+<!-- 2 -->
+<h2 id="format">2. AOC 接受的 shader 格式</h2>
+<p>AOC 支持三种输入，从 UE 拿货的难易度不同。你目标是 Vulkan，<strong>首选 SPIR-V</strong>。</p>
+<table>
+  <tr><th>格式</th><th>UE 后端</th><th>拿取难度</th><th>说明</th></tr>
+  <tr><td><code>.spv</code> SPIR-V</td><td>Vulkan</td><td><span class="badge badge-good">推荐</span></td><td>二进制，AOC 直接支持。Vulkan 手游的真实产物，对比结果最贴近线上。</td></tr>
+  <tr><td><code>.frag</code>/<code>.vert</code> GLSL ES</td><td>OpenGL ES</td><td><span class="badge badge-info">可选</span></td><td>HLSLcc 交叉编译出的文本，最易读。若目标是 GLES 后端选它。</td></tr>
+  <tr><td><code>.usf</code> / HLSL 源</td><td>—</td><td><span class="badge badge-bad">不推荐</span></td><td>UE 的 .usf 带大量宏和 include，AOC 难直接吃，不要走这条路。</td></tr>
+</table>
+<div class="callout callout-tip">
+  <strong>结论</strong>你是 Vulkan，dump SPIR-V（<code>.spv</code>）喂 AOC。AOC 文档明确支持 compiled SPIR-V 输入。
+</div>
+
+<!-- 2.5 paths -->
+<h2 id="paths">3. 两条取 SPIR-V 路径：RenderDoc vs UE dump</h2>
+<p>拿到那"一份 shader"有两条路，各有优劣。<strong>核心区别：RenderDoc 抓的是真机实际提交的特化(specialized) SPIR-V，UE dump 拿的是离线编译产物。</strong></p>
+<table>
+  <tr><th>对比项</th><th>路径A：RenderDoc</th><th>路径B：UE dump</th></tr>
+  <tr><td>来源</td><td>真机运行时实际提交给驱动的 SPIR-V</td><td>UE 离线编译 / cook 出的中间产物</td></tr>
+  <tr><td>permutation 准确性</td><td><span class="badge badge-good">高</span> 抓的就是当前画面用的那个变体</td><td><span class="badge badge-warn">需自己对</span> 全量里要找对应 hash</td></tr>
+  <tr><td>spec constant / 特化</td><td>已特化，贴近线上真实</td><td>未必特化到具体值</td></tr>
+  <tr><td>能否定位"哪个 DrawCall"</td><td><span class="badge badge-good">能</span> 直接选中那次 DrawCall 的 shader</td><td>不能，只有材质维度</td></tr>
+  <tr><td>需要真机</td><td>要（连真机抓帧）</td><td>不要（编辑器/命令行即可）</td></tr>
+  <tr><td>适合场景</td><td>定位"线上这一帧这个 DrawCall 为啥慢"</td><td>批量/CI、想覆盖所有 permutation</td></tr>
+</table>
+<div class="callout callout-tip">
+  <strong>给你的建议</strong>既然你已经在用 RenderDoc，<strong>优先走路径A</strong>——抓真机帧、选中可疑 DrawCall、导出它的 SPIR-V，最贴近线上真实负载。路径B 适合做全量/CI 批扫。两条路拿到的都是 <code>.spv</code>，后面喂 AOC 的步骤完全一样。
+</div>
+
+<!-- renderdoc path -->
+<h2 id="renderdoc">4. 路径A：RenderDoc 抓真机帧导 SPIR-V（推荐）</h2>
+
+<h3>4.1 反汇编：能看到什么、看不到什么</h3>
+<table>
+  <tr><th>层级</th><th>RenderDoc 能否反汇编</th><th>说明</th></tr>
+  <tr><td>SPIR-V 汇编</td><td><span class="badge badge-good">能</span></td><td>Pipeline State 选中 shader stage 即可看内置反汇编；也可 Save 出 <code>.spv</code> 用 <code>spirv-dis</code> 自己反汇编。看逻辑用。</td></tr>
+  <tr><td>Adreno 原生 ISA（a6xx/a7xx 机器码）</td><td><span class="badge badge-bad">不能</span></td><td>高通驱动私有，RenderDoc 拿不到、也反汇编不出。<strong>真机指令数/寄存器只能靠 AOC。</strong></td></tr>
+</table>
+<div class="callout callout-warn">
+  <strong>关键认知</strong>SPIR-V 是平台无关的<strong>中间表示</strong>，它的"指令条数"不等于 Adreno 上的真实指令数。想要架构级真相（Total instruction count / Register footprint / Texture read），必须把导出的 <code>.spv</code> 喂给 AOC。RenderDoc 反汇编只用来"读懂 shader 在干啥"。
+</div>
+
+<h3>4.2 操作步骤</h3>
+<ol>
+  <li>RenderDoc 连真机（Android + Vulkan），抓一帧。</li>
+  <li>在 Event Browser 里选中你怀疑慢的那次 <strong>DrawCall</strong>。</li>
+  <li>切到 <strong>Pipeline State</strong>，点对应的 shader stage（VS / FS）。</li>
+  <li>面板里能直接看 SPIR-V 反汇编；点 <strong>Save</strong>（或 Edit → 导出）把 SPIR-V 二进制存成 <code>.spv</code>。VS、FS 各存一份。</li>
+  <li>把这两个 <code>.spv</code> 直接拿去喂 AOC（见第 7 节），无需任何转换。</li>
+</ol>
+<div class="callout callout-info">
+  <strong>确认是 SPIR-V</strong>二进制文件头魔数 <code>0x07230203</code>。RenderDoc 导出的就是标准 SPIR-V，AOC 直接吃。
+</div>
+
+<!-- 3 -->
+<h2 id="dump">5. 路径B：开启 UE shader dump</h2>
+<p>编辑配置文件（优先项目级，避免影响其他项目）：</p>
+<pre><code>[项目]/Saved/Config/Windows/ConsoleVariables.ini
+<span class="cmt">// 或引擎级：Engine/Config/ConsoleVariables.ini</span></code></pre>
+<p>在 <code>[Startup]</code> 段下加入：</p>
+<pre><code>[Startup]
+<span class="cmt">; dump 所有编译的中间 shader 文件到 Saved/ShaderDebugInfo</span>
+r.DumpShaderDebugInfo=1
+<span class="cmt">; 保留调试信息，让产物可读、便于定位</span>
+r.Shaders.KeepDebugInfo=1
+<span class="cmt">; 额外生成可直接重编的命令行 bat</span>
+r.DumpShaderDebugWorkerCommandLine=1
+<span class="cmt">; 可选：详细的 shader 编译日志</span>
+r.ShaderDevelopmentMode=1</code></pre>
+
+<div class="callout callout-warn">
+  <strong>关于 r.Shaders.Optimize 的取舍（重要）</strong>
+  <ul style="margin-bottom:0">
+    <li>若只想<strong>看可读源码</strong>：可加 <code>r.Shaders.Optimize=0</code>，源码更清晰。</li>
+    <li>若想拿<strong>接近真机的指令数 / 寄存器去对比</strong>：保持 <code>r.Shaders.Optimize=1</code>（默认）。因为真正的对比数据来自 <strong>AOC 的输出</strong>，AOC 会对喂进去的 shader 再做架构相关的优化编译。dump 阶段关优化会让源码膨胀，但不影响 AOC 最终结论。</li>
+  </ul>
+</div>
+
+<div class="callout callout-info">
+  <strong>注意</strong>修改 console variable 默认<strong>不会</strong>触发 shader 失效重编，需要手动强制重编（见步骤二）。
+</div>
+
+<!-- 4 -->
+<h2 id="platform">6. 路径B：切平台 + 强制重编</h2>
+
+<h3>4.1 切到 Android / Vulkan 平台</h3>
+<p>必须让 UE 编译<strong>移动端 Vulkan</strong> 的 shader，而不是桌面 D3D 的。两种方式：</p>
+<ul>
+  <li><strong>编辑器内</strong>：设置预览渲染级别 / cook 平台为 <code>Android Vulkan</code>（Settings → Preview Rendering Level，或在 Platforms 菜单选 Android）。</li>
+  <li><strong>命令行 cook</strong>（更干净，推荐做批量分析）：
+<pre><code>UnrealEditor-Cmd.exe YourProject.uproject <span class="kw">-run</span>=Cook <span class="kw">-targetplatform</span>=Android_Vulkan</code></pre>
+  </li>
+</ul>
+<p>确认项目已启用 Vulkan：<code>Project Settings → Platforms → Android → Build → Support Vulkan</code> 勾上。</p>
+
+<h3>4.2 强制重编 shader</h3>
+<p>三选一，按需要的范围选：</p>
+<table>
+  <tr><th>范围</th><th>做法</th><th>适用</th></tr>
+  <tr><td>全量</td><td>改 <code>Engine/Shaders/Public/ShaderVersion.ush</code> 里的 GUID（换一个新的），重启编辑器</td><td>想 dump 全部 shader</td></tr>
+  <tr><td>包含某文件的</td><td>在目标 <code>.usf</code> 加一行：<br><code>#pragma message("UESHADERMETADATA_VERSION &lt;新GUID&gt;")</code></td><td>调某个 global shader</td></tr>
+  <tr><td><span class="badge badge-good">单材质（推荐）</span></td><td>打开材质编辑器 → 随便动一下节点 → 点 <strong>Apply</strong></td><td>只看某个材质，文件少，最干净</td></tr>
+</table>
+<div class="callout callout-tip">
+  <strong>建议</strong>做架构对比时，<strong>只针对你关心的那个材质</strong> 走"单材质"方式。否则全量 dump 会在硬盘里塞进成千上万个小文件，找文件都费劲。
+</div>
+
+<!-- 5 -->
+<h2 id="locate">7. 定位并取出 shader 文件</h2>
+<p>dump 产物位于：</p>
+<pre><code>[项目]/Saved/ShaderDebugInfo/</code></pre>
+<p>目录结构按 <code>平台 / 材质 / 顶点工厂 / shader类型</code> 分层，每个最终目录里通常包含：</p>
+<ul>
+  <li>shader 源文件（预处理后的 <code>.usf</code> / 交叉编译出的 GLSL）</li>
+  <li>编译产物（Vulkan 后端会有 SPIR-V）</li>
+  <li>一个重编用的 <code>.bat</code>（配合 <code>ShaderCompileWorker -direct</code> 可单独重跑）</li>
+  <li><code>OutputHash.txt</code> — shader hash，用于和崩溃日志 / RenderDoc 对应</li>
+</ul>
+<div class="callout callout-info">
+  <strong>怎么确认拿到的是 SPIR-V</strong>SPIR-V 是二进制，文件头魔数为 <code>0x07230203</code>。可用 <code>spirv-dis</code>（Vulkan SDK 自带）反汇编确认，或直接把 <code>.spv</code> 喂 AOC 验证。若 dump 出来的是 GLSL 文本而你需要 SPIR-V，用 Vulkan SDK 的 <code>glslangValidator -V shader.frag -o shader.frag.spv</code> 转一下即可。
+</div>
+
+<!-- 6 -->
+<h2 id="aoc">8. AOC 多架构编译对比</h2>
+
+<h3>8.0 AOC 下载（公司内务必看）</h3>
+<div class="callout callout-danger">
+  <strong>个人 Qualcomm 账号下不了！</strong>AOC 在高通 QPM 平台属于受限工具，<strong>个人注册账号没有下载权限</strong>。必须用<strong>公司（tencent）邮箱</strong>注册 / 绑定 Adreno 开发者账号，走企业授权后才能下载。
+</div>
+<ol>
+  <li>下载地址（QPM，Qualcomm Package Manager）：<br>
+    <code><a href="https://qpm.qualcomm.com/#/main/tools/details/Adreno_GPU_Offline_Compiler" target="_blank">https://qpm.qualcomm.com/#/main/tools/details/Adreno_GPU_Offline_Compiler</a></code>
+  </li>
+  <li>用 <strong>tencent 公司邮箱</strong>注册 / 登录 Qualcomm Adreno 开发者账号（个人邮箱账号无权限，页面会显示无法下载 / access denied）。</li>
+  <li>登录后在该页面下载 QPM 客户端，再通过 QPM 安装 Adreno GPU Offline Compiler 包；安装完在安装目录下找到 <code>aoc.exe</code>。</li>
+</ol>
+<div class="callout callout-tip">
+  <strong>提示</strong>如果公司已有统一的高通企业账号 / 内部镜像，直接找对应负责同学要安装包更快，省去 QPM 授权流程。SDP（Snapdragon Profiler）同样走这个 QPM 平台分发。
+</div>
+
+<h3>8.1 多架构编译命令</h3>
+<p><strong>无论 shader 来自路径A（RenderDoc）还是路径B（UE dump），到这一步操作完全一样</strong>——同一份文件分别用不同 <code>-arch</code> 编译并把输出存档：</p>
+<pre><code><span class="cmt"># SPIR-V 输入（你的场景）</span>
+aoc.exe <span class="kw">-arch</span>=a650 shader.frag.spv shader.vert.spv &gt; a650.txt
+aoc.exe <span class="kw">-arch</span>=a740 shader.frag.spv shader.vert.spv &gt; a740.txt
+aoc.exe <span class="kw">-arch</span>=a750 shader.frag.spv shader.vert.spv &gt; a750.txt
+
+<span class="cmt"># GLSL ES 输入（若走 GLES 后端）</span>
+aoc.exe <span class="kw">-arch</span>=a650 file/*.frag file/*.vert</code></pre>
+<div class="callout callout-warn">
+  <strong>架构支持以你手上 AOC 版本为准</strong>较老版本官方列出支持 <code>A650 / A660 / A730 / C510 / C511</code>。a740(8Gen2) / a750(8Gen3) 需较新版 AOC 才支持，<strong>若 <code>-arch=a750</code> 报不支持，用同代际最接近的架构替代</strong>，或升级 AOC。先跑 <code>aoc.exe -h</code> 看本机支持列表。
+</div>
+<p>然后逐项对比三份输出，整理成表（示例结构，数字以你实测为准，<strong>严禁臆造</strong>）：</p>
+<table>
+  <tr><th>指标</th><th>a650</th><th>a740</th><th>a750</th><th>看什么</th></tr>
+  <tr><td>Total instruction count</td><td>—</td><td>—</td><td>—</td><td>越低越好，反映算力开销</td></tr>
+  <tr><td>Register footprint</td><td>—</td><td>—</td><td>—</td><td><strong>最关键</strong>，决定 occupancy</td></tr>
+  <tr><td>Texture read</td><td>—</td><td>—</td><td>—</td><td>纹理采样开销 / 带宽相关</td></tr>
+</table>
+
+<!-- 7 -->
+<h2 id="metrics">9. 关键对比指标解读</h2>
+<div class="card-grid">
+  <div class="card">
+    <div class="icon">📊</div>
+    <div class="label">Register footprint（寄存器占用）</div>
+    <div class="desc"><strong>最该盯的指标。</strong>骁龙每 64 个 ALU 仅约 64KB 寄存器（桌面 256KB）。寄存器不够 → 同时驻留的 wave 变少 → occupancy 低 → 遇到纹理采样延迟时无法切换隐藏延迟 → latency-bound 卡顿。某架构上寄存器明显偏高，那台机型就是风险点。</div>
+  </div>
+  <div class="card">
+    <div class="icon">🧮</div>
+    <div class="label">Total instruction count（总指令数）</div>
+    <div class="desc">编译后 VS+PS 建议 ≤ 2000 条指令。不同架构同一份 shader 的指令数会有差异，反映各代编译器/ISA 的效率。</div>
+  </div>
+  <div class="card">
+    <div class="icon">🖼️</div>
+    <div class="label">Texture read（纹理读取）</div>
+    <div class="desc">纹理采样次数与模式。大量纹理采样 + 复杂计算（高寄存器）同时存在的 shader 最危险，最容易在低端架构上 latency-bound。</div>
+  </div>
+</div>
+<div class="callout callout-info">
+  <strong>判读思路</strong>对比三个架构，<strong>找指令数或寄存器明显跳高的那一栏</strong>——它对应的机型就是潜在性能瓶颈机型。再结合 SDP 在真机上验证（实验法关掉对应项看帧率是否回升），形成"离线分析 + 真机验证"闭环。
+</div>
+
+<!-- 8 -->
+<h2 id="archmap">10. 机型 ↔ Adreno 架构对照表</h2>
+<table>
+  <tr><th>SoC</th><th>Adreno GPU</th><th>AOC -arch</th><th>代表机型</th></tr>
+  <tr><td>骁龙 8 Gen 1</td><td>Adreno 730</td><td><code>a730</code></td><td>小米12 / 一加10 Pro</td></tr>
+  <tr><td>骁龙 8+ Gen 1</td><td>Adreno 730</td><td><code>a730</code></td><td>小米12S / 红米K50至尊</td></tr>
+  <tr><td>骁龙 8 Gen 2</td><td>Adreno 740</td><td><code>a740</code></td><td>小米13 / 一加11 / iQOO11</td></tr>
+  <tr><td>骁龙 8 Gen 3</td><td>Adreno 750</td><td><code>a750</code></td><td>小米14 / 一加12 / iQOO12</td></tr>
+  <tr><td>骁龙 888 / 865</td><td>Adreno 660 / 650</td><td><code>a660</code> / <code>a650</code></td><td>小米11 / 小米10</td></tr>
+</table>
+<div class="callout callout-warn">
+  <strong>低端机也别忽略</strong>真正卡的往往是 a610 / a619 这类中低端（红米 Note 系列、低端千元机）。如果你的目标用户覆盖低端机，建议把这些也加进对比——它们寄存器更紧张，最容易暴露问题。这些架构是否被你的 AOC 版本支持，同样以 <code>aoc.exe -h</code> 为准。
+</div>
+
+<!-- 9 -->
+<h2 id="pitfall">11. 常见坑与注意事项</h2>
+<table>
+  <tr><th>坑</th><th>说明 / 规避</th></tr>
+  <tr><td>dump 出来是 D3D shader</td><td>没切到 Android 平台。确认预览级别 / cook targetplatform 是 Android_Vulkan。</td></tr>
+  <tr><td>改了 cvar 却没 dump</td><td>cvar 改动不触发重编，必须手动强制重编（改 GUID / 动材质 Apply）。</td></tr>
+  <tr><td>全量 dump 撑爆硬盘</td><td>长期开 <code>r.DumpShaderDebugInfo=1</code> 会产生海量小文件，分析完记得关掉。优先用单材质方式。</td></tr>
+  <tr><td><code>-arch=a750</code> 报不支持</td><td>AOC 版本旧。升级 AOC，或用同代际最接近架构替代。先 <code>aoc.exe -h</code> 看支持列表。</td></tr>
+  <tr><td>把 AOC 数字当成绝对真机性能</td><td>AOC 给的是静态分析（指令数/寄存器），是相对趋势参考，不等于真机帧时间。结论要靠 SDP 真机实验法复现验证。</td></tr>
+  <tr><td>个人账号下不到 AOC</td><td>QPM 上 AOC 是受限工具，个人 Qualcomm 账号无权限。<strong>必须用 tencent 公司邮箱</strong>注册/绑定 Adreno 账号，或找公司有企业账号的同学要安装包。</td></tr>
+  <tr><td>以为 RenderDoc 能反汇编 Adreno 机器码</td><td>不能。它只到 SPIR-V 层。Adreno 原生 ISA 是驱动私有，真机指令数/寄存器只能靠 AOC。</td></tr>
+  <tr><td>拿 SPIR-V 反汇编的指令条数当真机指令数</td><td>SPIR-V 是平台无关中间表示，条数 ≠ Adreno 实际指令数。必须过 AOC。</td></tr>
+  <tr><td>臆造对比数据</td><td><strong>严禁</strong>。读不到/AOC 没输出某项，如实标"待测"，绝不编数字。</td></tr>
+</table>
+
+<div class="callout callout-tip">
+  <strong>SDP 已内置 AOC</strong>Snapdragon Profiler 在 Snapshot 模式下双击 DrawCall，左下 Shader Analyzer 底层就是调 AOC。如果你只是想看真机某帧某 DrawCall 的 shader 指令数，可以直接在 SDP 里看，不必手动跑命令行。手动 AOC 的价值在于<strong>批量 / CI / 跨架构对比</strong>——正是你这个场景。
+</div>
+
+<div style="margin-top:40px;padding-top:20px;border-top:1px solid var(--border);color:var(--muted);font-size:0.85rem">
+  整理于 2026-06-29 · 适用 UE5 + 高通 Adreno · 配合《高通 SDP 工具使用教程》《高通 AdrenoGPU 最佳实践》一起看效果更好
+</div>
+
+</div>
+</body>
+</html>
