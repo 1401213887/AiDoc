@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FateTrigger TDM8Gen3 全量 Shader 性能分析报告</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --ink:#1c2128; --sub:#57606a; --line:#e4e7ec;
+    --accent:#2563eb; --hot:#d1242f; --warn:#bf8700; --ok:#1a7f37; --bar:#3b82f6; --bar2:#93c5fd;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65;padding:32px 20px}
+  .wrap{max-width:1140px;margin:0 auto}
+  header{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;border-radius:16px;padding:30px 36px;margin-bottom:22px;box-shadow:0 8px 24px rgba(37,99,235,.18)}
+  header h1{font-size:25px;font-weight:700;margin-bottom:8px}
+  header .meta{font-size:13px;opacity:.92;display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 28px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  h2{font-size:19px;font-weight:700;margin-bottom:14px;padding-left:11px;border-left:4px solid var(--accent)}
+  h3{font-size:15.5px;font-weight:650;margin:18px 0 8px;color:#0d1117}
+  p{font-size:14px;color:var(--sub);margin-bottom:8px}
+  .kpi{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:6px 0 4px}
+  .kpi .b{background:#f8fafc;border:1px solid var(--line);border-radius:11px;padding:14px 12px;text-align:center}
+  .kpi .v{font-size:23px;font-weight:750;color:var(--accent)}
+  .kpi .l{font-size:11.5px;color:var(--sub);margin-top:3px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  th,td{padding:8px 9px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:#f1f5f9;font-weight:650;color:#0d1117;font-size:12px;white-space:nowrap}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tr:hover td{background:#fafbfc}
+  code{background:#eef1f4;padding:1px 6px;border-radius:5px;font-size:12px;font-family:"SF Mono",Consolas,monospace}
+  .tag{display:inline-block;font-size:11px;font-weight:650;padding:2px 7px;border-radius:20px;white-space:nowrap}
+  .t-hot{background:#ffebe9;color:var(--hot)} .t-warn{background:#fff8c5;color:var(--warn)}
+  .t-ok{background:#dafbe1;color:var(--ok)} .t-info{background:#ddf4ff;color:var(--accent)}
+  .finding{border-left:3px solid var(--hot);background:#fff5f5;padding:12px 16px;border-radius:0 8px 8px 0;margin:10px 0;font-size:13.5px}
+  .finding.warn{border-color:var(--warn);background:#fffbe6}
+  .finding.ok{border-color:var(--ok);background:#f0fdf4}
+  .finding b{color:#0d1117}
+  .note{font-size:12.5px;color:var(--sub);background:#f8fafc;border:1px dashed var(--line);border-radius:9px;padding:12px 15px;margin-top:14px}
+  ul.steps{margin:6px 0 6px 4px;list-style:none}
+  ul.steps li{font-size:13.5px;padding:5px 0 5px 22px;position:relative;color:#24292f}
+  ul.steps li:before{content:"▸";position:absolute;left:4px;color:var(--accent);font-weight:700}
+  .small{font-size:12px;color:var(--sub)}
+  .mono{font-family:"SF Mono",Consolas,monospace;font-size:11.5px}
+  @media(max-width:820px){.kpi{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>FateTrigger · TDM8Gen3 — 全量 Shader 性能分析报告</h1>
+  <div class="meta">
+    <span><b>截帧</b> TDM8Gen3.rdc</span>
+    <span><b>API</b> Vulkan (SF_VULKAN_ES31_ANDROID)</span>
+    <span><b>目标</b> Adreno 750 (8Gen3)</span>
+    <span><b>工具</b> RenderDoc 全量导出 + AOC 7.0.5 批量</span>
+    <span><b>日期</b> 2026-06-30</span>
+  </div>
+</header>
+
+<div class="card">
+  <h2>一、分析方法（全量 · 去重 · 容错）</h2>
+  <p>不再"先定位热点再分析"，而是<b>全帧每个 shader 都过 AOC</b>。流程：① RenderDoc 遍历全部 Draw/Dispatch，按 shader <code>ResourceId</code> 去重导出 .spv（同一 material shader 被几百次复用也只导一次）；② 对每个唯一 shader 批量跑 AOC（a750），单个失败标 failed 跳过、绝不臆造数值。热点排名变成<b>分析之后</b>的输出维度。</p>
+  <div class="kpi">
+    <div class="b"><div class="v">627</div><div class="l">Draw + Dispatch 总数</div></div>
+    <div class="b"><div class="v">218</div><div class="l">去重后唯一 Shader</div></div>
+    <div class="b"><div class="v">218</div><div class="l">AOC 成功 (0 失败)</div></div>
+    <div class="b"><div class="v">0</div><div class="l">Scratch Spill 红线</div></div>
+    <div class="b"><div class="v">78</div><div class="l">存在优化空间</div></div>
+  </div>
+  <p style="margin-top:12px">唯一 shader 按 stage 分布：<b>VS 86 / PS 109 / CS 23</b>。诊断分布：<span class="tag t-ok">健康 140</span> &nbsp;<span class="tag t-hot">访存/依赖链 bound 69</span> &nbsp;<span class="tag t-warn">latency/occupancy bound 5</span> &nbsp;<span class="tag t-warn">occupancy 偏低 4</span>。</p>
+  <div class="note">✅ <b>全帧零 GPR spill（Scratch=0）</b>——没有任何 shader 把寄存器溢出到显存，这是最危险的红线，本帧不存在。绝大多数"问题"是访存/依赖链型，而非寄存器型。</div>
+  <div class="note" style="border-color:var(--warn);background:#fffbe6">🔧 <b>数据修正说明（v2）</b>：初版导出脚本对每个 Draw 也读了 Compute stage，把"上一次 dispatch 残留绑定的 CS"误记成该 Draw 使用——导致一个 CS 被 245 个 BasePass Draw 误算 used_by、累计耗时虚高到 2.61ms。已修脚本（Draw 只取图形 stage、Dispatch 只取 compute）并按 event 类型重算 used_by。下表与结论均为<b>修正后</b>数据。</div>
+</div>
+
+<div class="card">
+  <h2>二、按累计耗时排序（Shader 工作量权重 Top）</h2>
+  <p><code>sum_ms</code> = 该 shader 服务的所有<b>同类型</b> event（VS/PS 只计 Draw，CS 只计 Dispatch）的 GPU 耗时之和，代表它在本帧的<b>总工作量权重</b>。</p>
+  <table>
+    <thead><tr>
+      <th>#</th><th>Shader (entry)</th><th>Stage</th><th class="num">复用次数</th><th class="num">sum_ms</th>
+      <th class="num">指令数</th><th class="num">GPR</th><th class="num">Occ</th><th class="num">ExpLat</th><th>诊断</th>
+    </tr></thead>
+    <tbody>
+      <tr style="background:#fff5f5"><td>1</td><td class="mono">main_00027d7c_ed107115<br><span class="small">DeferredShading &gt; Cloud PS（体积云延迟着色）</span></td><td>PS</td><td class="num">1</td><td class="num"><b>1.433</b></td><td class="num" style="color:var(--hot)">24988</td><td class="num" style="color:var(--hot)">44</td><td class="num" style="color:var(--hot)">25%</td><td class="num">45.6</td><td><span class="tag t-hot">GPR/occ bound</span></td></tr>
+      <tr style="background:#fffbe6"><td>2</td><td class="mono">main_0000a310_5a83437d<br><span class="small">MMH::ShadowMapProjection PS（VSM+SMRT 软阴影）</span></td><td>PS</td><td class="num">1</td><td class="num">0.811</td><td class="num">2866</td><td class="num">12</td><td class="num">100%</td><td class="num">50.1</td><td><span class="tag t-hot">访存/依赖链</span></td></tr>
+      <tr><td>3</td><td class="mono">main_00000d94_1f536496<br><span class="small">DepthPrepass material VS（×176）</span></td><td>VS</td><td class="num">176</td><td class="num">0.389</td><td class="num">71</td><td class="num">5</td><td class="num">100%</td><td class="num">52.2</td><td><span class="tag t-warn">高频访存型VS</span></td></tr>
+      <tr><td>4</td><td class="mono">main_00003cc4_c1740d41<br><span class="small">TAA / Tonemap 共享 PS</span></td><td>PS</td><td class="num">1</td><td class="num">0.234</td><td class="num">583</td><td class="num">13</td><td class="num">87%</td><td class="num">33.1</td><td><span class="tag t-ok">健康</span></td></tr>
+      <tr><td>5</td><td class="mono">main_*（×9 material VS）</td><td>VS</td><td class="num">9</td><td class="num">0.227</td><td class="num">85</td><td class="num">5</td><td class="num">100%</td><td class="num">42.4</td><td><span class="tag t-info">高频小VS</span></td></tr>
+      <tr><td>6</td><td class="mono">main_*（×40 material VS/PS）</td><td>VS/PS</td><td class="num">40</td><td class="num">0.223</td><td class="num">359</td><td class="num">7</td><td class="num">150%</td><td class="num">33.0</td><td><span class="tag t-ok">健康</span></td></tr>
+      <tr><td>7</td><td class="mono">main_00002c28_0a5f64fc<br><span class="small">AmbientOcclusion HorizonSearch PS</span></td><td>PS</td><td class="num">1</td><td class="num">0.195</td><td class="num">1460</td><td class="num">13</td><td class="num">75%</td><td class="num">19.2</td><td><span class="tag t-ok">健康</span></td></tr>
+      <tr><td>8</td><td class="mono">main_*（×43 BasePass VS）</td><td>VS</td><td class="num">43</td><td class="num">0.181</td><td class="num">18</td><td class="num">2</td><td class="num">100%</td><td class="num">19.3</td><td><span class="tag t-ok">健康</span></td></tr>
+      <tr><td>9</td><td class="mono">main_*（×60 material VS）</td><td>VS</td><td class="num">60</td><td class="num">0.145</td><td class="num">87</td><td class="num">5</td><td class="num">100%</td><td class="num">43.2</td><td><span class="tag t-info">高频访存型VS</span></td></tr>
+      <tr><td>10</td><td class="mono">main_00000640_cbbe4fda<br><span class="small">VSM RequestPageDynamic CS（最重 CS）</span></td><td>CS</td><td class="num">1</td><td class="num">0.118</td><td class="num">47</td><td class="num">2</td><td class="num">100%</td><td class="num">44.3</td><td><span class="tag t-info">访存/依赖链</span></td></tr>
+    </tbody>
+  </table>
+  <div class="note">⚠️ <b>归因口径</b>：一个 Draw 同时绑 VS+PS，其 GPU 耗时会<b>同时计入 VS 行和 PS 行</b>，所以各行 sum_ms 相加会超过帧总时——这是"每个 shader 的工作量权重"，<b>不是互斥的帧时间切分</b>。校验：VS 合计 5.81ms / PS 合计 5.81ms / CS 合计 0.38ms（CS 与帧概况的 27 dispatch≈0.37ms 吻合）。绝对耗时仍以 Snapdragon Profiler 真机为准。</div>
+</div>
+
+<div class="card">
+  <h2>三、关键发现</h2>
+
+  <h3>🔴 头号 Shader 级瓶颈：DeferredShading Cloud PS（1.43ms，GPR=44）</h3>
+  <div class="finding">
+    <b>修正后的真·头号热点，也是全帧唯一的"寄存器型"瓶颈。</b>24988 条指令、<code>GPR=44</code> 把 occupancy 压到 25%、exposed long latency 45.6%。典型"高 GPR → 低 occupancy → 延迟暴露"链条，也是全帧 GPR 最高的 shader。优化：降 GPR（拆 shader / 缩 live range / half 化 7971 条 32-bit ALU）+ 降 raymarch 步数 / 半分辨率。
+  </div>
+
+  <h3>🔴 次热点：ShadowProjection PS（0.811ms，访存/依赖链 bound）</h3>
+  <div class="finding warn">
+    阴影投影 PS：occupancy=100% 但 exposed long latency=50.1%、GPR=12——并发已拉满仍掩盖不住延迟，属<b>访存/依赖链 bound</b>，不是寄存器问题。优化：降 SMRT 采样数 / <code>MaxRayCount</code>、收紧 <code>FadeDistance</code> 提前剔除、页表查询局部性优化。
+  </div>
+
+  <h3>🟡 普遍现象：69 个访存型 shader，以 BasePass 高频 material VS 为主</h3>
+  <div class="finding warn">
+    全帧 69 个 shader 都是"occupancy 已满 100~200% 但延迟仍暴露"的访存型。其中累计耗时较高的是 BasePass / DepthPrepass 的<b>高频 material VS</b>（如 <code>00000d94</code> ×176、另有 ×60、×40 复用），<b>单个很轻、靠高复用累计</b>。共性优化是<b>减少纹理/buffer 访问次数、提升访存局部性，并合批降低 draw 数</b>，而非动寄存器。<span class="small">（与上面 ShadowProjection 同为"访存型"，但根因不同：那个是单次重的全屏大 PS，这里是单次轻、靠数量堆起来的 material shader，优化抓手也不同——故分列。）</span>
+  </div>
+
+  <h3>🟢 健康面：140/218 健康，全帧零 spill；CS 整体很轻</h3>
+  <div class="finding ok">
+    64% 的 shader AOC 判定健康；<b>无任何 GPR spill</b>。修正后 <b>全部 Compute 累计仅 0.38ms</b>（与帧概况 27 个 dispatch≈0.37ms 吻合），CS 不是本帧瓶颈。TAA/Tonemap/GTAO 等后处理寄存器与 occupancy 正常，耗时主要是填充率/几何吞吐。
+  </div>
+</div>
+
+<div class="card">
+  <h2>四、优化优先级（结合累计耗时 + AOC 诊断）</h2>
+  <table>
+    <thead><tr><th>优先级</th><th>目标</th><th class="num">累计权重</th><th>问题类型</th><th>手段</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag t-hot">P0</span></td><td>DeferredShading Cloud PS</td><td class="num">1.43ms</td><td>GPR/occ bound</td><td>降 GPR + half 化 + 降 raymarch</td></tr>
+      <tr><td><span class="tag t-hot">P0</span></td><td>ShadowProjection PS</td><td class="num">0.81ms</td><td>访存 bound</td><td>降 SMRT 采样 + 页表局部性</td></tr>
+      <tr><td><span class="tag t-warn">P1</span></td><td>BasePass 高频 material VS/PS（×176/×60/×40 等）</td><td class="num">~1.5ms 合计</td><td>访存 + 调用量</td><td>减访存次数 + 合批降 draw 数</td></tr>
+      <tr><td><span class="tag t-warn">P1</span></td><td>occupancy 偏低组（GPR 25~32 的 CS/VS）</td><td class="num">~0.1ms</td><td>occ 偏低</td><td>降 GPR 提 occupancy</td></tr>
+      <tr><td><span class="tag t-ok">—</span></td><td>140 个健康 shader + 全部 CS</td><td class="num">—</td><td>无</td><td>维持现状</td></tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <b>方法论价值</b>：全量去重 + 按累计耗时归因，仍能区分"单次重的大 shader"与"单次轻但高频的 material shader"两类目标（如 BasePass 的 ×176 VS）。<b>本次还暴露并修正了一个真实数据错误</b>——初版把 Draw 上残留绑定的 CS 误算进 used_by，导致虚假"头号 CS"；修正后已与帧 dispatch 总耗时严格对账。<br>
+    <b>免责声明</b>：AOC 为离线静态投影，看不到真机频率/带宽/cache，结论用于<b>相对趋势与根因定位</b>；绝对耗时与带宽瓶颈务必以设备端 Snapdragon Profiler 实测为准。218 个 shader 的 AOC 指标真实、零失败、零臆造；累计耗时归因口径见上节注释。完整明细见 <code>aoc_batch_summary.csv</code>。
+  </div>
+</div>
+
+<p class="small" style="text-align:center;margin-top:8px;opacity:.7">RenderDoc 全量导出 + AOC Skill 批量分析 · 218 unique shaders · TDM8Gen3.rdc</p>
+
+</div>
+</body>
+</html>

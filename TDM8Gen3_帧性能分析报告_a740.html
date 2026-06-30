@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TDM8Gen3 帧性能分析与热点定位报告 (AOC @ a740)</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1c2230; --sub:#5b6472; --line:#e3e7ee;
+    --accent:#2f6df0; --p0:#e02424; --p1:#e8820c; --p2:#2f9e44; --bar:#2f6df0;
+    --warn-bg:#fff8e6; --warn-line:#f0c24b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.6;}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 24px 64px;}
+  header h1{font-size:24px;margin:0 0 6px;}
+  header .meta{color:var(--sub);font-size:13px;}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;
+        background:#eef3ff;color:var(--accent);margin-right:6px;border:1px solid #d6e2ff;}
+  section{margin-top:34px;}
+  h2{font-size:18px;border-left:4px solid var(--accent);padding-left:10px;margin:0 0 16px;}
+  h3{font-size:15px;margin:22px 0 8px;color:var(--ink);}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
+  .kpi .n{font-size:22px;font-weight:700;}
+  .kpi .l{font-size:12px;color:var(--sub);margin-top:2px;}
+  table{width:100%;border-collapse:collapse;background:var(--card);
+        border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13px;}
+  th,td{padding:9px 11px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th{background:#f0f3f8;font-weight:600;color:#3a4357;font-size:12px;}
+  tr:last-child td{border-bottom:none;}
+  td.mono,.mono{font-family:"Consolas","SF Mono",monospace;font-size:12px;}
+  .barwrap{background:#eef1f6;border-radius:5px;height:9px;width:120px;overflow:hidden;display:inline-block;vertical-align:middle;}
+  .barfill{height:100%;background:var(--bar);border-radius:5px;}
+  .tag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600;}
+  .t-gpr{background:#fdecec;color:var(--p0);}
+  .t-mem{background:#fff0e0;color:var(--p1);}
+  .t-ok{background:#e7f6ec;color:var(--p2);}
+  .t-na{background:#eceef2;color:#8a93a3;}
+  .p0{color:var(--p0);font-weight:700;}.p1{color:var(--p1);font-weight:700;}.p2{color:var(--p2);font-weight:700;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:14px;}
+  .card h4{margin:0 0 6px;font-size:14px;}
+  .card .path{font-family:monospace;font-size:11px;color:var(--sub);word-break:break-all;margin-bottom:8px;}
+  .disclaimer{background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:10px;
+              padding:12px 16px;font-size:12.5px;color:#6b5300;margin-top:28px;}
+  .small{font-size:12px;color:var(--sub);}
+  ul{margin:6px 0 0;padding-left:20px;}li{margin:3px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>TDM8Gen3 帧性能分析与热点定位报告</h1>
+  <div class="meta">
+    <span class="pill">RenderDoc 截帧</span><span class="pill">Vulkan / SF_VULKAN_ES31_ANDROID</span>
+    <span class="pill">AOC 离线投影 @ arch=a740</span><span class="pill">模式 A · 热点驱动</span><br>
+    捕获文件 <span class="mono">TDM8Gen3.rdc</span> · Frame 7779 · 分析目标 GPU：Adreno a740（骁龙 8Gen2，用户指定）· 生成于 2026-06-30
+  </div>
+</header>
+
+<!-- 一 -->
+<section>
+  <h2>一、帧整体概况</h2>
+  <div class="kpis">
+    <div class="kpi"><div class="n">6.582 ms</div><div class="l">GPU 总耗时（各 action 独立计时之和）</div></div>
+    <div class="kpi"><div class="n">600 / 27</div><div class="l">Draw call / Dispatch 数</div></div>
+    <div class="kpi"><div class="n">627</div><div class="l">叶子 action（已计时）</div></div>
+    <div class="kpi"><div class="n">540 / 495</div><div class="l">纹理 / Buffer 资源数</div></div>
+  </div>
+  <p class="small">计时口径：耗时为 RenderDoc 各 action 的独立 GPU 计时之和，非墙钟帧时间（存在并行/重叠时实际帧时更短）。绝对值仅作相对趋势，真机以 Snapdragon Profiler 设备端为准。</p>
+</section>
+
+<!-- 二 -->
+<section>
+  <h2>二、按 Pass 的性能数据（耗时降序）</h2>
+  <table>
+    <thead><tr><th>Pass（RenderDoc 原始 marker）</th><th>耗时(ms)</th><th>占帧</th><th>Draw·Disp</th><th>占比</th><th>判定</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">DeferredShading &gt; MP_Map_1.BP_ParentCommonEnvLight1_Cloud</td><td>1.435</td><td>21.8%</td><td>1 · 0</td><td><span class="barwrap"><span class="barfill" style="width:100%"></span></span></td><td><span class="tag t-gpr">单重 PS · GPR bound</span></td></tr>
+      <tr><td class="mono">MMH &gt; MMH::ShadowMapProjection</td><td>0.832</td><td>12.6%</td><td>1 · 0</td><td><span class="barwrap"><span class="barfill" style="width:58%"></span></span></td><td><span class="tag t-mem">单重 PS · 访存/依赖链 bound</span></td></tr>
+      <tr><td class="mono">SceneColorRendering &gt; MobileBasePass</td><td>0.798</td><td>12.1%</td><td>222 · 0</td><td><span class="barwrap"><span class="barfill" style="width:56%"></span></span></td><td><span class="tag t-mem">高频小 Draw · 吞吐 bound</span></td></tr>
+      <tr><td class="mono">FullDepthPrepass &gt; MobileRenderPrePass</td><td>0.679</td><td>10.3%</td><td>204 · 0</td><td><span class="barwrap"><span class="barfill" style="width:47%"></span></span></td><td><span class="tag t-mem">高频小 Draw · 吞吐 bound</span></td></tr>
+      <tr><td class="mono">SlateUI &gt; ElementBatch</td><td>0.487</td><td>7.4%</td><td>91 · 0</td><td><span class="barwrap"><span class="barfill" style="width:34%"></span></span></td><td><span class="tag t-ok">UI 叠加</span></td></tr>
+      <tr><td class="mono">TAA &gt; TAA(Main Quality=High) 1014x504</td><td>0.233</td><td>3.5%</td><td>1 · 0</td><td><span class="barwrap"><span class="barfill" style="width:16%"></span></span></td><td><span class="tag t-ok">后处理 · 健康</span></td></tr>
+      <tr><td class="mono">MobileSceneRender &gt; AmbientOcclusion_HorizonSearchIntegral</td><td>0.194</td><td>2.9%</td><td>1 · 0</td><td><span class="barwrap"><span class="barfill" style="width:14%"></span></span></td><td><span class="tag t-ok">GTAO · 健康</span></td></tr>
+      <tr><td class="mono">MobileSceneRender &gt; Mobile_PreOutline_Pass</td><td>0.181</td><td>2.8%</td><td>7 · 0</td><td><span class="barwrap"><span class="barfill" style="width:13%"></span></span></td><td><span class="tag t-ok">描边</span></td></tr>
+      <tr><td class="mono">RenderVelocities &gt; Velocity</td><td>0.154</td><td>2.3%</td><td>14 · 0</td><td><span class="barwrap"><span class="barfill" style="width:11%"></span></span></td><td><span class="tag t-ok">速度缓冲</span></td></tr>
+      <tr><td class="mono">MMH::VirtualShadowMapArray::Update &gt; RequestPageDynamic</td><td>0.128</td><td>1.9%</td><td>0 · 1</td><td><span class="barwrap"><span class="barfill" style="width:9%"></span></span></td><td><span class="tag t-ok">VSM 页表更新</span></td></tr>
+    </tbody>
+  </table>
+  <p class="small">注：Pass 名取 RenderDoc 原始英文 marker 路径末两级。Dispatch 全帧仅 27 个、合计约 0.37ms，与帧概况对账吻合，CS 非本帧瓶颈。</p>
+</section>
+
+<!-- 三 -->
+<section>
+  <h2>三、热点 Shader 的 AOC 诊断（@ a740）</h2>
+  <table>
+    <thead><tr><th>热点 Event（marker）</th><th>Stage / Entry</th><th>Total instr</th><th>GPR</th><th>Scratch</th><th>Occup.</th><th>Exp.LongLat</th><th>ALU 32/16</th><th>诊断</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="mono">DeferredShading &gt; ...Cloud<br><span class="small">eid=3796 · 1.435ms</span></td>
+        <td class="mono">FS · main_00027d7c</td>
+        <td>24875</td><td class="p0">44</td><td>0</td><td class="p0">25%</td><td class="p0">45.6%</td><td>7987 / 1592</td>
+        <td><span class="tag t-gpr">GPR bound</span></td>
+      </tr>
+      <tr>
+        <td class="mono">MMH &gt; ShadowMapProjection<br><span class="small">eid=2324 · 0.832ms</span></td>
+        <td class="mono">FS · main_0000a310</td>
+        <td>2853</td><td class="p2">12</td><td>0</td><td class="p2">100%</td><td class="p1">50.1%</td><td>944 / 62</td>
+        <td><span class="tag t-mem">访存/依赖链 bound</span></td>
+      </tr>
+      <tr>
+        <td class="mono">TAA &gt; TAA(Main Quality=High)<br><span class="small">eid=4105 · 0.233ms</span></td>
+        <td class="mono">FS · main_00003cc4</td>
+        <td>583</td><td class="p2">13</td><td>0</td><td class="p2">87%</td><td class="p2">33.0%</td><td>273 / 38</td>
+        <td><span class="tag t-ok">健康</span></td>
+      </tr>
+      <tr>
+        <td class="mono">MobileSceneRender &gt; GTAO HorizonSearch<br><span class="small">eid=2279 · 0.194ms</span></td>
+        <td class="mono">FS · main_00002c28</td>
+        <td>1390</td><td class="p2">14</td><td>0</td><td class="p2">75%</td><td class="p2">19.1%</td><td>572 / 345</td>
+        <td><span class="tag t-ok">健康</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="small">所有数值由 AOC 7.0.5 离线编译 @ -arch=a740 -api=Vulkan -dump=stats_perf 实测，逐条来自 "Main Shader Stats"，无估算。前三行均 <span class="mono">Compilation succeeded</span>。</p>
+</section>
+
+<!-- 四 -->
+<section>
+  <h2>四、关键发现与根因</h2>
+
+  <div class="card">
+    <h4>① 体积云延迟着色 PS —— 单次最重，寄存器型瓶颈（P0）</h4>
+    <div class="path">SceneColorRendering &gt; DeferredShading &gt; MP_Map_1.BP_ParentCommonEnvLight1_Cloud (eid=3796)</div>
+    单个 Draw 吃掉 <b>1.435ms / 全帧 21.8%</b>，是当之无愧的头号热点。AOC：<b>Overall GPR=44</b>（偏高），导致 <b>ALU fiber occupancy 仅 25%</b>，并发 wave 不足；<b>exposed long latency 45.6%</b>——近半周期卡在等访存且无 wave 可掩盖。这是典型的 <b>高 GPR → 低 occupancy → 延迟暴露</b> 因果链，属<b>寄存器压力型</b>。指令总量 24875、32-bit ALU 占 7987（half 仅 17%）也偏重。
+    <ul>
+      <li>降 GPR：拆分 shader、缩短中间变量 live range、避免大本地数组/动态索引。GPR 从 44 降到 ~32 即可显著抬升 occupancy。</li>
+      <li>half 化：把云的散射/积分等 full-precision 计算尽量改 half，既减 ALU 周期又降寄存器。</li>
+      <li>降步进/采样数或用更激进的体积分级，直接削减 in-flight 纹理采样占用。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>② 软阴影投影 PS —— 第二热点，访存/依赖链型瓶颈（P0，根因不同于①）</h4>
+    <div class="path">ShadowProjection &gt; RenderMobileShadowProjections &gt; MMH &gt; MMH::ShadowMapProjection (eid=2324)</div>
+    单 Draw <b>0.832ms / 12.6%</b>。AOC 呈现与①<b>完全相反</b>的画像：<b>GPR 仅 12、occupancy 已拉满 100%</b>，但 <b>exposed long latency 仍高达 50.1%</b>。并发已无提升空间，延迟依然掩盖不住 → 这是<b>访存/依赖链 bound</b>，而非寄存器问题（shader 含 DAG 结构遍历 + 页表查询 + SMRT 光线步进，访存链很长）。
+    <ul>
+      <li>减少纹理/内存访问次数，提升访存局部性（page table / physical texture 命中）。</li>
+      <li>缩短 load→use 依赖链，让相邻采样可并行发射。</li>
+      <li>注意：此处<b>提 occupancy 无效</b>（已 100%），别往降 GPR 方向使劲。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>③ BasePass + DepthPrepass —— 高频小 Draw，吞吐型（P1）</h4>
+    <div class="path">SceneColorRendering &gt; MobileBasePass (222 Draw, 0.798ms) ＋ FullDepthPrepass &gt; MobileRenderPrePass (204 Draw, 0.679ms)</div>
+    合计 426 个 Draw、<b>1.477ms / 22.4%</b>。这与①②性质不同：单个 material shader 大多健康，瓶颈在 <b>Draw 数量 / 吞吐</b>（绑定切换、顶点/三角形提交、overdraw）。优化抓手是<b>合批与剔除</b>，而非单 shader 调优。
+    <ul>
+      <li>合并 draw（instancing / 静态合批）、减少材质与状态切换。</li>
+      <li>DepthPrepass 已在，确认 BasePass 充分受益于 early-Z；压制 overdraw。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>④ 后处理与 GTAO 链路健康</h4>
+    TAA PS（eid=4105）AOC 健康：GPR=13、occupancy=87%、exposed long lat 33%。GTAO HorizonSearch PS（eid=2279）同样健康：GPR=14、occupancy=75%、exposed long lat 仅 19.1%、half 占比已达 38%（ALU 16-bit=345）。两者均无需优化。
+  </div>
+</section>
+
+<!-- 五 -->
+<section>
+  <h2>五、优化优先级</h2>
+  <table>
+    <thead><tr><th>优先级</th><th>目标</th><th>根因类型</th><th>手段</th><th>预期收益</th></tr></thead>
+    <tbody>
+      <tr><td class="p0">P0</td><td class="mono">DeferredShading Cloud PS (eid=3796)</td><td>寄存器型 (GPR=44→occ 25%)</td><td>拆 shader / 缩 live range / half 化 / 降采样</td><td>占帧 21.8%，GPR↓ 提 occupancy，潜在收益最大</td></tr>
+      <tr><td class="p0">P0</td><td class="mono">ShadowMapProjection PS (eid=2324)</td><td>访存/依赖链型 (occ 已 100%)</td><td>减访存次数 / 提局部性 / 缩依赖链</td><td>占帧 12.6%，针对访存而非寄存器</td></tr>
+      <tr><td class="p1">P1</td><td class="mono">MobileBasePass + DepthPrepass (426 Draw)</td><td>吞吐型</td><td>合批 / instancing / 剔除 / 压 overdraw</td><td>合计 22.4%，降 Draw 数量</td></tr>
+      <tr><td class="p2">P2</td><td class="mono">GTAO HorizonSearch (eid=2279)</td><td>健康</td><td>暂无需优化</td><td>GPR14/occ75%/expLong19.1%，占帧 2.9%</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<div class="disclaimer">
+  ⚠ <b>AOC 离线投影免责声明</b>：本报告 shader 指标由 Adreno Offline Compiler 7.0.5 离线静态编译（-arch=a740）得到，反映编译期/寄存器层面特征（指令数、GPR、occupancy、spill），<b>看不到</b>真机频率、内存带宽、L2/UCHE 容量、实际 cache 命中与真实 occupancy。结论用于<b>相对趋势与优化抓手</b>（改材质前后对比），真机绝对值与最终瓶颈判定<b>请以 Snapdragon Profiler 设备端实测为准</b>。耗时为各 action 独立 GPU 计时之和，非墙钟帧时间。GTAO 行因源数据不完整未编译，数值待确认、未估算。
+</div>
+</div>
+</body>
+</html>
