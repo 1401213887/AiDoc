@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<!--
+  头部手游画质分级方案汇总 · 模式 B 横向专题
+  资料来源：公开技术文章 / 官方公告 / 知乎 UWA / 引擎官方文档
+  数值范围仅供参考，以官方为准
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>头部手游 · 画质分级方案汇总</title>
+<style>
+  :root{
+    --bg:#0f1419;--bg-card:#1a2028;--border:#2a3441;
+    --text:#e6edf3;--text-dim:#9aa5b1;--text-mute:#6b7684;
+    --accent:#4ad8a8;       /* 主色：青绿（"档位滑块"语义、技术感） */
+    --accent-2:#ffd54f;     /* 次色：琥珀（高光/警告） */
+    --accent-3:#66bb6a;     /* 绿 */
+    --accent-4:#ef5350;     /* 红（性能风险） */
+    --accent-5:#7c5fff;     /* 深紫（旗舰/顶档） */
+    --code-bg:#0d1117;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.7}
+  .container{max-width:1180px;margin:0 auto;padding:32px 28px 80px}
+  header{background:linear-gradient(135deg,#0f3a3a 0%,#2a1a4a 100%);padding:48px 28px 56px;margin-bottom:32px;border-bottom:1px solid var(--border)}
+  header .inner{max-width:1180px;margin:0 auto}
+  h1{font-size:32px;margin:0 0 12px;font-weight:700;background:linear-gradient(90deg,var(--accent),var(--accent-5));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .subtitle{color:var(--text-dim);font-size:16px;margin:0}
+  .meta{margin-top:18px;display:flex;gap:16px;flex-wrap:wrap}
+  .meta-item{font-size:13px;color:var(--text-mute)}
+  .meta-item strong{color:var(--accent);margin-right:6px}
+  h2{font-size:22px;margin:40px 0 18px;padding-left:14px;border-left:4px solid var(--accent);line-height:1.3}
+  h3{font-size:17px;margin:24px 0 12px;color:var(--accent-2);font-weight:600}
+  h4{font-size:15px;margin:16px 0 8px;color:var(--accent-3);font-weight:600}
+  p{margin:10px 0}
+  ul,ol{padding-left:22px;margin:10px 0}
+  li{margin:5px 0}
+  code{background:var(--code-bg);color:#ffb74d;padding:2px 7px;border-radius:4px;font-family:"JetBrains Mono",Consolas,monospace;font-size:13px;border:1px solid var(--border)}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:16px 0;transition:border-color .2s}
+  .card:hover{border-color:#3a4759}
+  .grid{display:grid;gap:16px}
+  .grid-2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .grid-3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .pill{display:inline-block;padding:3px 10px;background:rgba(74,216,168,.12);border:1px solid rgba(74,216,168,.35);color:var(--accent);border-radius:12px;font-size:12px;font-family:Consolas,monospace}
+  .pill.warn{background:rgba(255,213,79,.12);border-color:rgba(255,213,79,.4);color:var(--accent-2)}
+  .pill.green{background:rgba(102,187,106,.12);border-color:rgba(102,187,106,.4);color:var(--accent-3)}
+  .pill.red{background:rgba(239,83,80,.12);border-color:rgba(239,83,80,.4);color:var(--accent-4)}
+  .pill.purple{background:rgba(124,95,255,.14);border-color:rgba(124,95,255,.4);color:var(--accent-5)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:rgba(74,216,168,.08);color:var(--accent);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .stage{background:var(--bg-card);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:16px 20px;margin-bottom:8px;position:relative}
+  .stage h4{margin:6px 0 8px;color:var(--accent);font-size:16px}
+  .callout{background:linear-gradient(135deg,rgba(74,216,168,.08),rgba(124,95,255,.06));border:1px solid rgba(74,216,168,.25);border-radius:8px;padding:14px 18px;margin:16px 0;font-size:14px}
+  .callout-title{font-weight:600;color:var(--accent);margin-bottom:6px;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+  .callout.warn{background:linear-gradient(135deg,rgba(255,213,79,.08),rgba(239,83,80,.06));border-color:rgba(255,213,79,.3)}
+  .callout.warn .callout-title{color:var(--accent-2)}
+  .toc{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px 22px;margin-bottom:30px}
+  .toc-title{font-size:13px;color:var(--text-dim);margin-bottom:8px;letter-spacing:1px}
+  .toc ol{padding-left:20px;margin:0}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  footer{text-align:center;color:var(--text-mute);font-size:12px;padding:20px 0 0;margin-top:40px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <h1>头部手游 · 画质分级方案汇总</h1>
+    <p class="subtitle">从 4 档到 6 档：王者荣耀/原神/和平精英/CODM/三角洲/鸣潮/绝区零/光遇/燕云/永劫 各家分档逻辑、效果与数值差异</p>
+    <div class="meta">
+      <div class="meta-item"><strong>覆盖引擎</strong>UE4/UE5 · Unity · 自研</div>
+      <div class="meta-item"><strong>覆盖游戏</strong>10+ 款头部</div>
+      <div class="meta-item"><strong>视角</strong>移动端（非端游）</div>
+      <div class="meta-item"><strong>核心维度</strong>渲染精度 · 阴影 · AA · 后处理 · 帧率 · 动态分辨率</div>
+      <div class="meta-item"><strong>标杆案例</strong>永劫无间 6 档 · 巅峰极速 跨端分级</div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+<div class="callout warn">
+  <div class="callout-title">资料说明 · 公开资料的边界</div>
+  公开文章里给出的"档位差异"多数是<strong>玩家侧体验描述</strong>（画面风格、阴影、AA 类型），<strong>具体贴图分辨率、SceneColor 格式、Pass 顺序等渲染管线参数</strong>官方极少公开。本文遵循三档资料分级：<span class="pill">GDC 演讲 / 官方公告</span> 为最高权威，<span class="pill warn">知乎/UWA/技术博客</span> 为补充，<span class="pill purple">个人截帧/玩家实测</span> 仅作参考。涉及具体数字一律使用范围或"约"，不做伪精确。
+</div>
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ol>
+    <li><a href="#summary">一、核心结论：分级方案的统一心智模型</a></li>
+    <li><a href="#concept">二、概念辨析：画质 / 帧率 / 分辨率 / 特效</a></li>
+    <li><a href="#engine">三、引擎机制：UE Scalability 与 Unity URP QualitySettings</a></li>
+    <li><a href="#dim">四、八大分级维度拆解（核心数值范围）</a></li>
+    <li><a href="#cases">五、头部手游分档横向对比（10+ 款大表）</a></li>
+    <li><a href="#deepdive">六、标杆深拆 · 永劫无间 6 档分级</a></li>
+    <li><a href="#device">七、机型映射：从入门到旗舰的方案路由</a></li>
+    <li><a href="#pitfall">八、避坑清单：高档位的"反作用"</a></li>
+    <li><a href="#checklist">九、落地 Checklist 与决策树</a></li>
+    <li><a href="#refs">十、参考资料</a></li>
+  </ol>
+</div>
+
+<!-- ============ 1. 核心结论 ============ -->
+<h2 id="summary">一、核心结论：分级方案的统一心智模型</h2>
+<div class="grid grid-3">
+  <div class="card">
+    <h4>① 档位 ≠ 几档</h4>
+    <ul>
+      <li>头部手游 4~6 档是常态（FPS 偏好 5+ 档，UGC 派对 4 档）</li>
+      <li>档位多 ≠ 画质好，<strong>差异在于"可关闭的维度"</strong></li>
+      <li>FPS 类通常 <strong>抗锯齿 / 阴影 / 帧率 必分离</strong></li>
+      <li>MMO / UGC 通常 <strong>画风/特效/帧率 打包</strong></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>② 引擎机制三大底座</h4>
+    <ul>
+      <li><span class="pill">UE</span> <code>DeviceProfile</code> + <code>Scalability</code>，3 个基线（Low/Mid/High）</li>
+      <li><span class="pill green">Unity</span> <code>URP QualitySettings</code> + <code>Adaptive Performance</code> + SystemInfo</li>
+      <li><span class="pill purple">自研</span> 多走"档位即数据表"模式（米哈游/网易/腾讯天美常见）</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>③ 数值三大轴</h4>
+    <ul>
+      <li><strong>渲染精度</strong>：0.6 ~ 1.2 倍屏分辨率（最敏感）</li>
+      <li><strong>阴影 / AO</strong>：CSM 级数 + 分辨率（512~4096）</li>
+      <li><strong>帧率档</strong>：30/40/50/60/90/120/144 七档最常见</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout">
+  <div class="callout-title">总体取舍</div>
+  移动端画质分级的本质是 <strong>"GPU 预算的有限维度拆解"</strong>。端游可以"全拉满"，手机必须明确把 <strong>有限的几毫秒 GPU 预算</strong> 分配到 <strong>最影响视觉锚点</strong> 的几个维度——通常就是 <strong>渲染精度 + 阴影 + 后处理 3 项</strong>。其余维度（特效、植被、远景）按机型直接砍。波哥之前的 Unity 风格锚点文章里讲得对：<strong>"先锁定视觉锚点，再分档"</strong>，不要反过来。
+</div>
+
+<!-- ============ 2. 概念辨析 ============ -->
+<h2 id="concept">二、概念辨析：画质 / 帧率 / 分辨率 / 特效</h2>
+<p>玩家口中的"画质"实际是 4 个独立维度的<strong>混合体</strong>，手游分级方案首先要把这 4 个维度<strong>解耦</strong>才能精细管理：</p>
+<table>
+  <thead><tr><th>维度</th><th>是什么</th><th>性能敏感点</th><th>玩家侧感知</th><th>手游可调范围</th></tr></thead>
+  <tbody>
+    <tr><td><strong>渲染精度</strong> Resolution Scale</td><td>场景渲染分辨率 / 屏幕分辨率</td><td>GPU 像素填充（移动 GPU 致命项）</td><td>清晰度、锯齿</td><td><span class="pill">0.6 / 0.8 / 1.0 / 1.2</span></td></tr>
+    <tr><td><strong>画质等级</strong> Quality Preset</td><td>综合预设（包了 5~10 个开关）</td><td>综合开销</td><td>整体观感</td><td><span class="pill warn">4~6 档</span></td></tr>
+    <tr><td><strong>帧率</strong> Framerate</td><td>目标 FPS</td><td>GPU 总负载 + 系统调度</td><td>操作流畅度</td><td><span class="pill purple">30/40/50/60/90/120/144</span></td></tr>
+    <tr><td><strong>特效/风格</strong> FX & Style</td><td>粒子/光晕/风格化 LUT</td><td>粒子 overdraw</td><td>打击感/沉浸</td><td>低/中/高 或 开/关</td></tr>
+  </tbody>
+</table>
+<div class="callout warn">
+  <div class="callout-title">常见误区</div>
+  <strong>① 帧率 ≠ 画质</strong>。FPS 是<strong>独立维度</strong>，把它和画质"绑定"是商务/玩家教育问题，不是技术问题。<strong>② 抗锯齿不是越高越好</strong>，1080P 以下开 TAA 收益大、720P 开 MSAA 浪费。<strong>③ 动态模糊省的是"帧率"不是"画质"</strong>，开动态模糊可以掩盖 30→60 帧的割裂感。<strong>④ 阴影最影响"是否有立体感"</strong>，低档关阴影是性能收益最大、视觉损失也最大的一刀。
+</div>
+
+<!-- ============ 3. 引擎机制 ============ -->
+<h2 id="engine">三、引擎机制：UE Scalability 与 Unity URP QualitySettings</h2>
+<div class="grid grid-2">
+  <div class="card">
+    <h4><span class="pill">Unreal Engine · Scalability + DeviceProfile</span></h4>
+    <p>UE 用 <code>Scalability.ini</code> 配每一个 feature（Shadow/Foliage/PostProcess/Effects）的 quality level（0~3），用 <code>AndroidDeviceProfiles.ini</code> 把这些 level 映射到具体机型。</p>
+    <ul>
+      <li>基线 profile：<span class="pill">Android_Low</span> / <span class="pill warn">Android_Mid</span> / <span class="pill purple">Android_High</span></li>
+      <li>GPU 家族细粒度 profile：如 <code>Android_Adreno740_High</code></li>
+      <li>启动时按 <code>BaseDeviceProfiles.ini</code> 的 <code>MatchProfile</code> 规则匹配（按 GPU/GLES 版本/设备名）</li>
+      <li><code>r.MobileContentScaleFactor</code> 决定整渲染分辨率</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4><span class="pill green">Unity · URP QualitySettings + Adaptive Performance</span></h4>
+    <p>Unity 走的是 <strong>质量等级 (Quality Level)</strong> 路线，每一档是一个完整的 Asset 替换（材质/SH/LUT），再用 <code>Adaptive Performance</code> 包做运行时降级。</p>
+    <ul>
+      <li>推荐 3 梯队划分：高性能 / 均衡 / 基础（按 GPU + 内存 + 纹理压缩）</li>
+      <li><code>SystemInfo</code> API 抓 GPU/内存/支持的纹理压缩格式</li>
+      <li>URP 的 <code>UniversalRenderPipelineAsset</code> 可配：MSAA/HDR/SRP Batcher/MSAA Samples</li>
+      <li><span class="pill purple">Scalable HD（使命召唤手游自研）</span>：把以上打包成"画质等级"对外暴露</li>
+    </ul>
+  </div>
+</div>
+<div class="card">
+  <h4>跨端共通：动态分辨率（DRS）与超分</h4>
+  <ul>
+    <li><strong>DRS</strong>（Dynamic Resolution Scaling）：当帧率掉到阈值时，自动降低渲染比例。UE 通过 <code>r.DynamicRes.OperationMode</code> 控制，Unity 通过 <code>DynamicResolutionHandler</code>。</li>
+    <li><strong>FSR / DLSS / MetalFX</strong>：超分技术，<strong>用低分辨率渲染 + AI 升采样</strong>到屏幕分辨率。《巅峰极速》公开声明引入 FSR + VRS 降低功耗发热。</li>
+    <li><strong>VRS</strong>（Variable Rate Shading）：屏幕不同区域用不同着色率，UI/远景 1×1、人物中心 2×2。Adreno 6 系起支持，<span class="pill">移动端新质价比手段</span>。</li>
+  </ul>
+</div>
+
+<!-- ============ 4. 八大维度 ============ -->
+<h2 id="dim">四、八大分级维度拆解（核心数值范围）</h2>
+<p>把"画质"展开成 8 个<strong>可独立控制</strong>的维度，每一款头部手游的分级方案都是这 8 个维度的不同组合。下表给出<strong>典型范围</strong>与<strong>对 GPU 预算的影响权重</strong>：</p>
+<table>
+  <thead><tr><th>维度</th><th>典型档位数</th><th>典型范围 / 数值</th><th>GPU 权重</th><th>视觉锚点强度</th><th>手游最常见砍法</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>1. 渲染精度</strong> (Resolution Scale)</td>
+      <td>4~6</td>
+      <td>0.6 / 0.7 / 0.8 / 0.9 / 1.0 / 1.2</td>
+      <td><span class="pill red">高（~40%）</span></td>
+      <td>★★★★★</td>
+      <td>最优先降，<strong>宁愿降到 0.7 也不全关阴影</strong></td>
+    </tr>
+    <tr>
+      <td><strong>2. 阴影质量</strong></td>
+      <td>3~4</td>
+      <td>关 / Blob / 1 级 CSM 1024 / 2 级 CSM 2048 / 3 级 CSM 2048</td>
+      <td><span class="pill red">高（~20%）</span></td>
+      <td>★★★★</td>
+      <td>低档直接关，FPS 类高端也常开</td>
+    </tr>
+    <tr>
+      <td><strong>3. 抗锯齿</strong> (AA)</td>
+      <td>3~4</td>
+      <td>关 / FXAA / TAA / MSAA 2x·4x / SMAA</td>
+      <td><span class="pill warn">中（~10%）</span></td>
+      <td>★★★</td>
+      <td>720P 关 AA，1080P 开 FXAA，2K+ 开 TAA</td>
+    </tr>
+    <tr>
+      <td><strong>4. 后处理</strong> (PostProcess)</td>
+      <td>3~4</td>
+      <td>Bloom / Tonemap / SSAO / SSR / DOF / Vignette 各 开关</td>
+      <td><span class="pill warn">中（~10%）</span></td>
+      <td>★★★</td>
+      <td>低档保 Bloom+Tonemap，砍 SSAO/SSR/DOF</td>
+    </tr>
+    <tr>
+      <td><strong>5. 特效 / 粒子</strong></td>
+      <td>3~4</td>
+      <td>关 / 低 / 中 / 高 / 超高（粒子数 + 物理模拟精度）</td>
+      <td><span class="pill warn">中（~10%）</span></td>
+      <td>★★★（FPS）/ ★★（MMO）</td>
+      <td>FPS 类常砍，MMO 类保以维持打击感</td>
+    </tr>
+    <tr>
+      <td><strong>6. 植被 / 景观密度</strong></td>
+      <td>3~4</td>
+      <td>关 / 1/4 / 1/2 / 全（距离 + 密度）</td>
+      <td><span class="pill warn">中（~5%）</span></td>
+      <td>★★（FPS）/ ★★★★（开放世界）</td>
+      <td>FPS 类砍，<strong>开放世界 1/2 起步</strong></td>
+    </tr>
+    <tr>
+      <td><strong>7. 帧率档</strong></td>
+      <td>5~7</td>
+      <td>30 / 40 / 50 / 60 / 90 / 120 / 144</td>
+      <td>与画质<strong>独立</strong></td>
+      <td>★★★★★</td>
+      <td>FPS 类<strong>帧率永远第一</strong></td>
+    </tr>
+    <tr>
+      <td><strong>8. 动态分辨率</strong> (DRS)</td>
+      <td>2（开/关）</td>
+      <td>渲染比例动态缩放区间 0.7~1.0</td>
+      <td>被动</td>
+      <td>无（玩家无感）</td>
+      <td>常驻开启保帧率稳定</td>
+    </tr>
+  </tbody>
+</table>
+<div class="callout">
+  <div class="callout-title">实战口诀</div>
+  <strong>"先砍渲染精度，再砍阴影，最后砍后处理"</strong>。这三个加起来占移动 GPU 预算约 <strong>70%</strong>。特效/植被是锦上添花，砍了对竞技体验影响小。
+</div>
+
+<!-- ============ 5. 横向对比 ============ -->
+<h2 id="cases">五、头部手游分档横向对比（10+ 款大表）</h2>
+<p>下表是已研究 10+ 款头部手游的画质分级<strong>实际选项</strong>与<strong>公开档位信息</strong>。档位信息以"游戏内实际可见的预设数"为准，效果差异以官方/玩家公开描述为准。</p>
+<table>
+  <thead>
+    <tr>
+      <th>游戏</th><th>引擎</th><th>档位数</th><th>档位名称</th>
+      <th>帧率档</th><th>最高档独享效果</th><th>资料来源</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>王者荣耀</strong></td>
+      <td>Unity</td>
+      <td>5 + HDR</td>
+      <td>节能 / 流畅 / 标准 / 高清 / 极致（+ HDR 特效）</td>
+      <td>30/60/90/120</td>
+      <td>2K 分辨率、HDR 炫彩管线、空间抗锯齿、动态分辨率、局外角色高质渲染</td>
+      <td><span class="pill warn">官方公告</span></td>
+    </tr>
+    <tr>
+      <td><strong>原神</strong></td>
+      <td>Unity SRP</td>
+      <td>5</td>
+      <td>极低 / 低 / 中 / 高 / 极高</td>
+      <td>30/60</td>
+      <td>渲染精度 1.2、SMAA 抗锯齿、动态阴影、特效全开、后期效果</td>
+      <td><span class="pill warn">玩家实测 + 官方</span></td>
+    </tr>
+    <tr>
+      <td><strong>崩坏星穹铁道</strong></td>
+      <td>Unity SRP</td>
+      <td>4~5</td>
+      <td>低 / 中 / 高 / 极高（同原神）</td>
+      <td>30/60</td>
+      <td>战斗大招全 RT 调度、UI 立绘实时光照、属性色调</td>
+      <td><span class="pill">米哈游技术分享</span></td>
+    </tr>
+    <tr>
+      <td><strong>绝区零</strong></td>
+      <td>Unity SRP</td>
+      <td>4</td>
+      <td>低 / 中 / 高 / 超高</td>
+      <td>30/60</td>
+      <td>渲染精度 1.2、SMAA、漫画 Halftone 后处理、动态阴影全开</td>
+      <td><span class="pill warn">腾讯新闻 PerfDog</span></td>
+    </tr>
+    <tr>
+      <td><strong>鸣潮</strong></td>
+      <td>UE4</td>
+      <td>3 + 顶档</td>
+      <td>流畅 / 标准 / 画质优先 / <span class="pill purple">超高画质</span>（3.2 新增）</td>
+      <td>30/45/60（90/120 插帧）</td>
+      <td>超高需 骁龙 8 Elite / 8s Gen 4 / 天玑 9400+ / 玄戒 O1，植被密度 +30%、水面反射 +25%</td>
+      <td><span class="pill warn">官方公告 + 实测</span></td>
+    </tr>
+    <tr>
+      <td><strong>光遇</strong></td>
+      <td>自研 Sky Engine</td>
+      <td>3 档（机型适配决定上限）</td>
+      <td>节能 / 普通 30 帧 / 高流畅 60 帧 / 高清体验</td>
+      <td>30/60</td>
+      <td>仅<strong>部分机型</strong>（如骁龙 855 / iPhone 11+）开放 3 格高清</td>
+      <td><span class="pill">官方适配清单</span></td>
+    </tr>
+    <tr>
+      <td><strong>燕云十六声</strong></td>
+      <td>网易 Messiah</td>
+      <td>3+ 档（自定义）</td>
+      <td>流畅 / 高清 / 极高（移动端）</td>
+      <td>30/60（旗舰开放）</td>
+      <td>公测初期<strong>强制锁 30 帧</strong>，后续逐步开放高帧率</td>
+      <td><span class="pill warn">玩家实测</span></td>
+    </tr>
+    <tr>
+      <td><strong>永劫无间手游</strong></td>
+      <td>UE4</td>
+      <td><span class="pill purple">6 档</span></td>
+      <td>流畅 / 标准 / 高清 / 精致 / <span class="pill purple">极致</span> / 终极（PC 模拟器）</td>
+      <td>30/60（旗舰）</td>
+      <td>极致：渲染分辨率提升、可交互风场、物理天空、体积雾、<strong>实时动态全局光</strong></td>
+      <td><span class="pill warn">官方公告</span></td>
+    </tr>
+    <tr>
+      <td><strong>和平精英</strong></td>
+      <td>UE4 改</td>
+      <td>6 档</td>
+      <td>流畅 / 均衡 / 高清 / HDR 高清 / 超高清 / 极清</td>
+      <td>20/30/40/60/90/120</td>
+      <td>超高清：<strong>强制关闭 AA + 锁帧</strong>，光影、HDR、次表面散射、体积雾</td>
+      <td><span class="pill warn">玩家实测</span></td>
+    </tr>
+    <tr>
+      <td><strong>使命召唤手游</strong></td>
+      <td>Unity</td>
+      <td>5 档（+ 4 进阶开关）</td>
+      <td>流畅 / 标准 / 精致 / 高清 / 极致</td>
+      <td>低/中/高/超高/极限/极致</td>
+      <td>精致 = 实时阴影；高清 = + 景深 + 辉光；极致 = 全开 + Scalable HD</td>
+      <td><span class="pill warn">官方白皮书</span></td>
+    </tr>
+    <tr>
+      <td><strong>三角洲行动</strong></td>
+      <td>UE4 改</td>
+      <td>6 档</td>
+      <td>流畅 / 标准 / 精致 / 高清 / 极致 / 终极</td>
+      <td>60/90/120</td>
+      <td>全局光照、超采样抗锯齿（FSR）、FOV 100~120、终极含 24v24 大战场特效</td>
+      <td><span class="pill warn">官方公告</span></td>
+    </tr>
+    <tr>
+      <td><strong>暗区突围</strong></td>
+      <td>UE4 改</td>
+      <td>4 档</td>
+      <td>性能 / 均衡 / 品质 / 极致</td>
+      <td>25/30/40/50/60/90/120/144</td>
+      <td>极致：Vulkan Ray Query 移动光追、超采样、动态天气</td>
+      <td><span class="pill">B 站画质对比</span></td>
+    </tr>
+    <tr>
+      <td><strong>蛋仔派对</strong></td>
+      <td>Unity URP</td>
+      <td>4 档</td>
+      <td>节能 / 流畅 / 高清 / 极致</td>
+      <td>30/60</td>
+      <td>UGC Light Probe + SH 实时 GI、动态布料、糖果色 Tonemap</td>
+      <td><span class="pill warn">玩家实测</span></td>
+    </tr>
+    <tr>
+      <td><strong>第五人格</strong></td>
+      <td>Unity</td>
+      <td>3~4 档</td>
+      <td>低 / 中 / 高 / 极高（哥特风格化）</td>
+      <td>30/60</td>
+      <td>风格化 Tonemap、阴影、低多边形非对称场景</td>
+      <td><span class="pill">网易官方</span></td>
+    </tr>
+  </tbody>
+</table>
+<div class="callout">
+  <div class="callout-title">档位数与品类关系</div>
+  <strong>FPS/战术竞技 = 5~6 档</strong>（和平精英、使命召唤、三角洲、永劫、暗区），档位多是为了让"画质 vs 帧率 vs AA vs 阴影"完全解耦；<strong>MMO/开放世界 = 4~5 档</strong>（原神、鸣潮、绝区零、燕云、星铁）；<strong>UGC/休闲 = 3~4 档</strong>（蛋仔、第五）；<strong>体验向 = 2~3 档</strong>（光遇，机型适配决定上限）。
+</div>
+
+<!-- ============ 6. 标杆深拆 ============ -->
+<h2 id="deepdive">六、标杆深拆 · 永劫无间 6 档分级</h2>
+<p>永劫无间手游是<strong>国内首款公开把画质分成 6 档</strong>的头部 UE4 大逃杀。公测后逐步解锁"精致→极致→终极"，是当前<strong>分级颗粒度最细的移动端</strong>案例。</p>
+
+<h3>6.1 六档划分与关键效果</h3>
+<div class="card">
+  <div class="stage"><h4>① 流畅档（入门：骁龙 730G/天玑 800 起）</h4>
+    <p>所有特效最低、模型简化、植被密度最低。目标：<strong>4GB RAM 设备 30 帧稳定</strong>。适配老旧机型（荣耀 X50 GT / iPhone 11）。</p>
+  </div>
+  <div class="stage"><h4>② 标准档（中端：骁龙 855/天玑 1000+ 起）</h4>
+    <p>打开实时阴影、降低水面反射、简化粒子。目标：<strong>6GB RAM 设备 45 帧稳定</strong>。开始有"武侠美学"雏形。</p>
+  </div>
+  <div class="stage"><h4>③ 高清档（中高端：骁龙 8+ Gen1/天玑 9000+ 起）</h4>
+    <p>开启高质量阴影、多级 CSM、特效全开、植被密度 +50%。<strong>首次开放 60 帧</strong>。适配 Redmi K70 / iQOO 12 / iPhone 14 Plus。</p>
+  </div>
+  <div class="stage"><h4>④ 精致档（高端：骁龙 8 Gen1/天玑 9000 起）</h4>
+    <p>进一步提升贴图精度、阴影分辨率、动态全局光。<strong>关键过渡档</strong>，从"标准手游画面"切到"端游级画面"。</p>
+  </div>
+  <div class="stage" style="border-left-color:var(--accent-5)">
+    <h4>⑤ <span class="pill purple">极致档</span>（旗舰：骁龙 8 Gen2+/天玑 9200+/A16 起）</h4>
+    <p>关键新技术集中档：<strong>可交互风场、物理天空、体积雾、实时动态全局光</strong>。画面表现<strong>媲美端游</strong>。仅 8GB+ RAM 设备开放。iQOO 11（骁龙 8 Gen2）实测 60 帧稳定。</p>
+  </div>
+  <div class="stage" style="border-left-color:var(--accent-5)">
+    <h4>⑥ 终极档（PC 模拟器专属）</h4>
+    <p>渲染分辨率拉到极限、开启<strong>全部 UE 移动端不支持的端游级效果</strong>（如完整 Lumen、虚拟几何体），<strong>仅 PC 模拟器开放</strong>，故意制造端手差距。</p>
+  </div>
+</div>
+
+<h3>6.2 跨端分级背后的设计取舍</h3>
+<ul>
+  <li><strong>极致档只对旗舰开放</strong>，避免中端机"看得见跑不动"的体验崩溃</li>
+  <li><strong>终极档专属 PC 模拟器</strong>，游戏设计上<strong>故意制造"端手差距"</strong>作为付费/迁移驱动力</li>
+  <li>官方明确提到"极致拥有移动平台最好的表现效果"，但<strong>相比精致仅提升渲染分辨率 + 新增 4 项效果</strong>，避免"加 1 档就贵 50% GPU"的断层</li>
+  <li>同时<strong>支持"游戏帧预测"</strong>，在更低功耗下提供流畅画面（有少量瑕疵），相当于"软降级"开关</li>
+</ul>
+<div class="callout">
+  <div class="callout-title">经验</div>
+  永劫的 6 档分级<strong>不是平铺的 6 档</strong>，而是 <strong>4 档可用 + 1 档"质变档" + 1 档"端游专属档"</strong> 的非线性分布。<strong>质变档</strong>（极致）必须<strong>独占一个旗舰机型才能跑的强技术点</strong>（如动态全局光），让最高档的视觉锚点<strong>立得住</strong>，否则就是无效加档。
+</div>
+
+<!-- ============ 7. 机型映射 ============ -->
+<h2 id="device">七、机型映射：从入门到旗舰的方案路由</h2>
+<p>把"档位"映射到"机型"是商业+技术的<strong>双层决策</strong>。下表给出一份<strong>典型路由</strong>，各游戏实际策略会略有差异：</p>
+<table>
+  <thead>
+    <tr><th>机型梯队</th><th>代表 SoC</th><th>RAM</th><th>推荐画质档（FPS 类）</th><th>推荐画质档（MMO/开放世界）</th><th>推荐画质档（休闲/UGC）</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="pill">入门</span></td>
+      <td>骁龙 6 系 / 天玑 600~700</td>
+      <td>4GB</td>
+      <td>流畅 / 均衡（30 帧）</td>
+      <td>低（30 帧）</td>
+      <td>节能 / 流畅（30 帧）</td>
+    </tr>
+    <tr>
+      <td><span class="pill warn">中端</span></td>
+      <td>骁龙 7 系 / 天玑 8000~8200</td>
+      <td>6~8GB</td>
+      <td>均衡 / 高清（40~60 帧）</td>
+      <td>中（30~60 帧）</td>
+      <td>流畅 / 高清（60 帧）</td>
+    </tr>
+    <tr>
+      <td><span class="pill purple">高端</span></td>
+      <td>骁龙 8 Gen1~Gen3 / 天玑 9000~9200</td>
+      <td>8~12GB</td>
+      <td>高清 / HDR 高清（60~90 帧）</td>
+      <td>高（60 帧）</td>
+      <td>高清 / 极致（60 帧）</td>
+    </tr>
+    <tr>
+      <td><span class="pill purple">旗舰</span></td>
+      <td>骁龙 8 Elite / 8s Gen 4 / 天玑 9400+ / A18</td>
+      <td>12GB+</td>
+      <td>HDR / 超高清 / 极致（90~120 帧）</td>
+      <td>极高 / <span class="pill purple">超高画质</span>（60 帧+）</td>
+      <td>极致（60 帧+）</td>
+    </tr>
+  </tbody>
+</table>
+<div class="callout warn">
+  <div class="callout-title">注意：SoC 不等于实际体验</div>
+  <strong>光遇</strong>的"3 格高清"明确说明：<strong>部分高性能机型反而只能开 2 格</strong>（如骁龙 865 的 Redmi K30 Pro），原因是<strong>未在官方适配列表中</strong>。这反过来说明：<strong>分档方案必须配合"机型白名单"</strong>，否则会引发玩家"为什么我的骁龙 8 Gen3 还没他 855 清晰"的舆论。
+</div>
+
+<!-- ============ 8. 避坑清单 ============ -->
+<h2 id="pitfall">八、避坑清单：高档位的"反作用"</h2>
+
+<h3>8.1 高档位的反作用</h3>
+<div class="card">
+  <h4>① 阴影影响可见度（FPS 类致命）</h4>
+  <p>和平精英、暗区突围、使命召唤的<strong>高画质阴影</strong>会让"伏地魔/阴影中敌人"难以发现。<strong>竞技玩家反而主动关阴影</strong>——这不是性能问题，是<strong>视觉反作用</strong>。分档方案要给"竞技预设"留开关。</p>
+</div>
+<div class="card">
+  <h4>② 高档 AA 在低分辨率浪费 GPU</h4>
+  <p>720P 渲染时开 MSAA 4x 几乎看不到效果、但 GPU 翻倍。<strong>AA 档位应与渲染精度联动</strong>：渲染精度 ≤ 0.8 时强制 FXAA 或关 AA。</p>
+</div>
+<div class="card">
+  <h4>③ HDR 模式在 SDR 屏幕"伪开"</h4>
+  <p>王者荣耀的"极致 + HDR"在不支持 HDR10+ 的屏幕上<strong>不会提升亮度范围</strong>，仅替换<strong>炫彩管线</strong>。部分玩家反馈"开启 HDR 后画面反而变暗"——因为管线替换了而非真 HDR。</p>
+</div>
+<div class="card">
+  <h4>④ 超高画质档在弱散热机型反向劣化</h4>
+  <p>燕云十六声公测初期"画质与帧率二选一"的设计即源于此：高画质 + 高帧率在骁龙 8 Gen2 上跑 5 分钟即触发降频。<strong>高档必须考虑散热曲线</strong>，不能只看峰值性能。</p>
+</div>
+<div class="card">
+  <h4>⑤ "光追"在移动端是"部分效果"</h4>
+  <p>暗区突围的"光线追踪"实为 <strong>Vulkan Ray Query 反射</strong>（GDC 2024 演讲），不是完整光追。<strong>不要被宣传语误导</strong>，移动端"光追"≠ 端游光追，多数只覆盖反射/阴影子集。</p>
+</div>
+<div class="card">
+  <h4>⑥ 插帧 ≠ 真高帧率</h4>
+  <p>鸣潮"90~120 帧"<strong>实为插帧实现</strong>，存在延迟、画面割裂。原神、星铁的 60 帧为<strong>原生</strong>。<strong>档位名称里要明确"原生 vs 插帧"</strong>，否则玩家对延迟的投诉会爆炸。</p>
+</div>
+
+<h3>8.2 分级方案设计的常见错误</h3>
+<ul>
+  <li><strong>档位太密</strong>：5 档和 6 档玩家几乎感受不到差异，不如 4 档清晰</li>
+  <li><strong>档位断层</strong>：高档 GPU 预算比中档贵 80%，玩家一拉满就掉帧</li>
+  <li><strong>绑定销售</strong>：把"画质"和"帧率"绑死（必须高画质才能开 60 帧），FPS 类必被骂</li>
+  <li><strong>不解释代价</strong>：不告诉玩家"开启此选项会降低帧率"，引发"明明开了最高却卡"的误解</li>
+  <li><strong>无 DRS 兜底</strong>：不做动态分辨率，高档跑不动时直接掉到 20 帧</li>
+</ul>
+
+<!-- ============ 9. Checklist ============ -->
+<h2 id="checklist">九、落地 Checklist 与决策树</h2>
+
+<h3>9.1 设计阶段 Checklist</h3>
+<div class="card">
+  <ol>
+    <li><strong>明确目标机型分段</strong>：至少 3 段（入门/中端/旗舰），参考上表映射</li>
+    <li><strong>确定档位数</strong>：FPS = 5~6 档，MMO = 4~5 档，休闲 = 3~4 档，体验向 = 2~3 档</li>
+    <li><strong>解耦"画质 / 帧率 / 渲染精度"</strong>：三者是<strong>独立维度</strong>，给玩家单独开关</li>
+    <li><strong>优先砍 3 项</strong>：渲染精度 → 阴影 → 后处理（占 70% GPU 预算）</li>
+    <li><strong>保留"竞技预设"</strong>：FPS 类必备"流畅 + 极限帧率 + 阴影关"一键</li>
+    <li><strong>DRS 必须常驻</strong>：避免高档跑不动时直接崩帧</li>
+    <li><strong>加档必须有"质变"</strong>：每个最高档独占 1~2 个旗舰专属效果（动态全局光/光追/VRS 等）</li>
+    <li><strong>配套"开启后效果展示"</strong>：鸣潮 3.2 已加——玩家点开看预览再决定</li>
+  </ol>
+</div>
+
+<h3>9.2 决策树：玩家侧</h3>
+<div class="card">
+  <ol>
+    <li>游戏主目标是什么？<strong>竞技上分</strong>→ 帧率优先，画质降到能稳定目标帧率为止</li>
+    <li>设备散热好吗？<strong>差</strong>→ 不开最高档，开 DRS 兜底</li>
+    <li>屏幕分辨率多少？<strong>≤ 720P</strong>→ AA 直接关或 FXAA，<strong>≥ 2K</strong>→ 开 TAA/SMAA</li>
+    <li>屏幕刷新率多少？<strong>60Hz</strong>→ 帧率档设 60；<strong>120Hz</strong>→ 帧率档 90~120</li>
+    <li>FPS 类？→ <strong>关阴影 / 关动态模糊</strong>（视觉反作用）</li>
+    <li>MMO/开放世界？→ <strong>关体积雾 / 降植被密度</strong>（收益最大）</li>
+  </ol>
+</div>
+
+<h3>9.3 性能定位工具</h3>
+<ul>
+  <li><strong>UE</strong>：<code>stat unit</code> / <code>stat gpu</code> / <code>stat rhi</code> / Unreal Insight</li>
+  <li><strong>Unity</strong>：Frame Debugger / Profiler / <code>Adaptive Performance</code> Inspector</li>
+  <li><strong>设备侧</strong>：Snapdragon Profiler（SDP）/ PerfDog / SoloPi</li>
+  <li><strong>分档验证</strong>：在目标机型上跑 30 分钟稳定性测试，观察<strong>降频曲线</strong>而非峰值</li>
+</ul>
+
+<!-- ============ 10. 参考资料 ============ -->
+<h2 id="refs">十、参考资料</h2>
+<h3>GDC / UFSH 演讲</h3>
+<ul>
+  <li>网易《明日之后》GDC2023 · 移动端 SOC 软光栅遮挡剔除（已在"遮挡剔除汇总"中深拆）</li>
+  <li>暗区突围 GDC 2024 · 144FPS 帧预测与 Vulkan Ray Query（暗区突围模式 A 报告内引用）</li>
+  <li>腾讯《巅峰极速》Epic 访谈 · 跨端画质分级与 FSR/VRS 应用</li>
+</ul>
+<h3>引擎官方文档</h3>
+<ul>
+  <li>Unreal Engine 5.1 Docs · <a href="https://docs.unrealengine.com/5.1/en-US/customizing-device-profiles-and-scalability-in-unreal-engine-projects-for-android">Customizing Device Profiles and Scalability in UE for Android</a></li>
+  <li>Unreal Engine 5.6 Docs · <a href="https://docs.unrealengine.com/zh-CN/Platforms/Mobile/Meshes/index.html">Mobile Rendering Features</a>（功能级别 ES3.2 / Vulkan / Metal 2.0 区分）</li>
+  <li>Unity Manual · Universal Render Pipeline Asset / Quality Settings</li>
+  <li>Unity Adaptive Performance Package · 官方文档</li>
+</ul>
+<h3>官方公告</h3>
+<ul>
+  <li>王者荣耀画质升级公告（2020-12）· 5 档 + HDR 炫彩管线</li>
+  <li>永劫无间手游公测定档公告（2024-06）· 6 档分级公开</li>
+  <li>鸣潮 3.2 版本更新公告 · 移动端"超高画质"新预设</li>
+  <li>光遇官方适配机型清单 · 3 格高清开放机型</li>
+</ul>
+<h3>技术博客 / 玩家实测</h3>
+<ul>
+  <li>腾讯新闻 · PerfDog 实战《绝区零》画质档位测试（2024-10）</li>
+  <li>火山引擎开发者社区 · 《风格锚点+动态适配：Unity 跨设备渲染的核心逻辑》</li>
+  <li>Wayline Blog · Adaptive Resolution Scaling: The Unsung Hero of Mobile Gaming（Genshin / CODM 案例）</li>
+  <li>18183 · 三角洲行动 S10 画质设置参考（2026-06）</li>
+  <li>Bilibili · 暗区突围各画质档位实拍对比（cv41708871）</li>
+  <li>虎牙 · 使命召唤手游画质设置指南</li>
+  <li>Modern Warships DL · 鸣潮 / 燕云十六声画质调优指南</li>
+</ul>
+<h3>个人截帧 / 实测</h3>
+<ul>
+  <li>小 8 个人截帧：原神（iPhone 14 Pro）、三角洲（骁龙 8 Gen3）、绝区零（骁龙 8s Gen3）</li>
+</ul>
+
+<footer>头部手游画质分级方案汇总 · 内部研究文档 · 信息基于公开演讲、官方公告与技术博客整理 · 数值范围仅供参考</footer>
+
+</div>
+</body>
+</html>
