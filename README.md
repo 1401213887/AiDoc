@@ -4,7 +4,7 @@
 >
 > - **互链约定**：全部相对路径，文件不移动，与 git 自动备份兼容。
 > - **本页由 `generate_index.py` 自动生成**，新增文档后重跑脚本即可刷新。
-> - 文档总数：**83** · 更新：2026-07-01
+> - 文档总数：**91** · 更新：2026-07-02
 
 ---
 
@@ -18,8 +18,8 @@
 | 04 | [04 · 引擎源码级分析](#04-引擎源码级分析) | 17 | PVS、视锥剔除、WorldPartition、TaskGraph、线程池、RDG 等源码深挖 |
 | 05 | [05 · 崩溃与稳定性](#05-崩溃与稳定性) | 4 | 崩溃定位与修复：VT / SkeletalMesh / UseAfterFree、帧率掉档排查 |
 | 06 | [06 · Profiling 工具与教程](#06-Profiling-工具与教程) | 8 | 高通 SDP / Adreno / Snapdragon Profiler、UE Insights、CPU Trace 工具链 |
-| 07 | [07 · 项目专项分析](#07-项目专项分析) | 7 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
-| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 0 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
+| 07 | [07 · 项目专项分析](#07-项目专项分析) | 10 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
+| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 5 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
 
 ---
 
@@ -132,7 +132,7 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
-| [SDP-Counters-性能指标详解](./SDP-Counters-性能指标详解.html) | HTML | 06-27 |
+| [SDP-Counters-性能指标详解](./SDP-Counters-性能指标详解.html) | HTML | 07-01 |
 | [Snapdragon-Profiler-命令行模式操作文档](./Snapdragon-Profiler-命令行模式操作文档.html) | HTML | 06-27 |
 | [高通AdrenoGPU最佳实践系列-阅读报告](./高通AdrenoGPU最佳实践系列-阅读报告.html) | HTML | 06-24 |
 | [高通SDP性能热点定位-完整资料库](./高通SDP性能热点定位-完整资料库.html) | HTML | 06-23 |
@@ -147,6 +147,9 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [FateTrigger_TDM8Gen3_性能分析与热点定位报告](./FateTrigger_TDM8Gen3_性能分析与热点定位报告.html) | HTML | 07-01 |
+| [FateTrigger_TDM8Gen3_全量Shader分析报告](./FateTrigger_TDM8Gen3_全量Shader分析报告.html) | HTML | 07-01 |
+| [FateTrigger 单帧三角面数统计报告](./FateTrigger_TDM8Gen3_三角面数统计报告.md) | MD | 07-01 |
 | [移动端AO实践方案技术报告](./移动端AO实践方案技术报告.html) | HTML | 06-28 |
 | [移动端AO实践方案技术报告](./移动端AO实践方案技术报告.pdf) | PDF | 06-28 |
 | [FateTrigger_TDM8Gen3_三角面数统计](./FateTrigger_TDM8Gen3_三角面数统计.csv) | CSV | 06-28 |
@@ -159,7 +162,13 @@
 
 > 未归类资料、大体积归档报告、原始数据（docx/csv/pdf）
 
-_（暂无文档）_
+| 文档 | 类型 | 更新 |
+|------|:---:|:---:|
+| [aoc_hotspot_report](./aoc_hotspot_report.html) | HTML | 07-01 |
+| [TDM8Gen3_帧性能分析报告_a740](./TDM8Gen3_帧性能分析报告_a740.html) | HTML | 07-01 |
+| [AOC性能分析教程](./AOC性能分析教程.html) | HTML | 07-01 |
+| [8Gen2-8Gen3-寄存器配置对照文档](./8Gen2-8Gen3-寄存器配置对照文档.html) | HTML | 07-01 |
+| [80-78185-2_REV_AL_Game_Developer_Guide](./80-78185-2_REV_AL_Game_Developer_Guide.pdf) | PDF | 07-01 |
 
 ---
 
