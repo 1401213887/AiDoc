@@ -4,7 +4,7 @@
 >
 > - **互链约定**：全部相对路径，文件不移动，与 git 自动备份兼容。
 > - **本页由 `generate_index.py` 自动生成**，新增文档后重跑脚本即可刷新。
-> - 文档总数：**91** · 更新：2026-07-02
+> - 文档总数：**84** · 更新：2026-07-03
 
 ---
 
@@ -14,12 +14,12 @@
 |---|------|:---:|------|
 | 01 | [01 · TBDR 与片上优化方法论](#01-TBDR-与片上优化方法论) | 27 | TBDR 原理、片上缓存、Subpass/Imageblock、HZB、Forward/Deferred 选型——方法论纵贯线 |
 | 02 | [02 · 头部手游案例库](#02-头部手游案例库) | 15 | 单款手游移动端渲染拆解（html）。方法论的具体落地参照 |
-| 03 | [03 · 专题横向汇总](#03-专题横向汇总) | 5 | 跨游戏横向对比：半透明 / 遮挡剔除 / DrawCall / FPS 全景 |
+| 03 | [03 · 专题横向汇总](#03-专题横向汇总) | 7 | 跨游戏横向对比：半透明 / 遮挡剔除 / DrawCall / FPS 全景 |
 | 04 | [04 · 引擎源码级分析](#04-引擎源码级分析) | 17 | PVS、视锥剔除、WorldPartition、TaskGraph、线程池、RDG 等源码深挖 |
 | 05 | [05 · 崩溃与稳定性](#05-崩溃与稳定性) | 4 | 崩溃定位与修复：VT / SkeletalMesh / UseAfterFree、帧率掉档排查 |
 | 06 | [06 · Profiling 工具与教程](#06-Profiling-工具与教程) | 8 | 高通 SDP / Adreno / Snapdragon Profiler、UE Insights、CPU Trace 工具链 |
-| 07 | [07 · 项目专项分析](#07-项目专项分析) | 10 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
-| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 5 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
+| 07 | [07 · 项目专项分析](#07-项目专项分析) | 2 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
+| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 4 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
 
 ---
 
@@ -85,6 +85,8 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [头部手游画质分级方案汇总](./头部手游画质分级方案汇总.html) | HTML | 07-02 |
+| [头部手游PSO方案汇总](./头部手游PSO方案汇总.html) | HTML | 07-02 |
 | [头部手游降低DrawCall方案汇总](./头部手游降低DrawCall方案汇总.html) | HTML | 06-20 |
 | [头部手游移动端遮挡剔除方案汇总](./头部手游移动端遮挡剔除方案汇总.html) | HTML | 06-20 |
 | [头部手游半透明渲染方案汇总](./头部手游半透明渲染方案汇总.html) | HTML | 06-20 |
@@ -147,15 +149,7 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
-| [FateTrigger_TDM8Gen3_性能分析与热点定位报告](./FateTrigger_TDM8Gen3_性能分析与热点定位报告.html) | HTML | 07-01 |
-| [FateTrigger_TDM8Gen3_全量Shader分析报告](./FateTrigger_TDM8Gen3_全量Shader分析报告.html) | HTML | 07-01 |
-| [FateTrigger 单帧三角面数统计报告](./FateTrigger_TDM8Gen3_三角面数统计报告.md) | MD | 07-01 |
 | [移动端AO实践方案技术报告](./移动端AO实践方案技术报告.html) | HTML | 06-28 |
-| [移动端AO实践方案技术报告](./移动端AO实践方案技术报告.pdf) | PDF | 06-28 |
-| [FateTrigger_TDM8Gen3_三角面数统计](./FateTrigger_TDM8Gen3_三角面数统计.csv) | CSV | 06-28 |
-| [FateTrigger_TDM8Gen3_三角面数统计报告](./FateTrigger_TDM8Gen3_三角面数统计报告.html) | HTML | 06-28 |
-| [FateTrigger_纹理与Buffer统计报告](./FateTrigger_纹理与Buffer统计报告.html) | HTML | 06-28 |
-| [FateTrigger 单帧渲染分析与优化报告](./FateTrigger_单帧渲染分析与优化报告.md) | MD | 06-28 |
 | [VHM_Analysis_Report](./VHM_Analysis_Report.html) | HTML | 05-20 |
 
 ## 99 · 其它与原始资料
@@ -164,8 +158,7 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
-| [aoc_hotspot_report](./aoc_hotspot_report.html) | HTML | 07-01 |
-| [TDM8Gen3_帧性能分析报告_a740](./TDM8Gen3_帧性能分析报告_a740.html) | HTML | 07-01 |
+| [2026-07-01](./.workbuddy/memory/2026-07-01.md) | MD | 07-02 |
 | [AOC性能分析教程](./AOC性能分析教程.html) | HTML | 07-01 |
 | [8Gen2-8Gen3-寄存器配置对照文档](./8Gen2-8Gen3-寄存器配置对照文档.html) | HTML | 07-01 |
 | [80-78185-2_REV_AL_Game_Developer_Guide](./80-78185-2_REV_AL_Game_Developer_Guide.pdf) | PDF | 07-01 |
