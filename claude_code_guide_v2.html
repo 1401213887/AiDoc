@@ -1,0 +1,1717 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Claude Code 知识宝典 - 从入门到精通的完整指南，涵盖宏观概览、系统教程、使用技巧和B站视频资源">
+<meta name="keywords" content="Claude Code, AI编程, Agentic编程, Anthropic, MCP, 教程">
+<title>Claude Code 知识宝典 ◆ 塞尔达风格</title>
+<style>
+/* ============ CSS Variables ============ */
+:root {
+  --gold: #C8A96E;
+  --gold-dark: #A0813E;
+  --green: #4A8C3F;
+  --green-dark: #2D5A27;
+  --parchment: #F5E6C8;
+  --parchment-dark: #E8D5A3;
+  --brown: #3E2723;
+  --brown-mid: #5D4037;
+  --shadow: #1A110D;
+  --red: #C0392B;
+  --blue: #3498DB;
+  --sky: #87CEEB;
+  --dark-bg: #1A1A2E;
+  --font-title: Georgia, 'Times New Roman', serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-code: Consolas, 'Courier New', monospace;
+  --max-width: 1200px;
+  --nav-height: 60px;
+}
+
+/* ============ Reset & Base ============ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; scroll-padding-top: var(--nav-height); }
+body {
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--brown);
+  background: var(--parchment);
+  background-image: radial-gradient(ellipse at 50% 0%, rgba(200,169,110,0.08) 0%, transparent 70%),
+                    linear-gradient(180deg, var(--parchment) 0%, var(--parchment-dark) 100%);
+  overflow-x: hidden;
+}
+
+/* ============ Navigation ============ */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+  background: linear-gradient(180deg, rgba(26,17,13,0.95) 0%, rgba(26,17,13,0.9) 100%);
+  border-bottom: 2px solid var(--gold);
+  height: var(--nav-height);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px;
+  backdrop-filter: blur(10px);
+}
+.nav-logo {
+  font-family: var(--font-title);
+  font-size: 1.2rem;
+  color: var(--gold);
+  font-weight: bold;
+  white-space: nowrap;
+}
+.nav-links { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.nav-links a {
+  color: var(--parchment-dark);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  transition: all 0.3s;
+  border: 1px solid transparent;
+}
+.nav-links a:hover, .nav-links a.active {
+  color: var(--gold);
+  border-color: var(--gold);
+  text-shadow: 0 0 8px rgba(200,169,110,0.4);
+}
+.nav-toggle { display: none; background: none; border: 1px solid var(--gold); color: var(--gold); padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 1.2rem; }
+
+/* ============ Section Layout ============ */
+.section {
+  min-height: 100vh;
+  padding: 80px 20px 60px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  position: relative;
+}
+/* 内容超长的区块顶部对齐，避免居中把内容推出视口 */
+#wisdom, #trials, #secrets, #mirror, #footer { justify-content: flex-start; }
+.section-inner { max-width: var(--max-width); width: 100%; }
+.section-title {
+  font-family: var(--font-title);
+  font-size: 2.2rem;
+  color: var(--gold);
+  text-align: center;
+  margin-bottom: 10px;
+  position: relative;
+}
+.section-title::before, .section-title::after {
+  content: ' ◆ ';
+  font-size: 1rem;
+  vertical-align: middle;
+  color: var(--gold-dark);
+}
+.section-subtitle {
+  text-align: center;
+  color: var(--brown-mid);
+  font-size: 1rem;
+  margin-bottom: 40px;
+}
+
+/* Decorative divider */
+.decor-divider {
+  text-align: center;
+  color: var(--gold);
+  font-size: 1.2rem;
+  margin: 15px 0 30px;
+  letter-spacing: 8px;
+}
+
+/* ============ Hero Section ============ */
+#hero {
+  background: linear-gradient(180deg, var(--dark-bg) 0%, #252540 40%, var(--parchment) 100%);
+  color: var(--gold);
+  text-align: center;
+  min-height: 100vh;
+  padding-top: calc(var(--nav-height) + 60px);
+}
+.hero-title {
+  font-family: var(--font-title);
+  font-size: 3rem;
+  color: var(--gold);
+  text-shadow: 0 0 30px rgba(200,169,110,0.3);
+  margin-bottom: 15px;
+  line-height: 1.3;
+}
+.hero-subtitle {
+  font-size: 1.15rem;
+  color: var(--parchment-dark);
+  max-width: 700px;
+  margin: 0 auto 40px;
+  line-height: 1.7;
+}
+.hero-kpis { display: flex; gap: 30px; justify-content: center; flex-wrap: wrap; margin-bottom: 50px; }
+.hero-kpi {
+  background: rgba(200,169,110,0.08);
+  border: 1px solid rgba(200,169,110,0.25);
+  border-radius: 12px;
+  padding: 25px 30px;
+  text-align: center;
+  min-width: 160px;
+}
+.hero-kpi .num {
+  font-family: var(--font-title);
+  font-size: 2.5rem;
+  color: var(--gold);
+  font-weight: bold;
+}
+.hero-kpi .label { font-size: 0.85rem; color: var(--parchment-dark); margin-top: 5px; }
+.hero-scroll {
+  color: var(--gold-dark);
+  font-size: 0.9rem;
+  animation: bounce 2s infinite;
+  margin-top: 20px;
+}
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(10px); }
+}
+
+/* ============ Map Section ============ */
+.map-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+.map-card {
+  background: var(--dark-bg);
+  border: 2px solid var(--gold-dark);
+  border-radius: 12px;
+  padding: 35px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  text-decoration: none;
+  color: var(--parchment);
+  position: relative;
+}
+.map-card:hover {
+  border-color: var(--gold);
+  box-shadow: 0 0 30px rgba(200,169,110,0.3), inset 0 0 0 1px var(--gold);
+  transform: translateY(-4px);
+}
+.map-card .icon { font-size: 2.5rem; display: block; margin-bottom: 12px; }
+.map-card .title {
+  font-family: var(--font-title);
+  font-size: 1.3rem;
+  color: var(--gold);
+  margin-bottom: 8px;
+}
+.map-card .desc { font-size: 0.85rem; color: var(--parchment-dark); }
+
+/* ============ Card Styles ============ */
+.card {
+  background: var(--parchment);
+  border: 2px solid var(--gold-dark);
+  border-radius: 8px;
+  padding: 22px;
+  position: relative;
+  transition: all 0.3s;
+  box-shadow: 0 4px 16px rgba(62,39,35,0.08);
+}
+.card:hover {
+  border-color: var(--gold);
+  box-shadow: 0 6px 24px rgba(200,169,110,0.15);
+}
+.card::before { content: '◇'; position: absolute; top: 8px; left: 10px; color: var(--gold-dark); font-size: 0.65rem; }
+.card::after { content: '◇'; position: absolute; bottom: 8px; right: 10px; color: var(--gold-dark); font-size: 0.65rem; }
+.card h3 { font-family: var(--font-title); font-size: 1.1rem; color: var(--brown); margin-bottom: 8px; }
+.card p, .card li { font-size: 0.9rem; color: var(--brown-mid); }
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+
+/* ============ Timeline ============ */
+.timeline-wrap { overflow-x: auto; padding-bottom: 15px; }
+.timeline { display: flex; gap: 0; min-width: max-content; }
+.timeline-item {
+  min-width: 100px; max-width: 160px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--gold-dark);
+  position: relative;
+  flex-shrink: 0;
+}
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -6px; top: 16px;
+  width: 10px; height: 10px;
+  background: var(--gold);
+  border-radius: 50%;
+  border: 2px solid var(--gold-dark);
+}
+.timeline-item .date { font-size: 0.75rem; color: var(--gold); font-weight: bold; }
+.timeline-item .event { font-size: 0.78rem; color: var(--brown-mid); margin-top: 4px; line-height: 1.4; }
+.timeline-item.major::before { background: var(--green); border-color: var(--gold); width: 14px; height: 14px; left: -8px; top: 14px; box-shadow: 0 0 10px rgba(200,169,110,0.5); }
+.timeline-item.major .event { font-weight: bold; color: var(--brown); }
+
+/* ============ Agentic Loop SVG ============ */
+.agentic-loop { text-align: center; margin: 30px 0; }
+.agentic-loop svg { max-width: 500px; width: 100%; }
+
+/* ============ Tabs ============ */
+.tabs { margin: 20px 0; }
+.tab-nav { display: flex; gap: 2px; flex-wrap: wrap; margin-bottom: 0; }
+.tab-btn {
+  padding: 10px 20px;
+  background: var(--parchment-dark);
+  border: 1px solid var(--gold-dark);
+  color: var(--brown-mid);
+  cursor: pointer;
+  font-size: 0.9rem;
+  border-radius: 6px 6px 0 0;
+  transition: all 0.3s;
+}
+.tab-btn.active { background: var(--parchment); color: var(--gold); border-bottom-color: var(--parchment); font-weight: bold; }
+.tab-panel { display: none; padding: 20px; border: 1px solid var(--gold-dark); border-top: none; border-radius: 0 0 8px 8px; background: var(--parchment); }
+.tab-panel.active { display: block; }
+
+/* ============ Accordion ============ */
+.accordion { margin: 15px 0; }
+.accordion-item { border: 1px solid var(--gold-dark); border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+.accordion-header {
+  padding: 14px 18px;
+  background: var(--parchment-dark);
+  cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center;
+  font-weight: bold;
+  transition: background 0.3s;
+}
+.accordion-header:hover { background: rgba(200,169,110,0.15); }
+.accordion-header::after { content: '▲'; font-size: 0.7rem; color: var(--gold-dark); transition: transform 0.3s; }
+.accordion-item.open .accordion-header::after { transform: rotate(180deg); }
+.accordion-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.4s ease;
+  background: var(--parchment);
+}
+.accordion-body-inner { padding: 16px 18px; }
+
+/* ============ Code Block ============ */
+.code-block {
+  background: var(--shadow);
+  color: var(--parchment);
+  border-left: 3px solid var(--gold);
+  padding: 14px 16px;
+  border-radius: 4px;
+  font-family: var(--font-code);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  margin: 10px 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ============ Pricing Cards ============ */
+.pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.pricing-card {
+  background: var(--parchment);
+  border: 2px solid var(--gold-dark);
+  border-radius: 10px;
+  padding: 25px 18px;
+  text-align: center;
+  transition: all 0.3s;
+}
+.pricing-card.featured { border-color: var(--gold); box-shadow: 0 0 20px rgba(200,169,110,0.2); }
+.pricing-card .plan-name { font-family: var(--font-title); font-size: 1.2rem; color: var(--brown); }
+.pricing-card .plan-price { font-size: 2rem; color: var(--gold); font-family: var(--font-title); font-weight: bold; margin: 10px 0; }
+.pricing-card .plan-unit { font-size: 0.85rem; color: var(--brown-mid); }
+.pricing-card .plan-desc { font-size: 0.85rem; color: var(--brown-mid); margin-top: 10px; }
+
+/* ============ Buttons ============ */
+.btn {
+  display: inline-block;
+  padding: 10px 24px;
+  border: 2px solid var(--gold);
+  background: transparent;
+  color: var(--gold);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  text-decoration: none;
+  transition: all 0.3s;
+  font-family: var(--font-title);
+}
+.btn:hover { background: var(--gold); color: var(--brown); box-shadow: 0 0 15px rgba(200,169,110,0.4); }
+.btn-primary { background: var(--gold); color: var(--brown); border-color: var(--gold); }
+.btn-primary:hover { background: var(--gold-dark); border-color: var(--gold-dark); box-shadow: 0 0 20px rgba(200,169,110,0.5); }
+
+/* ============ Table ============ */
+.table-wrap { overflow-x: auto; margin: 15px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th { background: var(--shadow); color: var(--gold); padding: 10px 12px; text-align: left; font-family: var(--font-title); font-size: 0.85rem; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--parchment-dark); }
+tr:nth-child(even) { background: rgba(200,169,110,0.05); }
+tr:hover { background: rgba(200,169,110,0.1); }
+
+/* ============ Video Cards ============ */
+.video-list { display: flex; flex-direction: column; gap: 10px; }
+.video-item {
+  display: flex; gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--parchment-dark);
+  border-radius: 8px;
+  align-items: center;
+  transition: all 0.3s;
+  background: var(--parchment);
+}
+.video-item:hover { border-color: var(--gold); background: rgba(200,169,110,0.05); }
+.video-rank {
+  font-family: var(--font-title);
+  font-size: 1.5rem;
+  color: var(--gold);
+  min-width: 40px;
+  text-align: center;
+  font-weight: bold;
+}
+.video-info { flex: 1; min-width: 0; }
+.video-info .v-title { font-weight: bold; color: var(--brown); font-size: 0.92rem; margin-bottom: 4px; }
+.video-info .v-meta { font-size: 0.78rem; color: var(--brown-mid); }
+.video-info a { color: var(--green); text-decoration: none; font-size: 0.8rem; }
+.video-info a:hover { text-decoration: underline; }
+.video-views { font-size: 0.85rem; color: var(--gold); font-weight: bold; white-space: nowrap; }
+
+/* ============ Back to Top ============ */
+.back-to-top {
+  position: fixed; bottom: 30px; right: 30px; z-index: 999;
+  width: 44px; height: 44px;
+  background: var(--shadow);
+  border: 2px solid var(--gold);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  font-size: 1.3rem;
+  color: var(--gold);
+  opacity: 0;
+  transition: all 0.4s;
+  transform: translateY(20px);
+  text-decoration: none;
+}
+.back-to-top.visible { opacity: 1; transform: translateY(0); }
+.back-to-top:hover { background: var(--gold); color: var(--brown); box-shadow: 0 0 20px rgba(200,169,110,0.5); }
+
+/* ============ Commands Reference ============ */
+.commands-section { margin-top: 40px; }
+
+/* Search */
+.cmd-search-wrap { position: relative; margin-bottom: 20px; }
+.cmd-search {
+  width: 100%; padding: 12px 18px 12px 42px;
+  background: var(--dark-bg);
+  border: 2px solid var(--gold-dark);
+  border-radius: 8px;
+  color: var(--parchment);
+  font-size: 1rem;
+  font-family: var(--font-body);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.cmd-search::placeholder { color: var(--brown-mid); }
+.cmd-search:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 15px rgba(200,169,110,0.3);
+}
+.cmd-search-icon {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  color: var(--gold-dark); font-size: 1.2rem; pointer-events: none;
+}
+.cmd-no-results {
+  display: none; text-align: center; padding: 30px;
+  color: var(--brown-mid); font-size: 1rem;
+}
+
+/* Navigation buttons */
+.commands-nav {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-bottom: 24px; justify-content: center;
+}
+.cmd-nav-btn {
+  padding: 8px 16px;
+  background: var(--dark-bg);
+  border: 1px solid var(--gold-dark);
+  color: var(--parchment-dark);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-family: var(--font-body);
+  transition: all 0.3s;
+  white-space: nowrap;
+}
+.cmd-nav-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(200,169,110,0.1);
+}
+.cmd-nav-btn.active {
+  background: var(--gold);
+  color: var(--brown);
+  border-color: var(--gold);
+  font-weight: bold;
+  box-shadow: 0 0 12px rgba(200,169,110,0.4);
+}
+
+/* Command cards */
+.cmd-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+.cmd-card {
+  background: var(--dark-bg);
+  border: 1px solid var(--gold-dark);
+  border-radius: 10px;
+  padding: 18px 20px;
+  transition: all 0.3s;
+  position: relative;
+  overflow: hidden;
+}
+.cmd-card:hover {
+  border-color: var(--gold);
+  box-shadow: 0 4px 20px rgba(200,169,110,0.15);
+}
+.cmd-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0;
+  width: 4px; height: 100%;
+  background: var(--gold-dark);
+  border-radius: 10px 0 0 10px;
+}
+.cmd-card-name {
+  font-family: var(--font-title);
+  font-size: 1.25rem;
+  color: var(--gold);
+  font-weight: bold;
+  margin-bottom: 6px;
+}
+.cmd-card-syntax {
+  font-family: var(--font-code);
+  font-size: 0.78rem;
+  color: var(--sky);
+  background: rgba(135,206,235,0.06);
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  display: inline-block;
+  word-break: break-all;
+}
+.cmd-card-desc {
+  font-size: 0.85rem;
+  color: var(--parchment-dark);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.cmd-card-scenarios {
+  margin-top: 6px;
+}
+.cmd-scenario-toggle {
+  background: none;
+  border: 1px solid var(--brown-mid);
+  color: var(--parchment-dark);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  transition: all 0.3s;
+}
+.cmd-scenario-toggle:hover { border-color: var(--gold); color: var(--gold); }
+.cmd-scenario-list {
+  display: none;
+  margin-top: 8px;
+  padding-left: 14px;
+  font-size: 0.78rem;
+  color: var(--parchment-dark);
+  line-height: 1.6;
+  border-left: 2px solid var(--gold-dark);
+}
+.cmd-scenario-list.open { display: block; }
+.cmd-scenario-list li { margin-bottom: 4px; }
+.cmd-card-note {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--gold-dark);
+  font-style: italic;
+  display: flex; gap: 4px; align-items: flex-start;
+}
+.cmd-card-note::before { content: '⚠'; flex-shrink: 0; }
+
+/* Command count badge */
+.cmd-count-badge {
+  display: inline-block;
+  background: var(--green);
+  color: var(--parchment);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* ============ Footer ============ */
+#footer {
+  background: var(--shadow);
+  color: var(--parchment-dark);
+  padding: 50px 20px 30px;
+  text-align: center;
+  min-height: auto;
+}
+#footer .section-title { color: var(--gold); }
+#footer a { color: var(--gold); text-decoration: none; }
+#footer a:hover { text-decoration: underline; }
+.footer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; text-align: left; margin: 30px 0; font-size: 0.85rem; }
+.footer-grid h4 { color: var(--gold); margin-bottom: 8px; font-family: var(--font-title); }
+
+/* ============ Animations ============ */
+.fade-up { opacity: 0; transform: translateY(30px); transition: opacity 0.6s cubic-bezier(0.16,1,0.3,1), transform 0.6s cubic-bezier(0.16,1,0.3,1); }
+.fade-up.visible { opacity: 1; transform: translateY(0); }
+
+/* ============ Responsive ============ */
+@media (max-width: 768px) {
+  .hero-title { font-size: 2rem; }
+  .section-title { font-size: 1.6rem; }
+  .hero-kpis { gap: 12px; }
+  .hero-kpi { min-width: 120px; padding: 16px 18px; }
+  .hero-kpi .num { font-size: 1.8rem; }
+  .nav-links { display: none; flex-direction: column; position: absolute; top: var(--nav-height); left: 0; right: 0; background: var(--shadow); padding: 10px; border-bottom: 2px solid var(--gold); }
+  .nav-links.open { display: flex; }
+  .nav-toggle { display: block; }
+  .card-grid { grid-template-columns: 1fr; }
+  .video-item { flex-direction: column; align-items: flex-start; }
+  .video-rank { font-size: 1.2rem; }
+  .pricing-grid { grid-template-columns: 1fr; }
+  .map-grid { grid-template-columns: 1fr 1fr; }
+  .tab-nav { flex-direction: column; }
+  .tab-btn { border-radius: 4px; }
+  .timeline-item { min-width: 80px; max-width: 120px; }
+  .hero-subtitle { font-size: 0.95rem; }
+}
+
+@media (max-width: 480px) {
+  .hero-title { font-size: 1.6rem; }
+  .section-title { font-size: 1.4rem; }
+  .hero-kpi { min-width: 100px; padding: 12px 14px; }
+  .hero-kpi .num { font-size: 1.4rem; }
+  .map-grid { grid-template-columns: 1fr; }
+  .section { padding: 60px 12px 40px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== Navigation ==================== -->
+<nav class="nav" id="navbar">
+  <div class="nav-logo">▲ Claude Code 知识宝典</div>
+  <button class="nav-toggle" id="navToggle" aria-label="菜单">☰</button>
+  <div class="nav-links" id="navLinks">
+    <a href="#hero">首页</a>
+    <a href="#map">导航</a>
+    <a href="#wisdom">智慧神殿</a>
+    <a href="#trials">试练之塔</a>
+    <a href="#secrets">贤者之书</a>
+    <a href="#mirror">时光之镜</a>
+  </div>
+</nav>
+
+<!-- ==================== 1. Hero ==================== -->
+<section class="section" id="hero">
+  <div style="text-align:center; max-width:var(--max-width); margin:0 auto;">
+    <div style="font-size:3rem; margin-bottom:10px;">▲</div>
+    <h1 class="hero-title">Claude Code 知识宝典</h1>
+    <p class="hero-subtitle">
+      Anthropic 推出的 Agentic 编程工具 —— 不只是代码补全，而是能自主理解代码库、
+      规划多步骤任务、跨文件编写代码、运行测试并自我纠错的 AI 编程智能体。
+      <br><span style="color:var(--gold); font-size:1rem; display:inline-block; margin-top:10px; font-weight:bold;">收录 90+ 条内置命令，全面详解</span>
+    </p>
+    <div class="hero-kpis">
+      <div class="hero-kpi">
+        <div class="num" data-target="440">0</div>
+        <div class="label">Anthropic 总 ARR（亿美元）</div>
+      </div>
+      <div class="hero-kpi">
+        <div class="num" data-target="95">0</div>
+        <div class="label">SWE-bench Verified %</div>
+      </div>
+      <div class="hero-kpi">
+        <div class="num" data-target="4">0</div>
+        <div class="label">GitHub 公开提交占比 %</div>
+      </div>
+      <div class="hero-kpi">
+        <div class="num" data-target="500">0</div>
+        <div class="label">企业客户数（年$100万+）</div>
+      </div>
+    </div>
+    <a href="#map" class="btn btn-primary" style="font-size:1.1rem; padding:14px 36px;">开始探索之旅 ◆</a>
+    <div class="hero-scroll" style="margin-top:30px;">▼ 向下滚动探索 ▼</div>
+  </div>
+</section>
+
+<!-- ==================== 2. Map ==================== -->
+<section class="section" id="map">
+  <div class="section-inner">
+    <h2 class="section-title">世界地图</h2>
+    <p class="section-subtitle">四块大陆，四种知识，点击进入对应的领域</p>
+    <div class="decor-divider">◆ ◆ ◆ ◆ ◆ ◆ ◆</div>
+    <div class="map-grid">
+      <a href="#wisdom" class="map-card">
+        <span class="icon">📜</span>
+        <div class="title">智慧神殿</div>
+        <div class="desc">宏观概览 · 时间线 · 竞品对比 · 定价模式</div>
+      </a>
+      <a href="#trials" class="map-card">
+        <span class="icon">⚔️</span>
+        <div class="title">试练之塔</div>
+        <div class="desc">安装教程 · 命令速查 · FAQ · CI/CD集成</div>
+      </a>
+      <a href="#secrets" class="map-card">
+        <span class="icon">🔮</span>
+        <div class="title">贤者之书</div>
+        <div class="desc">效率技巧 · 成本控制 · 隐藏功能 · 案例</div>
+      </a>
+      <a href="#mirror" class="map-card">
+        <span class="icon">🎬</span>
+        <div class="title">时光之镜</div>
+        <div class="desc">B站热门视频 · UP主推荐 · 国际资源</div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 3. Wisdom (Overview) ==================== -->
+<section class="section" id="wisdom">
+  <div class="section-inner fade-up">
+    <h2 class="section-title">智慧神殿</h2>
+    <p class="section-subtitle">Claude Code 宏观概览 —— 从起源到未来</p>
+    <div class="decor-divider">◆ ◆ ◆ ◆ ◆ ◆ ◆</div>
+
+    <!-- Ten Core Capabilities -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin-bottom:16px;">十大核心能力</h3>
+    <div class="card-grid">
+      <div class="card"><h3>1. 全代码库上下文理解</h3><p>自动探索目录结构、理解模块依赖关系，无需手动指定上下文文件。支持 1M token 上下文窗口。</p></div>
+      <div class="card"><h3>2. 自主多文件编辑与重构</h3><p>跨多文件协调编辑，一个重构任务可能涉及 20-30+ 个文件的修改。</p></div>
+      <div class="card"><h3>3. 测试自动修复回路</h3><p>测试失败时自动读取错误、修改代码、重新运行测试，循环直至通过。</p></div>
+      <div class="card"><h3>4. 原生 Git 工作流自动化</h3><p>从读 Issue、写代码、跑测试到提交 PR 全流程贯通，与 GitHub/GitLab 深度集成。</p></div>
+      <div class="card"><h3>5. CI/CD 集成</h3><p>监控 GitHub Actions 和 GitLab CI 流水线，失败时自动提交修复。</p></div>
+      <div class="card"><h3>6. MCP 可扩展性</h3><p>通过开放协议连接外部工具、数据库、API。已被苹果、OpenAI 接入，成为行业标准。</p></div>
+      <div class="card"><h3>7. 多智能体编排</h3><p>Dynamic Workflows 支持数十到数百个并行子智能体协同工作。</p></div>
+      <div class="card"><h3>8. 权限与自主模式</h3><p>多级权限控制，从"每次批准"到"分类器自动判断安全/危险操作"。</p></div>
+      <div class="card"><h3>9. 项目记忆 + Skills + Hooks</h3><p>CLAUDE.md 持久化上下文、Skills 自定义工作流、Hooks 事件钩子、Routines 云端自动化。</p></div>
+      <div class="card"><h3>10. 跨平台覆盖</h3><p>终端 CLI、VS Code/JetBrains 扩展、桌面 App、Web、iOS、Slack 全覆盖。</p></div>
+    </div>
+
+    <!-- Timeline -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin:40px 0 16px;">发展时间线</h3>
+    <div class="timeline-wrap">
+      <div class="timeline">
+        <div class="timeline-item"><div class="date">2024.09</div><div class="event">Boris Cherny 启动内部副项目</div></div>
+        <div class="timeline-item"><div class="date">2024.11</div><div class="event">内部 80% 工程师依赖</div></div>
+        <div class="timeline-item major"><div class="date">2025.02</div><div class="event">Research Preview 上线</div></div>
+        <div class="timeline-item"><div class="date">2025.04</div><div class="event">npm 源码意外暴露</div></div>
+        <div class="timeline-item major"><div class="date">2025.05</div><div class="event">GA 正式版发布</div></div>
+        <div class="timeline-item"><div class="date">2025.09</div><div class="event">Claude Code 2.0</div></div>
+        <div class="timeline-item"><div class="date">2025.11</div><div class="event">ARR 达 $10 亿</div></div>
+        <div class="timeline-item"><div class="date">2026.02</div><div class="event">ARR 飙至 $25 亿</div></div>
+        <div class="timeline-item major"><div class="date">2026.03</div><div class="event">Computer Use 集成</div></div>
+        <div class="timeline-item major"><div class="date">2026.05</div><div class="event">Dynamic Workflows 上线</div></div>
+        <div class="timeline-item major"><div class="date">2026.06</div><div class="event">Fable 5/Mythos 5 发布</div></div>
+        <div class="timeline-item major"><div class="date">2026.06.30</div><div class="event">Sonnet 5 默认模型</div></div>
+      </div>
+    </div>
+
+    <!-- Agentic Loop -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin:40px 0 16px;">Agentic Loop 智能体循环</h3>
+    <div class="agentic-loop">
+      <svg viewBox="0 0 500 280" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#C8A96E"/></marker>
+        </defs>
+        <!-- Cycle arrows -->
+        <path d="M 180 105 C 80 105, 80 175, 180 175" fill="none" stroke="#C8A96E" stroke-width="2" stroke-dasharray="8,4" opacity="0.6"/>
+        <path d="M 440 105 C 540 105, 540 175, 440 175" fill="none" stroke="#C8A96E" stroke-width="2" stroke-dasharray="8,4" opacity="0.6"/>
+        <line x1="180" y1="70" x2="440" y2="70" stroke="#C8A96E" stroke-width="2" marker-end="url(#arrowhead)"/>
+        <line x1="440" y1="210" x2="180" y2="210" stroke="#C8A96E" stroke-width="2" marker-end="url(#arrowhead)" opacity="0.7"/>
+        <!-- Nodes -->
+        <rect x="60" y="60" width="120" height="60" rx="8" fill="var(--shadow)" stroke="#C8A96E" stroke-width="2"/>
+        <text x="120" y="82" text-anchor="middle" fill="#C8A96E" font-size="12" font-family="serif">Gather</text>
+        <text x="120" y="100" text-anchor="middle" fill="#E8D5A3" font-size="10">收集上下文</text>
+        <rect x="320" y="60" width="120" height="60" rx="8" fill="var(--shadow)" stroke="#C8A96E" stroke-width="2"/>
+        <text x="380" y="82" text-anchor="middle" fill="#C8A96E" font-size="12" font-family="serif">Take Action</text>
+        <text x="380" y="100" text-anchor="middle" fill="#E8D5A3" font-size="10">执行操作</text>
+        <rect x="190" y="160" width="120" height="60" rx="8" fill="var(--shadow)" stroke="#C8A96E" stroke-width="2"/>
+        <text x="250" y="182" text-anchor="middle" fill="#C8A96E" font-size="12" font-family="serif">Verify</text>
+        <text x="250" y="200" text-anchor="middle" fill="#E8D5A3" font-size="10">验证结果</text>
+        <text x="110" y="240" text-anchor="middle" fill="#A0813E" font-size="10">反馈循环</text>
+      </svg>
+      <p style="color:var(--brown-mid); font-size:0.85rem; margin-top:8px;">代码补全工具（Copilot）是 <b>被动逐行提示</b>，Claude Code 是 <b>主动目标驱动 + 自我纠错</b></p>
+    </div>
+
+    <!-- Pricing Cards -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin:40px 0 16px;">定价方案</h3>
+    <div class="pricing-grid">
+      <div class="pricing-card">
+        <div class="plan-name">Free</div>
+        <div class="plan-price">$0</div>
+        <div class="plan-unit">/月</div>
+        <div class="plan-desc">体验 Claude Chat 基本功能，不包含 Claude Code</div>
+      </div>
+      <div class="pricing-card featured">
+        <div class="plan-name">Pro</div>
+        <div class="plan-price">$20</div>
+        <div class="plan-unit">/月</div>
+        <div class="plan-desc">包含 Claude Code 基础用量，适合轻度到中度使用</div>
+      </div>
+      <div class="pricing-card">
+        <div class="plan-name">Max 5x</div>
+        <div class="plan-price">$100</div>
+        <div class="plan-unit">/月</div>
+        <div class="plan-desc">Pro 的 5 倍容量，高频使用</div>
+      </div>
+      <div class="pricing-card">
+        <div class="plan-name">Max 20x</div>
+        <div class="plan-price">$200</div>
+        <div class="plan-unit">/月</div>
+        <div class="plan-desc">Pro 的 20 倍容量，重度使用</div>
+      </div>
+    </div>
+
+    <!-- Competitor Comparison -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin:40px 0 16px;">竞品对比概览</h3>
+    <div class="tabs">
+      <div class="tab-nav">
+        <button class="tab-btn active" data-tab="comp-claude">Claude Code</button>
+        <button class="tab-btn" data-tab="comp-copilot">GitHub Copilot</button>
+        <button class="tab-btn" data-tab="comp-cursor">Cursor</button>
+        <button class="tab-btn" data-tab="comp-windsurf">Windsurf</button>
+      </div>
+      <div class="tab-panel active" id="tab-comp-claude">
+        <p><b>类型</b>：终端 Agent | <b>模型</b>：Sonnet 5 (默认), Opus 4.8, Fable 5</p>
+        <p><b>优势</b>：最强 Agent 能力、最成熟 MCP 原生支持、完全文件系统访问、可脚本化</p>
+        <p><b>劣势</b>：无内联自动补全、终端学习曲线、重度使用成本高</p>
+        <p><b>SWE-bench</b>：85.2% (Sonnet 5) - 95.0% (Fable 5)</p>
+      </div>
+      <div class="tab-panel" id="tab-comp-copilot">
+        <p><b>类型</b>：IDE 内联补全 + 聊天 | <b>模型</b>：GPT 系列</p>
+        <p><b>优势</b>：速度最快、IDE 集成最深、企业控制最成熟、免费对学生/开源</p>
+        <p><b>劣势</b>：不支持切换模型、多文件编辑有限、上下文窗口较小</p>
+        <p><b>SWE-bench</b>：72%</p>
+      </div>
+      <div class="tab-panel" id="tab-comp-cursor">
+        <p><b>类型</b>：AI-native IDE (VS Code fork) | <b>模型</b>：GPT-5.4、Claude Opus、Gemini 3.1</p>
+        <p><b>优势</b>：最佳内联补全 + Agent 组合、深入代码库索引、多模型切换</p>
+        <p><b>劣势</b>：VS Code fork 会漂移、MCP 支持不如 Claude Code</p>
+        <p><b>SWE-bench</b>：74%</p>
+      </div>
+      <div class="tab-panel" id="tab-comp-windsurf">
+        <p><b>类型</b>：AI IDE + Agent 模式 | <b>模型</b>：GPT-5.4、Claude Opus、自定义</p>
+        <p><b>优势</b>：最快 Tab 补全 (Supercomplete)、长期会话上下文保持 (Cascade)</p>
+        <p><b>劣势</b>：Agent 模式不够强大、复杂任务可靠性低</p>
+        <p><b>SWE-bench</b>：71%</p>
+      </div>
+    </div>
+
+    <!-- Key Customer Cases -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin:40px 0 16px;">典型案例</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>客户</th><th>成果</th><th>效率提升</th></tr>
+        <tr><td>Stripe</td><td>10,000 行 Scala→Java 迁移</td><td>10 工程周 → 4 天</td></tr>
+        <tr><td>Wiz</td><td>50,000 行 Python→Go 迁移</td><td>2-3 月 → 20 小时</td></tr>
+        <tr><td>Rakuten</td><td>新功能交付加速</td><td>24 工作日 → 5 天</td></tr>
+        <tr><td>Bun (Jarred Sumner)</td><td>100 万行 Zig→Rust 迁移</td><td>&lt;2 周，$165K 成本</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 4. Trials (Tutorial) ==================== -->
+<section class="section" id="trials">
+  <div class="section-inner fade-up">
+    <h2 class="section-title">试练之塔</h2>
+    <p class="section-subtitle">系统教程 —— 从安装到精通的全路径</p>
+    <div class="decor-divider">◆ ◆ ◆ ◆ ◆ ◆ ◆</div>
+
+    <!-- Installation Tabs -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin-bottom:16px;">安装指南</h3>
+    <div class="tabs">
+      <div class="tab-nav">
+        <button class="tab-btn active" data-tab="inst-native">原生安装器 (推荐)</button>
+        <button class="tab-btn" data-tab="inst-brew">Homebrew</button>
+        <button class="tab-btn" data-tab="inst-winget">WinGet</button>
+        <button class="tab-btn" data-tab="inst-npm">npm</button>
+      </div>
+      <div class="tab-panel active" id="tab-inst-native">
+        <p style="margin-bottom:8px; font-weight:bold;">不需要 Node.js，自包含可执行文件，支持自动后台更新</p>
+        <div class="code-block"># macOS / Linux / WSL：
+curl -fsSL https://claude.ai/install.sh | bash
+
+# Windows PowerShell：
+irm https://claude.ai/install.ps1 | iex
+
+# Windows CMD：
+curl -fsSL https://claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd</div>
+      </div>
+      <div class="tab-panel" id="tab-inst-brew">
+        <p style="margin-bottom:8px;">macOS/Linux 专用</p>
+        <div class="code-block"># 稳定版
+brew install --cask claude-code
+
+# 最新版
+brew install --cask claude-code@latest
+
+# 更新
+brew upgrade claude-code</div>
+      </div>
+      <div class="tab-panel" id="tab-inst-winget">
+        <p style="margin-bottom:8px;">Windows 专用</p>
+        <div class="code-block">winget install Anthropic.ClaudeCode
+
+# 更新
+winget upgrade Anthropic.ClaudeCode</div>
+      </div>
+      <div class="tab-panel" id="tab-inst-npm">
+        <p style="margin-bottom:8px;">需要 Node.js 18+，传统方式</p>
+        <div class="code-block">npm install -g @anthropic-ai/claude-code
+
+# 不要使用 sudo！（会导致文件权限问题）</div>
+      </div>
+    </div>
+
+    <!-- TOP 20 Quick Reference -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin:40px 0 8px;">最常用命令 TOP 20</h3>
+    <p style="color:var(--brown-mid); font-size:0.82rem; margin-bottom:16px;">日常开发 90% 的场景只用到这 20 条</p>
+    <style>
+    .top20-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px; margin-bottom:20px; }
+    .top20-card { background:linear-gradient(135deg,rgba(245,230,200,1),rgba(255,250,240,1)); border:1.5px solid var(--gold); border-radius:8px; padding:10px 14px; display:flex; align-items:center; gap:10px; transition:all 0.2s; }
+    .top20-card:hover { transform:translateY(-2px); box-shadow:0 4px 16px rgba(200,169,110,0.3); border-color:var(--gold-dark); }
+    .top20-num { width:26px; height:26px; border-radius:50%; background:var(--dark-bg); color:var(--gold); display:flex; align-items:center; justify-content:center; font-family:var(--font-title); font-size:0.75rem; font-weight:bold; flex-shrink:0; }
+    .top20-num.gold { background:var(--gold); color:var(--dark-bg); }
+    .top20-cmd { font-family:var(--font-code); color:var(--brown); font-size:0.85rem; font-weight:bold; }
+    .top20-desc { font-size:0.72rem; color:var(--brown-mid); }
+    .workflow-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px; margin-bottom:24px; }
+    .workflow-card { background:linear-gradient(135deg,rgba(74,140,63,0.08),rgba(200,169,110,0.08)); border:1px solid var(--green); border-radius:8px; padding:12px 14px; }
+    .workflow-card h4 { font-family:var(--font-title); color:var(--green); margin:0 0 6px; font-size:0.85rem; }
+    .workflow-card .wf-cmds { font-family:var(--font-code); font-size:0.73rem; color:var(--brown); line-height:1.7; }
+    </style>
+
+    <div class="top20-grid">
+      <div class="top20-card"><div class="top20-num gold">1</div><div><div class="top20-cmd">/help</div><div class="top20-desc">列出所有可用命令</div></div></div>
+      <div class="top20-card"><div class="top20-num gold">2</div><div><div class="top20-cmd">/clear</div><div class="top20-desc">清除对话历史，开始新会话</div></div></div>
+      <div class="top20-card"><div class="top20-num gold">3</div><div><div class="top20-cmd">/compact</div><div class="top20-desc">压缩对话释放上下文窗口</div></div></div>
+      <div class="top20-card"><div class="top20-num">4</div><div><div class="top20-cmd">/resume</div><div class="top20-desc">恢复之前的会话</div></div></div>
+      <div class="top20-card"><div class="top20-num">5</div><div><div class="top20-cmd">/init</div><div class="top20-desc">扫描代码库生成 CLAUDE.md</div></div></div>
+      <div class="top20-card"><div class="top20-num">6</div><div><div class="top20-cmd">/model</div><div class="top20-desc">切换 AI 模型</div></div></div>
+      <div class="top20-card"><div class="top20-num">7</div><div><div class="top20-cmd">/diff</div><div class="top20-desc">查看代码更改</div></div></div>
+      <div class="top20-card"><div class="top20-num">8</div><div><div class="top20-cmd">/code-review</div><div class="top20-desc">审查代码 diff</div></div></div>
+      <div class="top20-card"><div class="top20-num">9</div><div><div class="top20-cmd">/cost</div><div class="top20-desc">查看 token 用量和费用</div></div></div>
+      <div class="top20-card"><div class="top20-num">10</div><div><div class="top20-cmd">/context</div><div class="top20-desc">可视化上下文使用情况</div></div></div>
+      <div class="top20-card"><div class="top20-num">11</div><div><div class="top20-cmd">/memory</div><div class="top20-desc">编辑项目记忆文件</div></div></div>
+      <div class="top20-card"><div class="top20-num">12</div><div><div class="top20-cmd">/plan</div><div class="top20-desc">进入计划模式（只读分析）</div></div></div>
+      <div class="top20-card"><div class="top20-num">13</div><div><div class="top20-cmd">/permissions</div><div class="top20-desc">管理工具权限</div></div></div>
+      <div class="top20-card"><div class="top20-num">14</div><div><div class="top20-cmd">/rewind</div><div class="top20-desc">回滚代码/对话到检查点</div></div></div>
+      <div class="top20-card"><div class="top20-num">15</div><div><div class="top20-cmd">/branch</div><div class="top20-desc">创建对话分支</div></div></div>
+      <div class="top20-card"><div class="top20-num">16</div><div><div class="top20-cmd">/batch</div><div class="top20-desc">大规模并行批量更改</div></div></div>
+      <div class="top20-card"><div class="top20-num">17</div><div><div class="top20-cmd">/doctor</div><div class="top20-desc">诊断安装和环境问题</div></div></div>
+      <div class="top20-card"><div class="top20-num">18</div><div><div class="top20-cmd">/export</div><div class="top20-desc">导出对话为文本文件</div></div></div>
+      <div class="top20-card"><div class="top20-num">19</div><div><div class="top20-cmd">/mcp</div><div class="top20-desc">管理 MCP 服务器连接</div></div></div>
+      <div class="top20-card"><div class="top20-num">20</div><div><div class="top20-cmd">/feedback</div><div class="top20-desc">向 Anthropic 提交反馈</div></div></div>
+    </div>
+
+    <!-- Workflow Combinations -->
+    <h3 style="font-family:var(--font-title); color:var(--green); margin:32px 0 8px;">工作流推荐组合</h3>
+    <p style="color:var(--brown-mid); font-size:0.82rem; margin-bottom:12px;">几个命令配合使用，覆盖完整开发流程</p>
+    <div class="workflow-cards">
+      <div class="workflow-card">
+        <h4>项目首次使用</h4>
+        <div class="wf-cmds">/init → /memory → /permissions</div>
+      </div>
+      <div class="workflow-card">
+        <h4>大型变更</h4>
+        <div class="wf-cmds">/plan → 审查方案 → /diff → /code-review</div>
+      </div>
+      <div class="workflow-card">
+        <h4>长会话优化</h4>
+        <div class="wf-cmds">/context → /compact focus on ...</div>
+      </div>
+      <div class="workflow-card">
+        <h4>并行工作</h4>
+        <div class="wf-cmds">/batch → /workflows</div>
+      </div>
+      <div class="workflow-card">
+        <h4>任务切换</h4>
+        <div class="wf-cmds">/clear 旧任务 → 新工作 → /resume 旧任务</div>
+      </div>
+      <div class="workflow-card">
+        <h4>发布前检查</h4>
+        <div class="wf-cmds">/diff → /code-review → /security-review</div>
+      </div>
+      <div class="workflow-card">
+        <h4>后台自动化</h4>
+        <div class="wf-cmds">/autofix-pr → claude agents</div>
+      </div>
+      <div class="workflow-card">
+        <h4>会话恢复</h4>
+        <div class="wf-cmds">/resume 选会话 → /recap 回顾</div>
+      </div>
+    </div>
+
+    <!-- Commands Reference -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin:40px 0 16px;">内置斜杠命令大全 <span class="cmd-count-badge">90+</span></h3>
+    
+    <!-- Search -->
+    <div class="cmd-search-wrap">
+      <span class="cmd-search-icon">&#x1F50D;</span>
+      <input type="text" class="cmd-search" id="cmdSearch" placeholder="搜索命令...">
+    </div>
+    <div class="cmd-no-results" id="cmdNoResults">未找到匹配的命令，请尝试其他关键词。</div>
+    
+    <!-- Category Navigation -->
+    <div class="commands-nav" id="commandsNav">
+      <button class="cmd-nav-btn active" data-cat="all">全部命令 <span class="cmd-count-badge">90+</span></button>
+      <button class="cmd-nav-btn" data-cat="session">会话管理 (11)</button>
+      <button class="cmd-nav-btn" data-cat="context">上下文与内存 (5)</button>
+      <button class="cmd-nav-btn" data-cat="model">模型控制 (5)</button>
+      <button class="cmd-nav-btn" data-cat="tools">工具与权限 (9)</button>
+      <button class="cmd-nav-btn" data-cat="workflow">工作流与审查 (17)</button>
+      <button class="cmd-nav-btn" data-cat="advanced">高级/隐藏 (12)</button>
+      <button class="cmd-nav-btn" data-cat="auth">认证 (4)</button>
+      <button class="cmd-nav-btn" data-cat="status">状态监控 (7)</button>
+      <button class="cmd-nav-btn" data-cat="ide">IDE/集成 (8)</button>
+      <button class="cmd-nav-btn" data-cat="platform">平台配置 (3)</button>
+      <button class="cmd-nav-btn" data-cat="fun">趣味辅助 (6)</button>
+    </div>
+    
+    <!-- Command Cards -->
+    <div class="cmd-card-grid" id="cmdCardGrid"></div>
+
+    <!-- FAQ Accordion -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin:40px 0 16px;">常见问题与排错 FAQ</h3>
+    <div class="accordion">
+      <div class="accordion-item">
+        <div class="accordion-header">"command not found" 或安装失败</div>
+        <div class="accordion-body"><div class="accordion-body-inner">
+          <p>检查 Node.js 版本（npm 方式需要 18.0+）：<code>node --version</code></p>
+          <p>将 npm 全局 bin 添加到 PATH：<code>echo 'export PATH="$(npm config get prefix)/bin:$PATH"' >> ~/.zshrc</code></p>
+          <p>清除 npm 缓存后重试：<code>npm cache clean --force</code></p>
+        </div></div>
+      </div>
+      <div class="accordion-item">
+        <div class="accordion-header">认证失败 / "Invalid API key"</div>
+        <div class="accordion-body"><div class="accordion-body-inner">
+          <p>使用 <code>/login</code> 命令重新认证（支持 OAuth 和 API Key）</p>
+          <p>或设置环境变量：<code>export ANTHROPIC_API_KEY=sk-ant-xxx</code></p>
+          <p>确保密钥没有多余空格或字符，可在 console.anthropic.com 重新生成</p>
+        </div></div>
+      </div>
+      <div class="accordion-item">
+        <div class="accordion-header">API Error: 529 Overloaded（服务器过载）</div>
+        <div class="accordion-body"><div class="accordion-body-inner">
+          <p>等待 2-5 分钟，这是临时性服务器问题</p>
+          <p>不要重装 Claude Code！可尝试切换到 Sonnet 模型</p>
+        </div></div>
+      </div>
+      <div class="accordion-item">
+        <div class="accordion-header">上下文窗口满（Context window full）</div>
+        <div class="accordion-body"><div class="accordion-body-inner">
+          <p>压缩对话：<code>/compact</code></p>
+          <p>或清空重新开始：<code>/clear</code></p>
+          <p>带指令的压缩：<code>/compact keep only the main function names and error messages</code></p>
+        </div></div>
+      </div>
+      <div class="accordion-item">
+        <div class="accordion-header">响应缓慢 / 高 CPU 使用</div>
+        <div class="accordion-body"><div class="accordion-body-inner">
+          <p>切换到更快模型：<code>/fast</code></p>
+          <p>定期压缩上下文：<code>/compact</code></p>
+          <p>使用安全模式检查问题：<code>claude --safe-mode</code></p>
+          <p>确保 16GB+ RAM，Linux/macOS 原生环境比 WSL 更流畅</p>
+        </div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 5. Secrets (Tips) ==================== -->
+<section class="section" id="secrets">
+  <div class="section-inner fade-up">
+    <h2 class="section-title">贤者之书</h2>
+    <p class="section-subtitle">使用技巧、最佳实践与效率秘籍</p>
+    <div class="decor-divider">◆ ◆ ◆ ◆ ◆ ◆ ◆</div>
+
+    <!-- Hidden Commands -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin-bottom:16px;">隐藏命令与冷知识</h3>
+    <div class="card-grid">
+      <div class="card"><h3>/btw</h3><p>旁路提问，不污染对话历史。在 Claude 工作时插入问题，回答出现在浮层中。</p></div>
+      <div class="card"><h3>/rewind</h3><p>时间旅行调试。可回退代码/对话/两者，三种模式灵活选择。</p></div>
+      <div class="card"><h3>/insights</h3><p>生成使用习惯分析报告，分析最常用命令、重复操作模式，推荐优化建议。</p></div>
+      <div class="card"><h3>/voice</h3><p>语音输入模式，按住空格说话，松开发送。支持 20 种语言。</p></div>
+      <div class="card"><h3>/loop</h3><p>周期性后台任务：<code>/loop 60 "check server status"</code></p></div>
+      <div class="card"><h3>Esc + Esc</h3><p>打开消息历史，30 秒内可编辑并重新发送之前的提示。</p></div>
+      <div class="card"><h3>双击 Esc</h3><p>停止 Claude 当前操作（不退出）。比 Ctrl+C 更安全。</p></div>
+      <div class="card"><h3>自诊断</h3><p><code>/doctor</code> 确认安装和配置；<code>/doctor --performance</code> 性能诊断。</p></div>
+    </div>
+
+    <!-- Cost Control -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin:40px 0 16px;">成本控制策略</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>使用强度</th><th>月均 Token</th><th>推荐方案</th><th>月成本</th></tr>
+        <tr><td>轻度</td><td>~5M</td><td>Pro</td><td>$20</td></tr>
+        <tr><td>中度</td><td>~20M</td><td>Max 5x</td><td>$100</td></tr>
+        <tr><td>重度</td><td>~80M</td><td>Max 20x</td><td>$200</td></tr>
+        <tr><td>极重度</td><td>~300M+</td><td>Enterprise</td><td>电话销售</td></tr>
+      </table>
+    </div>
+    <p style="font-size:0.85rem; color:var(--brown-mid); margin-top:8px;">基于 Sonnet 5 引入期 API 定价 $2/$10 每百万 Token，输入:输出≈3:1</p>
+
+    <h4 style="color:var(--gold); margin:25px 0 10px;">成本优化清单</h4>
+    <div class="table-wrap">
+      <table>
+        <tr><th>#</th><th>策略</th><th>预估节省</th><th>难度</th></tr>
+        <tr><td>1</td><td>编写精良的 CLAUDE.md</td><td>30-50%</td><td>中</td></tr>
+        <tr><td>2</td><td>一个会话一个任务 + 定期 /clear</td><td>20-40%</td><td>低</td></tr>
+        <tr><td>3</td><td>日常使用 Sonnet 5 代替 Opus</td><td>50-60%</td><td>极低</td></tr>
+        <tr><td>4</td><td>关闭不用的 MCP 服务器</td><td>80-93%</td><td>极低</td></tr>
+        <tr><td>5</td><td>使用 @ 精确引用文件</td><td>15-30%</td><td>低</td></tr>
+        <tr><td>6</td><td>设置 --max-turns 限制</td><td>10-30%</td><td>低</td></tr>
+        <tr><td>7</td><td>启用自动压缩 (AUTOCOMPACT_PCT_OVERRIDE=70)</td><td>10-20%</td><td>极低</td></tr>
+      </table>
+    </div>
+
+    <!-- Prompt Tips -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin:40px 0 16px;">Prompt 工程 — 效率提示词大全</h3>
+
+    <!-- Sub-nav for prompt categories -->
+    <div class="commands-nav" style="margin-bottom:20px;">
+      <button class="cmd-nav-btn active" data-cmd-cat="prompt-basic">核心原则</button>
+      <button class="cmd-nav-btn" data-cmd-cat="prompt-bug">Bug 修复</button>
+      <button class="cmd-nav-btn" data-cmd-cat="prompt-refactor">重构</button>
+      <button class="cmd-nav-btn" data-cmd-cat="prompt-test">测试</button>
+      <button class="cmd-nav-btn" data-cmd-cat="prompt-review">审查</button>
+      <button class="cmd-nav-btn" data-cmd-cat="prompt-quick">一句话速查</button>
+      <button class="cmd-nav-btn" data-cmd-cat="prompt-meta">元提示词</button>
+    </div>
+
+    <style>
+    .prompt-cat { display:none; }
+    .prompt-cat.active { display:block; }
+    .prompt-card { background:linear-gradient(135deg,rgba(245,230,200,1),rgba(255,248,235,1)); border:2px solid var(--gold); border-radius:8px; padding:16px; margin:12px 0; position:relative; }
+    .prompt-card::before { content:'◆'; position:absolute; top:-10px; left:12px; color:var(--gold); font-size:14px; }
+    .prompt-card h4 { font-family:var(--font-title); color:var(--brown); margin:0 0 8px; font-size:0.95rem; }
+    .prompt-code { background:var(--dark-bg); color:#E8D5A3; padding:10px 14px; border-radius:6px; font-family:var(--font-code); font-size:0.78rem; line-height:1.6; white-space:pre-wrap; word-break:break-all; margin:8px 0; border-left:3px solid var(--gold); }
+    .prompt-code b { color:var(--gold); font-weight:normal; }
+    .prompt-tip { font-size:0.78rem; color:var(--brown-mid); margin:4px 0 0; font-style:italic; }
+    .prompt-table { width:100%; border-collapse:collapse; font-size:0.8rem; margin:10px 0; }
+    .prompt-table th { background:var(--dark-bg); color:var(--gold); padding:8px 12px; text-align:left; font-family:var(--font-title); }
+    .prompt-table td { padding:8px 12px; border-bottom:1px solid var(--parchment-dark); }
+    .prompt-table tr:nth-child(even) td { background:rgba(200,169,110,0.1); }
+    </style>
+
+    <!-- Category 1: 核心原则 -->
+    <div class="prompt-cat active" data-cat="prompt-basic">
+      <div class="prompt-card">
+        <h4>原则 1：陈述结果，不要指挥步骤</h4>
+        <div class="prompt-code">❌ <b>不好</b> — Open userService.ts, find the validate function, add null check at line 42.
+✅ <b>好</b> — Users without emails are crashing validation. Make it handle this gracefully and add a test.</div>
+        <p class="prompt-tip">Claude 比你更懂代码结构，告诉它「要什么结果」，别教它「怎么做」。</p>
+      </div>
+      <div class="prompt-card">
+        <h4>原则 2：引用已有代码做参照</h4>
+        <div class="prompt-code">✅ "Make the settings page work like the profile page"</div>
+        <p class="prompt-tip">让 Claude 去读已有代码然后模仿，比写一百字描述布局都管用。</p>
+      </div>
+      <div class="prompt-card">
+        <h4>原则 3：明确边界——告诉它「别碰什么」</h4>
+        <div class="prompt-code">✅ "Add error handling to the checkout flow. Don't change the payment provider integration."</div>
+        <p class="prompt-tip">不设边界 = Claude 可能顺手「优化」你没想让它改的地方。</p>
+      </div>
+      <div class="prompt-card">
+        <h4>万能开场：先分析，再动手</h4>
+        <div class="prompt-code"><b>先读 src/services/ 下所有文件，理解现有架构。告诉我你看到了什么，然后等我确认再动手。</b></div>
+        <p class="prompt-tip">防止 Claude 一上来就瞎改。先用这句话让它探查代码库，确认方案后再执行。</p>
+      </div>
+    </div>
+
+    <!-- Category 2: Bug 修复 -->
+    <div class="prompt-cat" data-cat="prompt-bug">
+      <div class="prompt-card">
+        <h4>根因修复（不要压制症状）</h4>
+        <div class="prompt-code"><b>This test fails with [贴完整报错+堆栈]. Find the root cause and fix it. Don't suppress the error — fix the underlying logic. Then run the test to verify.</b></div>
+        <p class="prompt-tip">告诉 Claude 不要 try-catch 吞掉错误，要找到真正的问题根源。</p>
+      </div>
+      <div class="prompt-card">
+        <h4>先复现再修复（TDD 思路）</h4>
+        <div class="prompt-code"><b>这里有个 Bug：[描述现象]。先写一个能复现这个 Bug 的失败测试，再修代码让测试通过。</b></div>
+        <p class="prompt-tip">强迫 Claude 走完整流程：理解→复现→修复→验证。</p>
+      </div>
+      <div class="prompt-card">
+        <h4>最小改动修复</h4>
+        <div class="prompt-code"><b>Fix this bug with the smallest possible change. Don't refactor anything else. Show me the diff and explain why this one line was the problem.</b></div>
+        <p class="prompt-tip">防止 Claude 修一个 bug 顺手重构半个文件。</p>
+      </div>
+    </div>
+
+    <!-- Category 3: 重构 -->
+    <div class="prompt-cat" data-cat="prompt-refactor">
+      <div class="prompt-card">
+        <h4>四步重构：理解 → 方案 → 执行 → 验收</h4>
+        <div class="prompt-code"><b>第1步：</b>Read src/modules/payment/ thoroughly. Map every file, dependency, and public API. Tell me what's coupled to what.
+<b>第2步：</b>Based on your analysis, propose 3 refactoring approaches. For each, list what would break.
+<b>第3步：</b>Implement option 2 step by step. After each file change, explain what changed and run related tests.
+<b>第4步：</b>Review all changes. Any broken tests? Leftover old references? Public API unchanged?</div>
+        <p class="prompt-tip">对付复杂重构的神器。每一步都让 Claude 停下来等你确认。</p>
+      </div>
+      <div class="prompt-card">
+        <h4>切片策略：圈定范围</h4>
+        <div class="prompt-code"><b>We need to migrate from REST to GraphQL in the user module. Do NOT touch the database layer or the frontend. Only change the controller and service layers. List exactly which files you'll modify before starting.</b></div>
+        <p class="prompt-tip">对付超大重构：先画好边界，防止 Claude 扩散修改范围。</p>
+      </div>
+    </div>
+
+    <!-- Category 4: 测试 -->
+    <div class="prompt-cat" data-cat="prompt-test">
+      <div class="prompt-card">
+        <h4>匹配现有测试风格</h4>
+        <div class="prompt-code"><b>Write tests for UserService.ts covering: happy path, null inputs, boundary values, and all error branches. Match the pattern used in tests/user.test.ts — same describe/it structure, same assertion library, same mock style.</b></div>
+        <p class="prompt-tip">告诉它参考哪个文件，比手写测试模板快十倍。</p>
+      </div>
+      <div class="prompt-card">
+        <h4>边界值轰炸</h4>
+        <div class="prompt-code"><b>Test this date parser with: empty string, null, "2024-02-29" (leap year), "2023-02-29" (invalid), "0000-00-00", strings with timezone offsets, 13th month, 32nd day.</b></div>
+        <p class="prompt-tip">直接列举边界值，Claude 会生成全部测试用例。</p>
+      </div>
+      <div class="prompt-card">
+        <h4>反向测试（验证拒绝非法输入）</h4>
+        <div class="prompt-code"><b>Write tests that should deliberately FAIL with good error messages for these invalid inputs: [列举]。Verify the system rejects bad data cleanly, not crashes.</b></div>
+        <p class="prompt-tip">不仅要测正常路径，还要测系统「拒绝」的行为是否优雅。</p>
+      </div>
+    </div>
+
+    <!-- Category 5: 代码审查 -->
+    <div class="prompt-cat" data-cat="prompt-review">
+      <div class="prompt-card">
+        <h4>安全性优先审查</h4>
+        <div class="prompt-code"><b>Review this PR for: SQL injection, XSS, unvalidated user input, hardcoded secrets, missing auth checks, path traversal. Ignore style issues.</b></div>
+        <p class="prompt-tip">指定审查维度，忽略代码风格，聚焦安全问题。</p>
+      </div>
+      <div class="prompt-card">
+        <h4>性能审查</h4>
+        <div class="prompt-code"><b>Review the database queries in this PR. Flag: N+1 queries, missing indexes, queries in loops, unbatched inserts, SELECT * without pagination.</b></div>
+      </div>
+      <div class="prompt-card">
+        <h4>对比审查</h4>
+        <div class="prompt-code"><b>Compare current implementation with version from commit abc123. List what changed in behavior, not just code. Flag any regression risks.</b></div>
+        <p class="prompt-tip">让 Claude 做 diff 审查，标注行为变更和回归风险。</p>
+      </div>
+    </div>
+
+    <!-- Category 6: 一句话速查 -->
+    <div class="prompt-cat" data-cat="prompt-quick">
+      <table class="prompt-table">
+        <tr><th>场景</th><th>提示词（复制即用）</th></tr>
+        <tr><td>加功能</td><td style="font-family:var(--font-code); font-size:0.75rem;">Add [功能] matching the patterns in [参考文件]</td></tr>
+        <tr><td>改报错</td><td style="font-family:var(--font-code); font-size:0.75rem;">Fix this error: [贴报错]. Don't silence it.</td></tr>
+        <tr><td>写文档</td><td style="font-family:var(--font-code); font-size:0.75rem;">Write JSDoc comments for every public function in [文件]</td></tr>
+        <tr><td>加日志</td><td style="font-family:var(--font-code); font-size:0.75rem;">Add structured logging at every error path in [文件]. Use existing logger.</td></tr>
+        <tr><td>找死代码</td><td style="font-family:var(--font-code); font-size:0.75rem;">Find dead code in [目录]: unreachable functions, unused imports, commented-out blocks. Delete them.</td></tr>
+        <tr><td>补类型</td><td style="font-family:var(--font-code); font-size:0.75rem;">Add TypeScript types to all untyped code in [文件]. No `any` unless necessary.</td></tr>
+        <tr><td>换依赖</td><td style="font-family:var(--font-code); font-size:0.75rem;">Replace [旧库] with [新库] in [文件]. Update all usages, keep behavior identical.</td></tr>
+        <tr><td>国际化</td><td style="font-family:var(--font-code); font-size:0.75rem;">Extract all hardcoded Chinese strings in [目录] into i18n keys. Show JSON structure.</td></tr>
+        <tr><td>瘦身</td><td style="font-family:var(--font-code); font-size:0.75rem;">Analyze package.json: which deps are unused? Which could be replaced with smaller alternatives?</td></tr>
+        <tr><td>影响分析</td><td style="font-family:var(--font-code); font-size:0.75rem;">If I change the signature of [函数], list every file that would break and the fix needed.</td></tr>
+      </table>
+    </div>
+
+    <!-- Category 7: 元提示词 -->
+    <div class="prompt-cat" data-cat="prompt-meta">
+      <div class="prompt-card">
+        <h4>放进 CLAUDE.md 的行为约束（一次配置，永久生效）</h4>
+        <div class="prompt-code"><b>Always explain your plan before editing files.
+Never change more than 3 files in one turn without asking.
+When you see a type error, check if it's a real bug or a type definition issue before fixing.
+Prefer editing existing files over creating new ones.
+When in doubt about a library API, search the codebase for existing usage patterns first.
+Run `npm run build` after any import or dependency change.</b></div>
+        <p class="prompt-tip">这些不是口语对话 prompt，而是放在 CLAUDE.md 里的行为规则。每次 Claude 执行任务时自动遵循。</p>
+      </div>
+    </div>
+
+    <!-- JS for prompt category switching -->
+    <script>
+    (function(){
+      document.querySelectorAll('#secrets .cmd-nav-btn').forEach(function(btn){
+        btn.addEventListener('click',function(){
+          var cat = this.getAttribute('data-cmd-cat');
+          document.querySelectorAll('#secrets .cmd-nav-btn').forEach(function(b){b.classList.remove('active');});
+          this.classList.add('active');
+          document.querySelectorAll('#secrets .prompt-cat').forEach(function(p){p.classList.remove('active');});
+          var target = document.querySelector('#secrets .prompt-cat[data-cat="'+cat+'"]');
+          if(target) target.classList.add('active');
+        });
+      });
+    })();
+    </script>
+
+    <!-- Case Studies Tabs -->
+    <h3 style="font-family:var(--font-title); color:var(--gold); margin:40px 0 16px;">实战案例</h3>
+    <div class="tabs">
+      <div class="tab-nav">
+        <button class="tab-btn active" data-tab="case-stripe">Stripe</button>
+        <button class="tab-btn" data-tab="case-wiz">Wiz</button>
+        <button class="tab-btn" data-tab="case-bun">Bun 迁移</button>
+      </div>
+      <div class="tab-panel active" id="tab-case-stripe">
+        <p><b>10,000 行 Scala → Java 迁移</b></p>
+        <p>向 1,370 名工程师部署了零配置企业二进制包。</p>
+        <p>传统估算：<b>10 工程周</b> → 实际：<b>4 天</b>完成</p>
+      </div>
+      <div class="tab-panel" id="tab-case-wiz">
+        <p><b>50,000 行 Python → Go 迁移</b></p>
+        <p>云安全平台将 PDF 解析库从 Python 迁移到 Go。</p>
+        <p>传统估算：<b>2-3 个月</b> → 实际：约 <b>20 小时</b>，处理 500 个病理测试用例，性能提升 2x+</p>
+      </div>
+      <div class="tab-panel" id="tab-case-bun">
+        <p><b>100 万行 Zig → Rust 迁移</b>（Bun 联合创始人 Jarred Sumner）</p>
+        <p>耗时：<b>不到 2 周</b> | 成本：约 <b>$165,000</b>（API 定价）</p>
+        <p>结果：100% 测试通过，19 个回归 Bug 全部已修复</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 6. Mirror (Videos) ==================== -->
+<section class="section" id="mirror">
+  <div class="section-inner fade-up">
+    <h2 class="section-title">时光之镜</h2>
+    <p class="section-subtitle">B站热门 Claude Code 教程视频推荐</p>
+    <div class="decor-divider">◆ ◆ ◆ ◆ ◆ ◆ ◆</div>
+
+    <!-- Video Rankings -->
+    <div class="tabs">
+      <div class="tab-nav">
+        <button class="tab-btn active" data-tab="vid-top">TOP 排行</button>
+        <button class="tab-btn" data-tab="vid-up">UP主分析</button>
+        <button class="tab-btn" data-tab="vid-trend">趋势洞察</button>
+      </div>
+
+      <div class="tab-panel active" id="tab-vid-top">
+        <div class="video-list">
+          <div class="video-item"><div class="video-rank">1</div><div class="video-info"><div class="v-title">全网最全！60分钟全面掌握Claude Code【附完整文档】</div><div class="v-meta">秋芝2046 | 56:09 | 2026-05-05</div><a href="https://www.bilibili.com/video/BV1NvRyBzEhq/" target="_blank">观看视频 →</a></div><div class="video-views">143.6万</div></div>
+          <div class="video-item"><div class="video-rank">2</div><div class="video-info"><div class="v-title">5分钟安装ClaudeCode并接入DeepSeek</div><div class="v-meta">Yin_Code | 05:27 | 2026-05-02</div><a href="https://www.bilibili.com/video/BV16YRLB7Exd/" target="_blank">观看视频 →</a></div><div class="video-views">128.9万</div></div>
+          <div class="video-item"><div class="video-rank">3</div><div class="video-info"><div class="v-title">【吴恩达】2026年公认最好的Claude Code教程</div><div class="v-meta">吴恩达的AI课 | 01:42:53 | 2026-02-10</div><a href="https://www.bilibili.com/video/BV1RSFUzVEAG/" target="_blank">观看视频 →</a></div><div class="video-views">56.5万</div></div>
+          <div class="video-item"><div class="video-rank">4</div><div class="video-info"><div class="v-title">（比刷剧爽！）2026公认最好的Claude Code教程</div><div class="v-meta">吴恩达Agentic | 03:50:36 | 2026-02-03</div><a href="https://www.bilibili.com/video/BV1mzFVzPEB6/" target="_blank">观看视频 →</a></div><div class="video-views">55.4万</div></div>
+          <div class="video-item"><div class="video-rank">5</div><div class="video-info"><div class="v-title">手把手教你在国内使用Claude Code！小白一听就懂！</div><div class="v-meta">我是阿众 | 04:37 | 2026-02-10</div><a href="https://www.bilibili.com/video/BV1oPFDzQEG7/" target="_blank">观看视频 →</a></div><div class="video-views">49.4万</div></div>
+          <div class="video-item"><div class="video-rank">6</div><div class="video-info"><div class="v-title">用神器Claude Code！打造贴身AI秘书团</div><div class="v-meta">秋芝2046 | 20:58 | 2025-08-20</div><a href="https://www.bilibili.com/video/BV1zqeMzfEiQ/" target="_blank">观看视频 →</a></div><div class="video-views">45.0万</div></div>
+          <div class="video-item"><div class="video-rank">7</div><div class="video-info"><div class="v-title">Claude Code源码泄露！我扒出了11个隐藏秘密</div><div class="v-meta">程序员鱼皮 | 20:08 | 2026-04-01</div><a href="https://www.bilibili.com/video/BV1ZB9EBmEAU/" target="_blank">观看视频 →</a></div><div class="video-views">41.8万</div></div>
+          <div class="video-item"><div class="video-rank">8</div><div class="video-info"><div class="v-title">Claude使用指南，零基础教程，安装配置到实战</div><div class="v-meta">尚硅谷 | 01:44:57 | 2025-07-30</div><a href="https://www.bilibili.com/video/BV1vG8QzcE5X/" target="_blank">观看视频 →</a></div><div class="video-views">35.0万</div></div>
+          <div class="video-item"><div class="video-rank">9</div><div class="video-info"><div class="v-title">10分钟学会24个ClaudeCode使用技巧</div><div class="v-meta">Yin_Code | 10:56 | 2026-05-07</div><a href="https://www.bilibili.com/video/BV1SddcBFESs/" target="_blank">观看视频 →</a></div><div class="video-views">33.9万</div></div>
+        </div>
+        <p style="text-align:center; margin-top:16px; font-size:0.85rem; color:var(--brown-mid);">以上为 TOP 9，完整 TOP 20 请查阅源文档</p>
+      </div>
+
+      <div class="tab-panel" id="tab-vid-up">
+        <div class="card-grid">
+          <div class="card">
+            <h3>秋芝2046</h3>
+            <p>粉丝 ~45万 | 上榜 2 视频</p>
+            <p style="color:var(--brown-mid); font-size:0.85rem;">Claude Code 教程头部创作者，内容系统深入</p>
+          </div>
+          <div class="card">
+            <h3>程序员鱼皮</h3>
+            <p>粉丝 ~128万+ | 上榜 2 视频</p>
+            <p style="color:var(--brown-mid); font-size:0.85rem;">B站顶级程序员UP主，技术深度+流量兼备</p>
+          </div>
+          <div class="card">
+            <h3>技术爬爬虾</h3>
+            <p>粉丝 ~31万 | 上榜 2 视频</p>
+            <p style="color:var(--brown-mid); font-size:0.85rem;">AI工具测评权威，内容深度和实用性并重</p>
+          </div>
+          <div class="card">
+            <h3>Yin_Code</h3>
+            <p>粉丝 ~37万 | 上榜 2 视频</p>
+            <p style="color:var(--brown-mid); font-size:0.85rem;">短小精悍的实用技巧视频，传播力强</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-vid-trend">
+        <div class="card-grid">
+          <div class="card"><h3>「国内使用」是最大痛点</h3><p>多个高播放视频主打「国内使用」「无需魔法」「接入国产模型」</p></div>
+          <div class="card"><h3>短平快教程更受欢迎</h3><p>5分钟安装、4分钟教学等短视频播放量极高</p></div>
+          <div class="card"><h3>DeepSeek V4 Pro 成主流替代</h3><p>多个视频聚焦将 DeepSeek 接入 Claude Code</p></div>
+          <div class="card"><h3>系统性课程仍有市场</h3><p>近7小时和近2小时的长课程播放量可观</p></div>
+          <div class="card"><h3>进阶功能教程增长</h3><p>Skills、Hooks、MCP 等进阶教程增多</p></div>
+          <div class="card"><h3>2026年5月是内容爆发期</h3><p>榜单中约一半视频集中在4-6月发布</p></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== 7. Footer ==================== -->
+<section class="section" id="footer">
+  <div class="section-inner" style="max-width:100%;">
+    <h2 class="section-title">贤者祭坛</h2>
+    <div class="decor-divider">◆ ◆ ◆ ◆ ◆ ◆ ◆</div>
+
+    <div class="footer-grid">
+      <div>
+        <h4>核心参考来源</h4>
+        <p><a href="https://code.claude.com/docs" target="_blank">Claude Code 官方文档</a></p>
+        <p><a href="https://www.anthropic.com/product/claude-code" target="_blank">Anthropic 产品页面</a></p>
+        <p><a href="https://claude.com/pricing" target="_blank">Claude 官方定价</a></p>
+        <p><a href="https://docs.anthropic.com" target="_blank">Anthropic 开发者文档</a></p>
+      </div>
+      <div>
+        <h4>社区资源</h4>
+        <p><a href="https://github.com/hesreallyhim/awesome-claude-code" target="_blank">awesome-claude-code</a></p>
+        <p><a href="https://github.com/anthropics" target="_blank">Anthropic GitHub</a></p>
+        <p><a href="https://dev.to/devtoolspick/ai-coding-tools-benchmark-2026" target="_blank">AI Coding Tools Benchmark</a></p>
+        <p><a href="https://taskade.com/blog/claude-code-history" target="_blank">Claude Code 完整历史</a></p>
+      </div>
+      <div>
+        <h4>中文资源</h4>
+        <p><a href="https://aihub.cn/tools/coding/claude-code/" target="_blank">AIHub 中文介绍</a></p>
+        <p><a href="https://search.bilibili.com/all?keyword=claude+code" target="_blank">B站搜索 Claude Code</a></p>
+        <p><a href="https://c.m.163.com/news/a/KQL321MG05118ARK.html" target="_blank">网易科技 - 进化史</a></p>
+        <p><a href="https://new.qq.com/rain/a/20260210A01RBW00" target="_blank">腾讯新闻 - 搅动硅谷</a></p>
+      </div>
+      <div>
+        <h4>官方频道</h4>
+        <p><a href="https://youtube.com/@AnthropicAI" target="_blank">Anthropic YouTube</a></p>
+        <p><a href="https://youtube.com/@Claude" target="_blank">Claude YouTube</a></p>
+        <p><a href="https://youtube.com/@Fireship" target="_blank">Fireship YouTube</a></p>
+        <p><a href="https://youtube.com/@t3dotgg" target="_blank">Theo - t3.gg</a></p>
+      </div>
+    </div>
+
+    <p style="color:var(--parchment-dark); margin-top:30px; font-size:0.85rem;">
+      数据更新：2026年7月26日 | 内容来源：Anthropic 官方文档、社区研究、B站搜索
+    </p>
+    <p style="color:var(--gold-dark); font-size:0.75rem; margin-top:12px;">
+      ▲ "Agentic, not autocomplete" —— Claude Code 核心理念
+    </p>
+  </div>
+</section>
+
+<!-- Back to Top -->
+<a href="#hero" class="back-to-top" id="backToTop" title="返回顶部">▲</a>
+
+<!-- ==================== JavaScript ==================== -->
+<script>
+// ---- Scroll Spy + Nav Highlight ----
+const sections = document.querySelectorAll('.section[id]');
+const navLinks = document.querySelectorAll('.nav-links a');
+function updateNav() {
+  let current = '';
+  sections.forEach(sec => {
+    const top = sec.getBoundingClientRect().top;
+    if (top <= 120) current = sec.id;
+  });
+  navLinks.forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+  });
+}
+window.addEventListener('scroll', updateNav, { passive: true });
+
+// ---- Mobile Nav Toggle ----
+const navToggle = document.getElementById('navToggle');
+const navLinksEl = document.getElementById('navLinks');
+navToggle.addEventListener('click', () => {
+  navLinksEl.classList.toggle('open');
+});
+navLinksEl.querySelectorAll('a').forEach(a => {
+  a.addEventListener('click', () => navLinksEl.classList.remove('open'));
+});
+
+// ---- Back to Top ----
+const backToTop = document.getElementById('backToTop');
+window.addEventListener('scroll', () => {
+  backToTop.classList.toggle('visible', window.scrollY > window.innerHeight);
+});
+
+// ---- Tab System ----
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const parent = btn.closest('.tabs');
+    const target = btn.dataset.tab;
+    parent.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    parent.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.toggle('active', p.id === 'tab-' + target);
+    });
+  });
+});
+
+// ---- Accordion ----
+document.querySelectorAll('.accordion-header').forEach(header => {
+  header.addEventListener('click', () => {
+    const item = header.parentElement;
+    const body = item.querySelector('.accordion-body');
+    const isOpen = item.classList.contains('open');
+    // Close all others
+    item.parentElement.querySelectorAll('.accordion-item.open').forEach(i => {
+      if (i !== item) {
+        i.classList.remove('open');
+        i.querySelector('.accordion-body').style.maxHeight = null;
+      }
+    });
+    if (isOpen) {
+      item.classList.remove('open');
+      body.style.maxHeight = null;
+    } else {
+      item.classList.add('open');
+      body.style.maxHeight = body.scrollHeight + 'px';
+    }
+  });
+});
+
+// ---- KPI Counter Animation ----
+function animateKPI(el) {
+  const target = parseInt(el.dataset.target);
+  if (el.dataset.animated) return;
+  el.dataset.animated = '1';
+  const duration = 1500;
+  const start = performance.now();
+  function update(now) {
+    const progress = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    el.textContent = Math.floor(eased * target);
+    if (progress < 1) requestAnimationFrame(update);
+    else el.textContent = target;
+  }
+  requestAnimationFrame(update);
+}
+
+// ---- Fade Up Animation ----
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+      // Animate KPIs when hero becomes visible
+      if (entry.target.closest('#hero')) {
+        document.querySelectorAll('.hero-kpi .num').forEach(animateKPI);
+      }
+    }
+  });
+}, { threshold: 0, rootMargin: '0px 0px -10% 0px' });
+
+document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
+
+// 保险：若某区块很长导致 observer 未触发，滚动/超时后强制显示
+function forceRevealNearby() {
+  document.querySelectorAll('.fade-up:not(.visible)').forEach(el => {
+    const r = el.getBoundingClientRect();
+    if (r.top < window.innerHeight && r.bottom > 0) el.classList.add('visible');
+  });
+}
+window.addEventListener('scroll', forceRevealNearby, { passive: true });
+setTimeout(() => document.querySelectorAll('.fade-up').forEach(el => el.classList.add('visible')), 1500);
+
+// Also observe non-fade-up sections for initial KPI animation
+const heroSection = document.getElementById('hero');
+if (heroSection) observer.observe(heroSection);
+
+// ---- Smooth scroll for map cards ----
+document.querySelectorAll('.map-card').forEach(card => {
+  card.addEventListener('click', function(e) {
+    e.preventDefault();
+    const target = document.querySelector(this.getAttribute('href'));
+    if (target) target.scrollIntoView({ behavior: 'smooth' });
+  });
+});
+
+// ---- Close mobile nav when clicking outside ----
+document.addEventListener('click', (e) => {
+  if (!navToggle.contains(e.target) && !navLinksEl.contains(e.target)) {
+    navLinksEl.classList.remove('open');
+  }
+});
+
+// ==================== Commands Reference ====================
+const CMD_DATA = [
+  // === 会话管理 (session) ===
+  {name:'/clear',cat:'session',syntax:'/clear [可选: 名称]',desc:'清除当前对话的全部上下文，开始新会话。项目记忆文件保留，旧对话可通过 /resume 恢复。',scenes:[{t:'切换任务',d:'完成认证模块调试后，/clear auth-debug 清除旧上下文，开始新 API 端点开发'},{t:'刷新配置',d:'生成 CLAUDE.md 后 /clear 让新配置生效'}],note:'仅清除对话历史，不删除任何文件；MCP 连接和权限保持不变'},
+  {name:'/compact',cat:'session',syntax:'/compact [可选: 焦点指令]',desc:'压缩对话历史释放上下文窗口空间，保留关键信息。与 /clear 不同，/compact 保留对话连续性。',scenes:[{t:'上下文接近满载',d:'/context 显示 80%+ 使用率时，/compact focus on the auth module changes 压缩但保留认证上下文'},{t:'长会话优化',d:'/compact keep all database migration details 保留迁移相关信息'}],note:'建议在 50% 上下文使用时主动运行，而非等到自动压缩（~95%）'},
+  {name:'/resume',cat:'session',syntax:'/resume [可选: 会话ID或名称]',desc:'恢复之前保存的对话。Ctrl+A 可查看所有项目的历史会话。',scenes:[{t:'第二天继续',d:'/resume auth-refactor 恢复昨天的认证重构会话'},{t:'浏览历史',d:'/resume 打开选择器浏览所有历史会话'}],note:'v2.1.144+ 后台会话标记 bg；运行中后台会话不可恢复'},
+  {name:'/branch',cat:'session',syntax:'/branch [可选: 分支名称]',desc:'在当前时间点创建对话分支，立即切换到新分支，原始会话保留。两个分支完全独立。',scenes:[{t:'探索替代方案',d:'/branch try-redis-instead-of-memcache 试试另一种架构思路'},{t:'并行开发',d:'实现功能后同时尝试两种不同的优化方向'}],note:'v2.1.77 由 /fork 重命名；原始分支可通过 /resume 恢复'},
+  {name:'/fork',cat:'session',syntax:'/fork [可选: 指令]',desc:'v2.1.212+ 将当前对话复制到新后台会话，原会话继续运行。',scenes:[{t:'委托后台',d:'/fork investigate the memory leak 在后台分析内存泄漏'},{t:'并行工作',d:'修复 bug 同时 /fork run regression tests 后台运行测试'}],note:'需要 v2.1.212+'},
+  {name:'/rewind',cat:'session',syntax:'/rewind（弹出检查点菜单）',desc:'将对话和/或代码回退到之前检查点。三种粒度：仅回退代码、仅回退对话、全部回退。',scenes:[{t:'代码改错',d:'代码改错了但分析对了 → 回退代码保留对话'},{t:'方向偏了',d:'代码改动可以但方向偏了 → 回退对话保留代码'},{t:'完全回滚',d:'全部跑偏了 → 回退到之前节点'}],note:'也可双击 Esc 访问；Word 撤销 + Git revert 的结合体'},
+  {name:'/rename',cat:'session',syntax:'/rename [可选: 名称]',desc:'重命名当前会话，方便在 /resume 中识别。不带参数自动生成描述性名称。',scenes:[{t:'标记重要会话',d:'/rename auth-refactor-v2'},{t:'自动命名',d:'/rename 让 Claude 自动生成'}],note:'非交互模式也可用（v2.1.205+）'},
+  {name:'/recap',cat:'session',syntax:'/recap',desc:'生成当前会话的一句话摘要，快速回忆进度。',scenes:[{t:'回到会话',d:'离开后回来 /recap 查看进展'},{t:'同步同事',d:'交会话给同事前 /recap 生成摘要'}],note:'仅生成摘要，不修改会话状态'},
+  {name:'/exit',cat:'session',syntax:'/exit',desc:'退出 CLI 会话。在后台会话中仅分离（后台继续运行）。',scenes:[{t:'正常退出',d:'工作完成 /exit'},{t:'分离后台',d:'连接后台会话后 /exit 分离它'}],note:'双击 Ctrl+C 也可退出；后台中 /exit 只分离不停止，用 /stop 停止'},
+  {name:'/export',cat:'session',syntax:'/export [可选: 文件名]',desc:'将当前对话导出为纯文本文件。适合保存调试记录或架构决策。',scenes:[{t:'保存调试记录',d:'/export debug-2026-07-26.txt'},{t:'分享团队',d:'/export 打开对话框选择复制到剪贴板'}],note:'导出为纯文本，不含颜色/格式'},
+  {name:'/stop',cat:'session',syntax:'/stop',desc:'停止当前后台会话，保留对话记录和 worktree。',scenes:[{t:'完成后台任务',d:'后台任务完成 /stop 停止'},{t:'清理列表',d:'不想保留的后台会话'}],note:'保留对话记录和 worktree'},
+
+  // === 上下文与内存 (context) ===
+  {name:'/context',cat:'context',syntax:'/context [可选: all]',desc:'可视化上下文使用情况为彩色网格，显示各组成部分 token 占比，提供优化建议。',scenes:[{t:'诊断性能',d:'Claude 开始遗忘早期内容时，/context 查看什么占用了窗口'},{t:'压缩前评估',d:'运行 /compact 前先 /context 了解 token 分配'}],note:'v2.1.216+ 超出上下文窗口时显示警告'},
+  {name:'/add-dir',cat:'context',syntax:'/add-dir <路径>',desc:'为当前会话授予对额外工作目录的文件访问权限。',scenes:[{t:'跨项目工作',d:'当前在 frontend/，/add-dir ../backend 访问后端代码'},{t:'引用共享库',d:'/add-dir ../shared-libs 访问共享依赖库'}],note:'添加目录的配置不自动发现；移动工作目录用 /cd 而非 /add-dir'},
+  {name:'/cd',cat:'context',syntax:'/cd <目标路径>',desc:'v2.1.169+ 将当前会话移动到新工作目录，对话提示缓存被保留。',scenes:[{t:'切换项目',d:'从 project-a/ 到 project-b/，/cd ../project-b'},{t:'monorepo 导航',d:'/cd packages/frontend'}],note:'需要 v2.1.169+；可通过 Cd 权限规则限制'},
+  {name:'/memory',cat:'context',syntax:'/memory（打开交互界面）',desc:'编辑 CLAUDE.md 内存文件、启用/禁用自动内存、查看自动记忆条目。',scenes:[{t:'编辑项目记忆',d:'/memory 打开编辑器修改 CLAUDE.md'},{t:'查看自动记忆',d:'查看 Claude 自动保存了哪些学习内容'}],note:'区分全局（~/.claude/）和项目（./）记忆'},
+  {name:'/init',cat:'context',syntax:'/init',desc:'扫描代码库生成启动器 CLAUDE.md 文件。首次使用 Claude Code 的第一步。',scenes:[{t:'新项目初始化',d:'首次在仓库运行 claude 后立即 /init'},{t:'更新配置',d:'项目结构大变后重新 /init'}],note:'CLAUDE_CODE_NEW_INIT=1 启用交互式流程'},
+
+  // === 模型控制 (model) ===
+  {name:'/model',cat:'model',syntax:'/model [可选: 模型名称]',desc:'切换 AI 模型并保存为新默认值。支持 Opus、Sonnet、Haiku 等。按 s 仅当前会话切换。',scenes:[{t:'快速任务',d:'/model haiku 处理文件探索'},{t:'复杂架构',d:'/model opus 处理架构设计'},{t:'临时切换',d:'选择器中按 s 仅当前会话使用高级模型'}],note:'非交互模式也可用；快捷键 Option/Alt + P'},
+  {name:'/effort',cat:'model',syntax:'/effort [级别|auto]',desc:'设置推理努力程度。low 到 max/ultracode 递进，auto 重置为模型默认值。',scenes:[{t:'日常任务',d:'/effort low 处理重命名变量'},{t:'复杂重构',d:'/effort high 进行架构级改动'},{t:'安全审查',d:'/effort max 处理安全敏感代码'}],note:'可用级别取决于模型；max 和 ultracode 仅限当前会话'},
+  {name:'/fast',cat:'model',syntax:'/fast [on|off]',desc:'开启快速模式，使用 Opus 4.8 高速 API，速度快达 2.5 倍。',scenes:[{t:'急需响应',d:'/fast on 加速当前任务'},{t:'日常快速开发',d:'/fast 开启后挂着持续获得快速响应'}],note:'每 token 成本更高；速率限制时自动降级'},
+  {name:'/plan',cat:'model',syntax:'/plan [可选: 任务描述]',desc:'进入 Plan Mode，Claude 只探索和提议方案，不编辑文件或运行命令。',scenes:[{t:'大型重构前',d:'/plan refactor the auth module to use JWT'},{t:'新功能规划',d:'/plan implement user registration with email verification'}],note:'Shift+Tab 也可切换 Plan Mode'},
+  {name:'/advisor',cat:'model',syntax:'/advisor [模型名|off]',desc:'启用顾问工具，在关键时刻咨询第二个模型获取指导。',scenes:[{t:'双模型决策',d:'/advisor opus 让 Opus 审查 Sonnet 的工作'},{t:'禁用',d:'/advisor off'}],note:'不接受 Fable 5 作为顾问'},
+
+  // === 工具与权限 (tools) ===
+  {name:'/permissions',cat:'tools',syntax:'/permissions',desc:'管理工具的允许/询问/拒绝规则，支持模式匹配。Shift+Tab 循环切换权限模式。',scenes:[{t:'允许 npm 命令',d:'Bash(npm:*) 加入 allow 列表'},{t:'保护 .env',d:'Read(.env*) 和 Write(.env*) 加入 deny'},{t:'git 自动执行',d:'Bash(git:*) 加入 allow'}],note:'规则可配置到 .claude/settings.json'},
+  {name:'/mcp',cat:'tools',syntax:'/mcp [子命令]',desc:'管理 MCP 服务器连接和 OAuth 认证。MCP 将外部系统接入 Claude。',scenes:[{t:'连接 Slack',d:'/mcp 管理 Slack MCP 连接'},{t:'添加服务器',d:'claude mcp add my-server command'}],note:'MCP 服务器可暴露提示作为命令 /mcp__server__prompt'},
+  {name:'/hooks',cat:'tools',syntax:'/hooks',desc:'查看工具事件 hook 配置。Hooks 在生命周期定义点自动运行 shell 命令。',scenes:[{t:'查看 hooks',d:'/hooks 查看当前配置'},{t:'管理 hook',d:'在 .claude/settings.json 中配置 hooks'}],note:'Hook 在工具运行前/后、编辑后、会话开始/结束时触发'},
+  {name:'/skills',cat:'tools',syntax:'/skills',desc:'列出当前可用 skills。按 t 按 token 排序，按 Space 循环可见性。',scenes:[{t:'浏览 skills',d:'/skills 查看所有自定义和捆绑 skills'},{t:'管理可见性',d:'按 Space 切换是否自动加载'}],note:'包括自定义、捆绑和插件提供的 skills'},
+  {name:'/agents',cat:'tools',syntax:'/agents',desc:'v2.1.198+ 打印提醒，指导用户让 Claude 创建或管理子代理。',scenes:[{t:'创建代码审查代理',d:'告诉 Claude"创建一个专用代码审查子代理"'},{t:'管理代理',d:'直接编辑 .claude/agents/ 目录'}],note:'v2.1.198+ 行为改变；子代理拥有独立上下文窗口'},
+  {name:'/plugin',cat:'tools',syntax:'/plugin [子命令]',desc:'管理 Claude Code 插件。支持 list、install、enable、disable。',scenes:[{t:'安装插件',d:'claude plugin install code-review@claude-plugins-official'},{t:'浏览插件',d:'/plugin 打开菜单'}],note:'非交互模式也可用'},
+  {name:'/reload-plugins',cat:'tools',syntax:'/reload-plugins [--force]',desc:'重新加载所有活跃插件以应用待定更改，不需要重启。',scenes:[{t:'插件更新后',d:'修改配置后 /reload-plugins 应用更改'},{t:'强制重载',d:'/reload-plugins --force'}],note:'不需要重启会话'},
+  {name:'/reload-skills',cat:'tools',syntax:'/reload-skills',desc:'重新扫描 skill 目录，让新增/修改的 skills 立即���用。',scenes:[{t:'添加新 skill',d:'创建新 skill 后 /reload-skills'},{t:'修改 skill 后',d:'编辑 SKILL.md 后重新加载'}],note:'v2.1.152 新增；Claude Code 也会自动监视目录变化'},
+  {name:'/sandbox',cat:'tools',syntax:'/sandbox',desc:'切换沙盒模式，提供文件和网络隔离，减少权限提示。',scenes:[{t:'运行不信任代码',d:'开启沙盒后让 Claude 执行'},{t:'提高安全性',d:'敏感项目中开启沙盒'}],note:'仅在支持平台可用；仅支持 BashTool'},
+
+  // === 工作流与审查 (workflow) ===
+  {name:'/diff',cat:'workflow',syntax:'/diff',desc:'打开交互式差异查看器，显示未提交更改和每轮对话差异。',scenes:[{t:'提交前审查',d:'/diff 查看 Claude 改了什么'},{t:'逐轮审查',d:'切换到每轮差异视图了解每一步改动'}],note:'支持 git diff 和 per-turn diff；v2.1.198+ 自动刷新外部 git 变化'},
+  {name:'/code-review',cat:'workflow',syntax:'/code-review [级别] [--fix] [--comment] [目标]',desc:'审查 diff 的正确性错误和清理机会。ultra 级别运行云端多代理审查。',scenes:[{t:'日常审查',d:'/code-review medium'},{t:'深度审查',d:'/code-review high --fix 自动修复'},{t:'PR 评论',d:'/code-review --comment 发布 PR 内联评论'}],note:'v2.1.215 起仅在你调用时运行；标记为 Skill'},
+  {name:'/review',cat:'workflow',syntax:'/review [PR编号]',desc:'已弃用。对 GitHub PR 快速单次只读审查。',scenes:[{t:'审查 PR',d:'/review 42'},{t:'列出 PR',d:'/review 列出开放 PR'}],note:'已弃用；推荐安装 code-review 插件'},
+  {name:'/security-review',cat:'workflow',syntax:'/security-review',desc:'分析待处理更改的安全漏洞：注入、认证、数据暴露等。只读，不修改代码。',scenes:[{t:'发布前审查',d:'/security-review 检查安全漏洞'},{t:'敏感性代码',d:'修改认证/授权代码后运行'}],note:'基于 git diff；可与 /code-review 一起使用'},
+  {name:'/simplify',cat:'workflow',syntax:'/simplify [可选: 目标]',desc:'审查代码清理机会并应用修复。四代理并行：复用函数、简化、效率、抽象。',scenes:[{t:'代码整洁',d:'/simplify src/auth/ 清理认证模块'},{t:'提交前优化',d:'改完代码后 /simplify 整理'}],note:'不检查正确性错误；产生 3 并行代理，token 消耗较高'},
+  {name:'/batch',cat:'workflow',syntax:'/batch <变更指令>',desc:'并行编排大规模更改，分解为 5-30 个独立单元，每个单元创建 PR。',scenes:[{t:'大规模迁移',d:'/batch migrate src/ from Solid to React'},{t:'批量重命名',d:'/batch rename all API endpoints from v1 to v2'}],note:'需要 git 仓库；每个单元在隔离 worktree 中运行'},
+  {name:'/autofix-pr',cat:'workflow',syntax:'/autofix-pr [可选: 提示]',desc:'启动 Claude Code on the web 会话监控 PR，CI 失败或审阅者评论时自动推送修复。',scenes:[{t:'自动修复 CI',d:'/autofix-pr 自动修复测试失败'},{t:'响应审阅',d:'/autofix-pr only fix lint and type errors'}],note:'需要 gh CLI'},
+  {name:'/background',cat:'workflow',syntax:'/background [可选: 提示]',desc:'将当前会话分离为后台代理运行，释放终端。',scenes:[{t:'长时间任务',d:'/background run the full regression suite'},{t:'释放终端',d:'/background 让 Claude 在后台继续'}],note:'使用 claude agents 监控'},
+  {name:'/loop',cat:'workflow',syntax:'/loop [间隔] [提示]',desc:'会话保持打开期间重复运行提示。最长运行 3 天。',scenes:[{t:'监控部署',d:'/loop 5m check if the deploy finished'},{t:'自动审查',d:'/loop 30m /review'},{t:'PR 维护',d:'/loop 1h babysit my open PRs'}],note:'别名 /proactive；最长运行 3 天'},
+  {name:'/schedule',cat:'workflow',syntax:'/schedule [可选: 描述]',desc:'创建云端例行任务。与 /loop 不同，云端执行——笔记本关闭也继续。',scenes:[{t:'每日任务',d:'/schedule a daily job that looks at PRs shipped since yesterday'},{t:'晨间分类',d:'/schedule every morning triage new issues'}],note:'云端执行；别名 /routines'},
+  {name:'/goal',cat:'workflow',syntax:'/goal [条件|clear]',desc:'设置目标：Claude 持续工作直到条件满足。每轮后用快速模型检查。',scenes:[{t:'持续开发',d:'/goal all unit tests pass and the build is green'},{t:'重构完成',d:'/goal migrate all API calls from v1 to v2'},{t:'清除',d:'/goal clear'}],note:'v2.1.139+；自动模式 + goal 双重自动化'},
+  {name:'/tasks',cat:'workflow',syntax:'/tasks',desc:'列出和管理后台任务，包括已完成的子代理。Claude 响应期间也可用。',scenes:[{t:'监控后台',d:'/tasks 查看后台任务列表'},{t:'检查子代理',d:'查看子代理是否完成'}],note:'别名 /bashes；响应期间也可用'},
+  {name:'/workflows',cat:'workflow',syntax:'/workflows',desc:'打开工作流进度视图以监控、暂停、恢复运行中工作流。',scenes:[{t:'监控 batch',d:'运行 /batch 后 /workflows 查看各单元进度'},{t:'管理工作流',d:'暂停或恢复运行中工作流'}],note:'主要用于监控 batch 等并行工作流'},
+  {name:'/subtask',cat:'workflow',syntax:'/subtask <任务描述>',desc:'v2.1.212+ 启动分支子代理，继承对话在后台处理任务，结果返回当前对话。',scenes:[{t:'委托子任务',d:'/subtask investigate the memory leak'},{t:'并行探索',d:'/subtask analyze all API endpoints in src/'}],note:'v2.1.212+；代理视图关闭时不可用'},
+  {name:'/run',cat:'workflow',syntax:'/run [Skill]',desc:'启动并驱动项目应用查看更改效果。需先运�� /run-skill-generator 教导构建方式。',scenes:[{t:'验证 UI 更改',d:'改完前端代码后 /run 启动应用'},{t:'提交前验证',d:'/verify 确保改动正常'}],note:'v2.1.145+；需先 /run-skill-generator'},
+  {name:'/verify',cat:'workflow',syntax:'/verify [Skill]',desc:'通过构建和运行确认代码更改达到预期效果。',scenes:[{t:'提交前验证',d:'/verify 确保改动正常工作'}],note:'v2.1.145+；需先 /run-skill-generator'},
+  {name:'/run-skill-generator',cat:'workflow',syntax:'/run-skill-generator [Skill]',desc:'教导 /run 和 /verify 如何构建、启动和驱动项目应用。',scenes:[{t:'设置验证',d:'首次使用 /run 前先 /run-skill-generator'},{t:'更新流程',d:'构建方式变化后重新生成'}],note:'v2.1.145+'},
+
+  // === 高级/隐藏 (advanced) ===
+  {name:'/btw',cat:'advanced',syntax:'/btw [问题]',desc:'快速提问不添加主对话，不消耗上下文。无工具访问权限。',scenes:[{t:'临时查询',d:'正在实现功能时 /btw what was that config file name?'},{t:'不打断主任务',d:'Claude 工作时 /btw remind me the project structure'}],note:'问题不进入上下文；可在 Claude 工作时使用'},
+  {name:'/teleport',cat:'advanced',syntax:'/teleport',desc:'将 Claude Code on the web 会话拉取到当前终端。',scenes:[{t:'Web 到终端',d:'claude.ai/code 上会话 /teleport 拉到本地'},{t:'手机到终端',d:'手机上开始的会话拉到电脑'}],note:'需要 claude.ai 订阅；CLI v2.1.51+'},
+  {name:'/remote-control',cat:'advanced',syntax:'/remote-control',desc:'使本地会话可从 claude.ai 远程控制。是 /teleport 的逆操作。',scenes:[{t:'远程监控',d:'/remote-control 让本地任务可从手机检查'},{t:'手机操作',d:'终端开始工作后从手机继续'}],note:'需要 claude.ai 订阅'},
+  {name:'/desktop',cat:'advanced',syntax:'/desktop',desc:'在 Claude Code Desktop 应用中继续当前会话。',scenes:[{t:'切换界面',d:'终端工作切换到图形界面 /desktop'},{t:'可视化 diff',d:'桌面应用提供更好 diff 体验'}],note:'仅限 macOS 和 Windows'},
+  {name:'/insights',cat:'advanced',syntax:'/insights',desc:'生成 HTML 报告分析使用模式：项目分布、交互模式、摩擦点等。',scenes:[{t:'使用分析',d:'/insights 查看过去一个月使用模式'},{t:'优化工作流',d:'基于报告发现可改进环节'}],note:'生成交互式 HTML 报告'},
+  {name:'/voice',cat:'advanced',syntax:'/voice [hold|tap|off]',desc:'切换语音听写模式。按住 Space 说话，语速是打字 3 倍。',scenes:[{t:'语音输入',d:'/voice hold 按住说话方式输入提示'},{t:'长提示',d:'语音输入比打字快 3 倍'}],note:'需要 Claude.ai 账户；仅 Desktop 和 Cowork 可用'},
+  {name:'/focus',cat:'advanced',syntax:'/focus',desc:'切换焦点视图，仅显示最终结果，隐藏冗长的中间过程。',scenes:[{t:'减少干扰',d:'/focus 只显示结果'},{t:'专注审查',d:'审查输出时开启'}],note:'仅全屏渲染模式可用'},
+  {name:'/tui',cat:'advanced',syntax:'/tui [default|fullscreen]',desc:'v2.1.110 设置终端 UI 渲染器并以保留对话方式重启。',scenes:[{t:'全屏模式',d:'/tui fullscreen 更好视觉体验'},{t:'默认模式',d:'/tui default 回到基础渲染'}],note:'v2.1.110 新增'},
+  {name:'/scroll-speed',cat:'advanced',syntax:'/scroll-speed',desc:'交互式调整鼠标滚轮滚动速度，持久化到 preferences.json。',scenes:[{t:'调整速度',d:'滚动太快或太慢时 /scroll-speed'}],note:'仅全屏渲染模式可用'},
+  {name:'/heapdump',cat:'advanced',syntax:'/heapdump',desc:'将 JS 堆快照写入磁盘用于诊断高内存。文件包含完整对话和凭据！',scenes:[{t:'诊断内存',d:'内存使用过高时 /heapdump'},{t:'提交 bug',d:'附带堆快照帮助 Anthropic 诊断'}],note:'⚠ 包含完整对话和凭据，绝对不要分享！'},
+  {name:'/ultraplan',cat:'advanced',syntax:'/ultraplan <提示>',desc:'v2.1.111+ 在 ultraplan 会话中起草计划，浏览器审查后远程执行。',scenes:[{t:'大型计划',d:'/ultraplan design microservices for payment system'},{t:'远程执行',d:'审查后云端执行'}],note:'v2.1.111+'},
+  {name:'/deep-research',cat:'advanced',syntax:'/deep-research <问题>',desc:'对问题展开网络搜索、交叉检查来源，生成引用报告。多代理并行搜索。',scenes:[{t:'技术调研',d:'/deep-research best practices for real-time sync in 2026'},{t:'方案对比',d:'/deep-research compare RSC vs traditional SSR'}],note:'标记为 Workflow；后台运行'},
+
+  // === 认证 (auth) ===
+  {name:'/login',cat:'auth',syntax:'/login',desc:'登录 Anthropic 账户（支持 OAuth 流程）。',scenes:[{t:'首次设置',d:'安装后 /login'},{t:'切换账户',d:'/logout 然后 /login'}],note:'也可 claude auth login'},
+  {name:'/logout',cat:'auth',syntax:'/logout',desc:'从 Anthropic 账户登出。',scenes:[{t:'切换账户',d:'/logout 后 /login'}],note:'也可 claude auth logout'},
+  {name:'/privacy-settings',cat:'auth',syntax:'/privacy-settings',desc:'查看和更新隐私设置。仅 Pro/Max 计划可用。',scenes:[{t:'管理隐私',d:'/privacy-settings 调整数据共享偏好'}],note:'仅 Pro/Max 计划'},
+  {name:'/passes',cat:'auth',syntax:'/passes',desc:'与朋友分享一周免费 Claude Code。仅在符合条件时显示。',scenes:[{t:'邀请朋友',d:'/passes 生成分享链接'}],note:'仅在符合条件时可见'},
+
+  // === 状态监控 (status) ===
+  {name:'/cost',cat:'status',syntax:'/cost',desc:'显示当前会话 token 使用量和成本估算。是 /usage 的快捷别名。',scenes:[{t:'监控成本',d:'/cost 查看花了多少钱'},{t:'控制开支',d:'定期 /cost 避免超预算'}],note:'实际是 /usage 的快捷别名'},
+  {name:'/usage',cat:'status',syntax:'/usage',desc:'显示费用、计划限制和活动统计。按 skill/子代理/插件/MCP 分类。',scenes:[{t:'查看用量',d:'/usage 查看计划和速率限制状态'},{t:'分类查看',d:'了解哪个 skill 用了最多 token'}],note:'别名 /cost、/stats；非交互模式也可用'},
+  {name:'/stats',cat:'status',syntax:'/stats',desc:'可视化每日使用、会话历史、连续记录和模型偏好。',scenes:[{t:'使用趋势',d:'/stats 查看过去使用模式'}],note:'是 /usage 的 Stats 标签页快捷方式'},
+  {name:'/status',cat:'status',syntax:'/status',desc:'显示版本、模型、账户和连接信息。Claude 响应期间也可用。',scenes:[{t:'快速检查',d:'/status 查看使用哪个模型'},{t:'诊断连接',d:'查看连接状态'}],note:'Claude 响应期间也可用'},
+  {name:'/statusline',cat:'status',syntax:'/statusline',desc:'配置 Claude Code 状态栏。不消耗 API token。',scenes:[{t:'显示信息',d:'配置显示 [Opus 4.8] project | 45% context'},{t:'自动配置',d:'/statusline 从 shell 提示同步'}],note:'状态栏脚本在本地运行'},
+  {name:'/usage-credits',cat:'status',syntax:'/usage-credits',desc:'配置使用额度以在达到速率限制时继续工作。',scenes:[{t:'超出限制',d:'达到速率限制时 /usage-credits'},{t:'请求额度',d:'Team/Enterprise 成员向管理员请求'}],note:'SSH 等无浏览器时打印 URL'},
+  {name:'/release-notes',cat:'status',syntax:'/release-notes',desc:'查看特定版本的更新日志。',scenes:[{t:'查看更新',d:'/release-notes 了解新功能'},{t:'检查修复',d:'查看特定版本 bug 修复'}],note:'v2.1.208 前内容进入对话上下文'},
+
+  // === IDE/集成 (ide) ===
+  {name:'/ide',cat:'ide',syntax:'/ide',desc:'管理 IDE 集成并显示状态。支持 VS Code、JetBrains、Cursor 等。',scenes:[{t:'检查状态',d:'/ide 查看 IDE 集成是否正常'},{t:'配置集成',d:'管理 IDE 连接'}],note:'支持多种 IDE'},
+  {name:'/install-github-app',cat:'ide',syntax:'/install-github-app',desc:'为仓库安装 Claude GitHub App，可选设置 GitHub Actions 工作流。',scenes:[{t:'设置 CI',d:'/install-github-app 集成到 GitHub Actions'},{t:'自动化',d:'配置自动代码审查和 PR 管理'}],note:'引导式设置流程'},
+  {name:'/install-slack-app',cat:'ide',syntax:'/install-slack-app',desc:'安装 Claude Slack 应用，打开浏览器完成 OAuth。',scenes:[{t:'Slack 集成',d:'/install-slack-app 让 Claude 与 Slack 交互'}],note:'打开浏览器完成 OAuth'},
+  {name:'/chrome',cat:'ide',syntax:'/chrome',desc:'配置 Claude in Chrome 设置，可在 Chrome 中启动浏览器进行前端验证。',scenes:[{t:'前端验证',d:'/chrome 配置后 Claude 可打开浏览器查看页面'}],note:'需要 Chrome 浏览器'},
+  {name:'/keybindings',cat:'ide',syntax:'/keybindings',desc:'打开或创建键盘快捷键配置文件，实时重新加载。',scenes:[{t:'自定义快捷键',d:'/keybindings 编辑配置'},{t:'Vim 模式',d:'设置 Vim 风格快捷键'}],note:'配置存储在 ~/.claude/keybindings.json'},
+  {name:'/terminal-setup',cat:'ide',syntax:'/terminal-setup',desc:'配置终端键盘绑定（Shift+Enter 换行等）。仅需要的终端可见。',scenes:[{t:'启用多行输入',d:'/terminal-setup 设置 Shift+Enter'},{t:'IDE 优化',d:'VS Code 终端中优化快捷键'}],note:'仅在需要它的终端可见'},
+  {name:'/web-setup',cat:'ide',syntax:'/web-setup',desc:'使用本地 gh CLI 凭据连接 GitHub 到 Claude Code on the web。',scenes:[{t:'云端权限',d:'使用本地凭据授予云端权限'}],note:'/schedule 会自动提示'},
+  {name:'/remote-env',cat:'ide',syntax:'/remote-env',desc:'为 --remote 启动的网络会话配置默认远程环境。',scenes:[{t:'选择环境',d:'/remote-env 配置默认远程环境'}],note:'用于云端/远程会话配置'},
+
+  // === 平台配置 (platform) ===
+  {name:'/setup-bedrock',cat:'platform',syntax:'/setup-bedrock',desc:'通过交互向导配置 Amazon Bedrock 认证、区域和模型固定。',scenes:[{t:'AWS 配置',d:'/setup-bedrock 设置 AWS 认证'}],note:'需设置 CLAUDE_CODE_USE_BEDROCK=1'},
+  {name:'/setup-vertex',cat:'platform',syntax:'/setup-vertex',desc:'通过交互向导配置 Google Cloud Agent Platform 认证和模型固定。',scenes:[{t:'GCP 配置',d:'/setup-vertex 设置 GCP 认证'}],note:'需设置 CLAUDE_CODE_USE_VERTEX=1'},
+  {name:'/upgrade',cat:'platform',syntax:'/upgrade',desc:'在浏览器中打开升级页面切换到更高计划层级。',scenes:[{t:'升级计划',d:'/upgrade 从 Pro 升到 Max'}],note:'Enterprise 计划不显示'},
+
+  // === 趣味辅助 (fun) ===
+  {name:'/color',cat:'fun',syntax:'/color [颜色|default]',desc:'设置当前会话提示栏颜色。8 种颜色可选，Remote Control 时同步。',scenes:[{t:'区分会话',d:'/color red 用红色，/color blue 用蓝色'},{t:'随机',d:'/color 随机选择'}],note:'可用 red/blue/green/yellow/purple/orange/pink/cyan'},
+  {name:'/theme',cat:'fun',syntax:'/theme',desc:'更改颜色主题。支持自动、亮/暗、色盲友好、ANSI 和自定义。',scenes:[{t:'切换明暗',d:'/theme 选择 light/dark'},{t:'色盲友好',d:'选择 daltonized 主题'}],note:'自定义主题存储在 ~/.claude/themes/'},
+  {name:'/config',cat:'fun',syntax:'/config [key=value ...]',desc:'打开设置界面调整主题、模型、输出样式等。v2.1.181+ 支持直接传值。',scenes:[{t:'基本设置',d:'/config 打开交互界面'},{t:'快速设置',d:'/config theme=dark model=sonnet'}],note:'别名 /settings；/config --help 查看所有选项'},
+  {name:'/radio',cat:'fun',syntax:'/radio',desc:'在浏览器中打开 Claude FM lo-fi 电台。',scenes:[{t:'放松编码',d:'/radio 打开背景音乐'}],note:'部署平台不可用'},
+  {name:'/stickers',cat:'fun',syntax:'/stickers',desc:'订购 Claude Code 贴纸。',scenes:[{t:'收藏',d:'/stickers 订购品牌贴纸'}],note:''},
+  {name:'/powerup',cat:'fun',syntax:'/powerup',desc:'通过动画演示的交互式课程探索 Claude Code 功能。',scenes:[{t:'学习功能',d:'/powerup 快速了解隐藏功能'},{t:'新手指南',d:'新用户通过交互式课程熟悉功能'}],note:''},
+];
+
+// ---- Render command cards ----
+function renderCmdCards(filterCat, searchText) {
+  const grid = document.getElementById('cmdCardGrid');
+  const noResults = document.getElementById('cmdNoResults');
+  grid.innerHTML = '';
+  
+  const filtered = CMD_DATA.filter(cmd => {
+    const matchCat = filterCat === 'all' || cmd.cat === filterCat;
+    const matchSearch = !searchText || 
+      cmd.name.toLowerCase().includes(searchText) ||
+      cmd.desc.toLowerCase().includes(searchText) ||
+      cmd.syntax.toLowerCase().includes(searchText) ||
+      (cmd.scenes && cmd.scenes.some(s => s.t.toLowerCase().includes(searchText) || s.d.toLowerCase().includes(searchText)));
+    return matchCat && matchSearch;
+  });
+  
+  if (filtered.length === 0) {
+    noResults.style.display = 'block';
+    return;
+  }
+  noResults.style.display = 'none';
+  
+  filtered.forEach(cmd => {
+    const card = document.createElement('div');
+    card.className = 'cmd-card';
+    card.setAttribute('data-cat', cmd.cat);
+    card.setAttribute('data-name', cmd.name.replace('/',''));
+    
+    let scenesHTML = '';
+    if (cmd.scenes && cmd.scenes.length > 0) {
+      const scenesList = cmd.scenes.map(s => `<li><b>${s.t}</b>：${s.d}</li>`).join('');
+      scenesHTML = `
+        <div class="cmd-card-scenarios">
+          <button class="cmd-scenario-toggle" onclick="var n=this.nextElementSibling;n.classList.toggle('open');this.textContent=n.classList.contains('open')?'收起场景 ▲':'使用场景 ▼'">使用场景 ▼</button>
+          <ul class="cmd-scenario-list">${scenesList}</ul>
+        </div>`;
+    }
+    
+    let noteHTML = '';
+    if (cmd.note) {
+      noteHTML = `<div class="cmd-card-note">${cmd.note}</div>`;
+    }
+    
+    card.innerHTML = `
+      <div class="cmd-card-name">${cmd.name}</div>
+      <div class="cmd-card-syntax">${cmd.syntax}</div>
+      <div class="cmd-card-desc">${cmd.desc}</div>
+      ${scenesHTML}
+      ${noteHTML}`;
+    
+    grid.appendChild(card);
+  });
+}
+
+// ---- Category filter ----
+let currentCat = 'all';
+document.querySelectorAll('#commandsNav .cmd-nav-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('#commandsNav .cmd-nav-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    currentCat = this.dataset.cat;
+    const searchText = document.getElementById('cmdSearch').value.trim().toLowerCase();
+    renderCmdCards(currentCat, searchText);
+  });
+});
+
+// ---- Search ----
+const cmdSearch = document.getElementById('cmdSearch');
+cmdSearch.addEventListener('input', function() {
+  const searchText = this.value.trim().toLowerCase();
+  renderCmdCards(currentCat, searchText);
+});
+
+// ---- Initial render ----
+renderCmdCards('all', '');
+
+</script>
+
+</body>
+</html>
