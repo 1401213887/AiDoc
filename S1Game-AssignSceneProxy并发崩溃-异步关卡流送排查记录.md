@@ -139,6 +139,35 @@ uint32 LastAssignSceneProxyCallCounter = 0;           // 累计 Assign 次数
 
 ---
 
+### 旧崩溃日志翻查补充证据（2026-08-11，无需新包，直接挖崩溃时的 S1Game.log）
+
+- **崩溃组件是两个不是单组件**：`StaticMeshActor_14` 第一次断言 + `StaticMeshActor_16` reentered 第二次断言，同关卡同毫秒（14.50.18）→ **同一批次内多个组件同时重复 Assign**，平行 worker 各撞一个。
+- **本次是第 10 次 `SwitchScene From Cache`**（14.47.25~14.50.17），前 9 次正常；关卡副本只在 14.47.23 `Duplicated Level` 一次，此后全复用缓存。
+- **崩溃前最后一次是 Unload 后 16 秒快速切回**：14.50.00:950 Unload 22001 → 14.50.17:625 切回触发 AddToWorld。全日志仅这一次有 `AddToWorld: took 151ms`——前 9 次缓存切换没有 AddToWorld，唯独这次走完整 AddToWorld（含异步注册）。
+- **异步注册与 AddToWorld 重叠**：`World.cpp:3468` Create / `3728` Destroy（析构 Wait）；崩溃时 GT 在物理阶段，worker 在 ParallelFor → 重叠即竞争窗口。
+- **判定更新**：更可能是"同一派发批次内多个重复项"（`_14`/`_16` 同时崩），而非单组件单一路径竞争。
+
+### 登记侧诊断日志（2026-08-11 新增，`AsyncRegisterLevelContext.cpp`，已 p4 迁出 #3）
+
+旧日志不足以区分"重复从哪来"，补登记侧诊断，一次复现即可定位来源：
+
+**入口层 `FAsyncRegisterLevelContext::AddPrimitive`** —— 每次组件进异步队列时检查四标记，命中即打 `[ZXB] 异步登记重复!`：
+- `NextBatch内重复` / `AddPrimitivesArray内重复` → 队列内跨批重复
+- `派发中批次内重复`（遍历 `AsyncTask.Batches`）→ 跨周期残留的直接证据
+- `已持有SceneProxy` → 旧 proxy 残留（Unload→快速切回）
+
+**队列内部 `FAsyncAddPrimitiveQueue::AddPrimitive`** —— 同一组件在同一 `NextBatch` 内第二次登记时打 `[ZXB] 同批重复登记!`（批次内重复双 Assign 的最直接来源；原 `checkSlow` 在 Development 无运行时检查）。
+
+### 竞争分析修正（2026-08-11）
+
+入口诊断读 `AsyncTask.Batches` 时**无数据竞争**——`Batches` 只在 GT 侧写（`Launch` 启动前 MoveTemp / `Reset` 完成后清空），worker 侧 `Execute` 按 `const TArray&` 只读，GT 读与 worker 读是**读-读并发**。
+
+**真实限制是"滞后"**：`IsValid()` 只查 `Task.IsValid()` 不查 `IsCompleted()`，任务已处理完但 GT 尚未 `Reset()` 的窗口内（毫秒级），`Batches` 残留已处理组件 → `派发中批次内重复` 标记可能把已完成组件算作"派发中"。解读时以 **`同批重复登记` + `已持有SceneProxy` 为主判据**，`派发中批次内重复` 仅作辅助信号。
+
+**当前 P4 迁出（default change）**：`PrimitiveComponent.h#29`（LastAssignSceneProxy*）、`PrimitiveComponent.cpp#33`（AssignSceneProxy 冲突日志+记录）、`AsyncRegisterLevelContext.cpp#3`（登记侧诊断）。等待新 Development 包复现。
+
+---
+
 ## 五、快速排查 Checklist
 
 遇到 `AssignSceneProxy` 5555 断言崩溃（`SceneProxy == nullptr && SceneData.SceneProxy == nullptr` 失败）时：

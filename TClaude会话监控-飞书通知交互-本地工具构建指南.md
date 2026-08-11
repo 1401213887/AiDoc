@@ -237,6 +237,31 @@ Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
 - 用 connect_feishu.py（内置精确杀）或手动 `python main.py`
 - 教训已固化到「连接飞书」skill 的 Pitfalls
 
+## 五·八、历史事件刷屏卡死（2026-08-11 关键修复）
+
+**症状**：工具启动后只推「任务开始」，不推「本轮完成」；或飞书长时间无推送。
+
+**根因**（两个叠加）：
+1. **历史事件全当新**：监控器首次扫描把会话 jsonl **历史所有 tool_use 当新 action**——长会话（如本工具对话）可能有 **700+ 个 action 事件**。
+2. **每个 action 调 `_session_name`**：`on_event` 开头 `name = self._session_name(sid)` 无条件执行，遍历 5 目录约 **457ms/次**。700 × 457ms ≈ **5.5 分钟**，工具卡死在 action 处理循环里，处理不到最后的 `round_done`。
+
+**修复**（两处）：
+```python
+# main.py on_event：action 且 notify_actions=false 直接 return，不算名字
+if t == "action" and not self.notify_actions:
+    return
+name = self._session_name(sid)
+```
+```python
+# monitor.py：启动预热，把游标初始化到文件尾，只检测增量
+def prime(self):
+    for project_dir in self.project_dirs:
+        ...  # 读每个 jsonl 行数，写入 _last_line / _last_round_line
+# main.py 启动时调用 monitor.prime()
+```
+
+**验证**：预热后首次 `scan()` 从 734 个事件降到 1 个（只有 start），工具不再卡死，能持续推「任务开始 → 本轮完成 → ...」。
+
 ## 六、相关参考
 
 - 飞书开放平台：https://open.feishu.cn/
