@@ -38,11 +38,13 @@ flowchart LR
     C["② 编码<br/>改 shader / C++ / ini"]
     D["③ 调试<br/>重编 / 重启 / 埋探针"]
     V["④ 验证<br/>再取数 / 截图 / 回读"]
-    E["✅ 问题解决"]
+    E["✔ 问题解决"]
     A --> C --> D --> V
-    V -->|"未解决 → 带着新证据回到分析"| A
-    V -->|"已解决"| E
+    V -- 未解决，带新证据回到分析 --> A
+    V -- 已解决 --> E
 ```
+> **图渲染不了？**（查看器不支持 Mermaid 时）等效流程：
+> `分析 → 编码 → 调试 → 验证 → 问题解决`；验证未通过则**带新证据回到分析**，循环直到问题解决。
 
 **一次典型闭环**（今天实测就是完整一圈）：
 1. **分析**：取数发现 Forward 值与期望有偏差 → 用 ⑫④⑤
@@ -74,6 +76,7 @@ flowchart LR
     A <-->|stdio| M
     M <-->|TCP 58123| U
 ```
+> **图渲染不了？** 等效：AI 会话 `stdio` ⇄ `unreal_mcp_server.py`(Python) `TCP 58123` ⇄ Unreal 编辑器(UnrealMCP 插件)。
 
 - **MCP server**（`unreal_mcp_server.py`，来自开源项目 <https://github.com/mscrnt/unreal-mcp>）负责把 AI 的请求转发给编辑器里的 UnrealMCP 插件。
 - **端口**（本工程 58123）有两处配置：编辑器侧读 `S1Game/Config/DefaultEditor.ini`，MCP server 侧读 `~/.tclaude/.claude.json` 的 `UNREAL_PORT`。**端口被占用时改这两处并重启**（见实践 3）。
@@ -86,19 +89,22 @@ flowchart LR
 ```mermaid
 flowchart LR
     subgraph 采集端
-        F["MobileBasePassPixelShader.usf<br/>写 slot[0] = FWD OutColor"]
-        D["MobileDeferredShading.usf<br/>写 slot[1] = DEF OutColor<br/>写 slot[2] = DEF uncond"]
+        F["MobileBasePassPixelShader.usf<br/>写 slot0 = FWD OutColor"]
+        D["MobileDeferredShading.usf<br/>写 slot1 = DEF OutColor<br/>写 slot2 = DEF uncond"]
     end
     B["DebugValueBuffer<br/>RWStructuredBuffer"]
     C["ZXBOutColorProbe.usf<br/>Compute Shader"]
     S["ShaderPrint 打屏<br/>视口左上角"]
-    R["UE_LOG [ZXB-RDBK]<br/>CPU 回读 · 6 位精度"]
+    R["UE_LOG ZXB-RDBK<br/>CPU 回读 · 6 位精度"]
     F --> B
     D --> B
     B --> C
     C --> S
     C --> R
 ```
+> **图渲染不了？** 等效：
+> - **采集端** → Forward(`MobileBasePassPixelShader.usf`) 写 slot0；Deferred(`MobileDeferredShading.usf`) 写 slot1/2 → 共享 **DebugValueBuffer**(RWStructuredBuffer)
+> - **显示端** → `ZXBOutColorProbe.usf`(Compute) 读 buffer → ① ShaderPrint 打屏（视口左上角）② `UE_LOG [ZXB-RDBK]` CPU 回读
 
 **三个关键设计**（每个都是踩坑换来的）：
 
@@ -419,6 +425,7 @@ unreal.PreviewPlatformScriptLibrary.set_preview_platform_by_name('AndroidVulkan_
 
 ### 资源位置
 
+- **skill 获取（git 仓库）**：`git clone git@git.woa.com:djangozhang/skills.git`（内含本 skill 全套脚本/patch/references）
 - skill 目录：`C:/Users/djangozhang/.tclaude/skills/ZXBUnrealDebug/`
 - 探针框架资产：`ZXBUnrealDebug/shaderprint-debug/`（patch + references/ 9 篇方法论文档 + PC/）
 - 脚本：`ZXBUnrealDebug/scripts/`（build/open/stop/ocr/mcp_find_api + BuildEditor.bat）
