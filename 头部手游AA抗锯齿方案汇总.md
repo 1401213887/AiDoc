@@ -90,6 +90,22 @@ TBDR 下 MSAA 带宽近乎免费（tile 内折叠、resolve 在片上），但 *
 
 二次元 + UE4 Deferred + 自研 TAAU，公开材料里调校细节最完整的一家（UFSH2023 王宏波演讲），可作为二次元 TAAU 的参考模板。
 
+### TAA vs TAAU 本质区别
+
+一句话：**TAAU = TAA + 上采样**。传统 TAA 只抗锯齿（输出分辨率 = 渲染分辨率，纯画质成本项）；鸣潮 TAAU 把"低分辨率渲染 + 时序重建"合并进同一 pass，抗锯齿和超分一件事做完，从"成本项"变"性能项"。
+
+| 维度 | 传统 TAA（UE 默认） | 鸣潮自研 TAAU |
+|---|---|---|
+| 核心职责 | 纯抗锯齿 | 抗锯齿 + 上采样（超分） |
+| 分辨率关系 | 渲染 = 输出 | **渲染 < 输出**（低分辨率渲染，时序重建到目标） |
+| 性能定位 | 纯成本（+3~8%） | **性能手段**（省填充率/带宽/着色） |
+| 采样模式 | 9 tap（PC） | 移动端**十字 5-tap cross** |
+| History Clamp | UE 默认（AABB + 变体） | 最廉价 AABB；高配 **YCoCg** / 低配 **RGB** |
+| Pass 位置 | Bloom 前 | **Bloom + Tonemap 之后** |
+| 速度信息 | 引擎 velocity buffer | 自研 Velocity Pass（24 位 RGB）+ **Character Mask** |
+| 上采样算法 | 无 | **FSR 1.0 风格多项式逼近**（Lanczos2，带边缘信息） |
+| 二次元特化 | 通用调校 | 动静分离权重 + 低通滤波 + Unsharp 锐化 |
+
 ### 管线改造
 - 新增 **Velocity Pass**：速度编码进 24 位 RGB + **Character Mask**（角色遮罩，防鬼影/染色）
 - TAA Pass 从默认位置移到 **Bloom + Tonemap 之后**，升级为 **TAAU**（时间性超分辨率）
@@ -110,6 +126,24 @@ TBDR 下 MSAA 带宽近乎免费（tile 内折叠、resolve 在片上），但 *
 
 ### 上采样
 实现类似 **FSR 1.0 的多项式逼近**（如 Lanczos2），除距离外还考虑边缘信息，优于双线性。
+
+### 为什么这么选型（五个动机）
+1. **性能首要**：开放世界移动端撑不起原生分辨率，TAAU 用低分辨率渲染省下填充率/带宽直接变帧率预算（60/120fps 双档、压功耗）
+2. **管线前提**：Deferred 无法 MSAA，只剩时序 AA；FXAA 糊、SMAA 无时序稳定 → TAA 是唯一覆盖"几何 + shader + 闪烁"全类的
+3. **画面形态**：NPR 边缘占比 4~5%、大面积纯色利于时序重建；"糊"可用 Unsharp 拉回
+4. **工程成本**：AA + 超分合体，省一个超分 pass，时序历史同时服务重建质量
+5. **移动端权衡是显式设计**：5-tap / AABB / YCoCg-RGB 分档 / Character Mask / 动静权重——每项都是带宽-画质显式决策
+
+### 代价与权衡（选型不是免费的）
+- **鬼影风险**（时序 AA 通病，靠 Character Mask + 动静权重 + YCoCg clamp 抑制，快速转视角 / 30fps 仍有残留）
+- **上采样重建伪影**（运动物体 / 高频纹理低分辨率下过糊或振铃，靠动态锐化缓解）
+- **Pass 位置后移**：Bloom 放大边缘噪声（拿一点质量换一次全屏采样）
+- **移动端 TAA 老坑**：velocity + 历史 buffer 成本放大，做不好反不如 FXAA
+
+### 对我们的启示（结合 Forward + MSAA 场景）
+1. TAAU 的"AA + 超分合体"值得借鉴，但描边 mask 是 1x 硬边，TAA 抖动 + 历史混合会引入时序抖动，需 mask 参与 TAA 处理或配锐化
+2. 鸣潮"勾边不写 velocity → 闪烁 → 补救"是**反面教材**：未来切 TAAU，勾边 mesh 必须写 velocity
+3. 分档思想（YCoCg/RGB、5-tap/AABB）与 MSAA 分档（4x/2x/FXAA）一脉相承
 
 ---
 
@@ -197,7 +231,53 @@ TBDR 下 MSAA 带宽近乎免费（tile 内折叠、resolve 在片上），但 *
 
 ---
 
-## 十、参考资料
+## 十、TAAU 的更进一步：移动端超分技术（FSR / XeSS / SGSR / MetalFX）
+
+> 作为 TAAU 的演进方向，AI 超分（FSR4/XeSS3）与多帧生成是最新热点。但"移动端"必须拆成**手机**与**掌机/笔记本**两个世界——**FSR 4 / XeSS 3 这代 AI 超分 + 多帧生成只进了掌机/笔记本，手机端至今零部署**。手机端 TAAU 的真实演进是平台级方案（MetalFX / SGSR / 厂商自研）。
+
+### 1. FSR 家族分代落地
+
+| 代际 | 技术路线 | 手机端 | 掌机/APU | 实测/状态 |
+|---|---|---|---|---|
+| FSR 1.0 | 空间超分 | ✅ 手游有 | — | 三角洲等低配档 |
+| FSR 2.x | **时间超分（= TAAU 思路）** | ⚠️ 少 | — | 需引擎给 MV+depth |
+| FSR 3.1 | 超分 + 帧生成（非 AI） | ⚠️ 模拟器跑 PC 版 | ✅ 掌机标配 | 红魔 11 Pro 跑《生化危机：安魂曲》720p 40–100fps |
+| FSR 4（Redstone ML） | AI/ML 超分 | ❌ | ❌ 仅桌面 RDNA4 | RX 9000 独占 |
+| FSR 4.1 | 轻量 ML 模型 | ❌ | 评估中 | 已给部分 RDNA3 桌面卡，掌机无时间表 |
+
+- **FSR 3.1 手机实测**（2026.03，ETA Prime）：红魔 11 Pro（骁龙 8 Elite）+ GameHub 模拟器跑 PC 版《生化危机：安魂曲》，720p 低画质 + FSR 3.1 性能模式：室内 60–100fps、室外复杂 40–45fps；**帧生成因稳定性被关**（只用超分），功耗 >20W 强制风扇+液冷仍热降频，16GB 内存硬门槛。能跑但替代不了 Steam Deck/ROG Ally。
+- **FSR 4 不进旧硬件的原因**：AMD 副总裁 David McAfee——不是时间表问题，是**质量门槛**：模型针对 RDNA4 ML 运算单元优化，旧硬件缺 TOPS/AI 吞吐。FSR 4.1 的"轻量 ML 模型"是给 RDNA3 APU 的妥协版，掌机无时间表。
+
+### 2. XeSS 家族：手机完全缺席，移动计算端猛攻
+
+- **手机端 = 0 部署**（XeSS 依赖 XMX AI 单元，手机 SoC 没有）
+- 移动计算端：XeSS 2 → **XeSS 3**（2026 CES）＝ 超分 + **多帧生成 MFG（最多插 3 帧→4x）** + 低延迟
+- **向下兼容**：Meteor/Lunar/Arrow Lake + Arc A/B 全系 + Panther Lake（FSR4 做不到）
+- Intel 声称 Arc B390 iGPU 超 AMD Radeon 890M：1080p（540p 超分）平均快 73%（45W vs 53W），原生 1080p 快 82%
+- 实测（ETA Prime）：蜘蛛侠2 1200p High + XeSS Quality 60–70fps；赛博朋克 1200p Ultra 40–50fps；约 45 款游戏首发 MFG
+- 掌机专项：ComputeX 2026 发布 **Arc G 系列**（Intel 18A，Arc B390 + XeSS 3），首款专为掌机设计的处理器，2026.06 起 Acer/MSI/OneXPlayer 出货
+
+### 3. 手机原生超分生态（TAAU 在手机上的真实演进）
+
+手机原生普遍停在 **FSR1–FSR2 级别**，距 DLSS4/FSR4 差一代半：
+
+| 方案 | 技术 | 水平 | 状态 |
+|---|---|---|---|
+| 苹果 MetalFX | 空域版≈FSR1 略好；**时域版≈DLSS3/FSR2** | 手机最强但适配少 | 约 DLSS2 水平 |
+| 高通 SGSR1 | 空间超分，单通道 12-tap Lanczos | ≈FSR1 | COD 战区手游 / 诛仙 / 永劫无间手游 |
+| 高通 SGSR2 | **时间超分（TAAU 路线**，需 MV+depth） | ≈FSR2 | 声称"1080p→4K 性能 2 倍"⚠️存疑 |
+| ARM ASR | 开源 FSR2 魔改，号称省 30% 带宽 | ≈FSR2 | 无厂商采用 |
+| 厂商自研（iQOO QNSS / 华为超分插帧） | 实验阶段 | 早期 | 未成熟 |
+
+### 4. 关键洞察（对引擎选型）
+
+1. **FSR4 / XeSS3 的 AI 超分 + 多帧生成，手机端 = 0 部署**。瓶颈是硬件加速单元 + 生态：方案绑 RDNA4/XMX，手机 SoC 的 NPU 没被这些 PC 方案接进去，要等 SoC 厂商自家 NPU 超分成规模——今天还没有。
+2. **手机端 TAAU 更进一步是两条并行路**：① 引擎内自研 TAAU 深化（鸣潮路线，游戏层最优解，平台级 SR 拿不到引擎内部数据）；② 平台级 SGSR2 / MetalFX 时域版 + 帧生成（SoC 层兜底，SGSR2 本质就是 TAAU，帧生成再赚 2 倍帧率）。
+3. **落地建议**：短期自研 TAAU 细化（防鬼影/闪烁）+ 预留时间超分接口（MV+depth 已具备），为未来 SGSR2/FG 或 NPU 超分留好数据喂入口；FSR4/XeSS3 是更远期选项。
+
+---
+
+## 十一、参考资料
 
 - UFSH2023《鸣潮》基于 UE4 的多平台效果与性能优化实践（王宏波，库洛游戏）— [知乎](https://zhuanlan.zhihu.com/p/678876237) / [技术站](https://jishuzhan.net/article/1806989150843310082)
 - 原神画质设置：[3DM（PC 仅 TAA/SMAA）](https://m.3dmgame.com/ol/abcd/gl/151728.html)、[贴吧（移动端仅 TAA）](https://tieba.baidu.com/p/7316104318)
@@ -208,6 +288,9 @@ TBDR 下 MSAA 带宽近乎免费（tile 内折叠、resolve 在片上），但 *
 - 本地工程文档：`E:\AiDoc\UE-Mobile-MSAA-实现原理-Resolve机制与深度采样链路.md`（MSAA 成本/选型/工程坑实测）
 - 本地总结：`燕云十六声 / 鸣潮 / 使命召唤 / 光遇 移动端技术要点总结`、`头部手游画质分级方案汇总`（E:\AiDoc\）
 - 个人截帧沉淀（RenderDoc + UE 移动端 MSAA 排错实测）
+- 移动端超分：FSR 4 不落地旧硬件 [TweakTown](https://www.tweaktown.com/news/109612/fsr-4-ai-upscaling-isnt-coming-to-current-gaming-handhelds-or-ryzen-ai-devices/index.html) / [Red94](https://www.red94.net/news/fsr-4-1-for-ryzen-handhelds-uncertain-amd-vp-outlines-plan-vs-intel-arc-g3/)；生化危机安卓实测 [GameChigua](https://gamechigua.com/hot-topics/resident-evil-requiem-android-emulation)；手机超帧水平 [Vgover](https://www.vgover.com/news/213653)
+- XeSS 3：[Windows Central](https://tech.yahoo.com/gaming/articles/intel-reveals-xess-3-multi-220000223.html)、[Arc G3 掌机](https://www.91mobiles.com/hub/computex-2026-intel-arc-g3-g3-extreme-processors-announced/)、[Arc B390 vs 890M](https://www.techspot.com/news/110828-intel-claims-panther-lake-new-arc-b390-igpu.html)
+- 手机平台级超分：Snapdragon Game Super Resolution [WCCFTech](https://wccftech.com/snapdragon-game-super-resolution-brings-upscaling-to-mobile/)、[高通超分提升原神帧率](https://www.thepaper.cn/newsDetail_forward_22974591)
 
 ---
 
