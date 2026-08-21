@@ -100,7 +100,7 @@ for (FRenderViewContext& ViewContext : RenderViews)
 
 ### 2.1 `bRequiresMultiPass`（核心开关）
 
-定义：`RequiresMultiPass(NumMSAASamples, ShaderPlatform)`（MobileShadingRenderer.cpp:3191）。函数头注释点明语义：**是否需要把 translucency/decals 等拆到单独 render pass**。
+定义：`RequiresMultiPass(NumMSAASamples, ShaderPlatform)`（MobileShadingRenderer.cpp:2923-2962；2026-08-21 复核，此前记 3191 系源码版本漂移——该函数随迭代移动过位置）。函数头注释点明语义：**是否需要把 translucency/decals 等拆到单独 render pass**。
 
 ```
 bool FMobileSceneRenderer::RequiresMultiPass(int32 NumMSAASamples, EShaderPlatform ShaderPlatform)
@@ -122,6 +122,20 @@ bool FMobileSceneRenderer::RequiresMultiPass(int32 NumMSAASamples, EShaderPlatfo
 ```
 
 要点：**MSAA>1 反而返回 false（SinglePass）**，这反直觉但正确——MSAA 深度不能跨 pass 采样，只能依赖 subpass/fetch 在同一 pass 内使用。MultiPass 是「非 MSAA + 无 FBF」平台专用。
+
+#### Android Vulkan 预览的 SinglePass/MultiPass 取决于实际 ShaderPlatform（2026-08-21 修正）
+
+- **真·Android Vulkan（真机 / PreviewShaderPlatformName 真正设为 Android Vulkan / `-OverrideSP=VULKAN_ES3_1_ANDROID`）**：ShaderPlatform=`SP_VULKAN_ES3_1_ANDROID` → 决策树第一分支 `IsVulkanPlatform` 短路 → **SinglePass**（与 Preview 档位、HDR/LDR、MSAA 无关）。
+- **编辑器 PIE 设备预览（用户实测场景）**：`Previewing Platform 'Android', DeviceProfile 'Android_High'`（日志）只改 DeviceProfile/Scalability（`LaunchEngineLoop.cpp:7219` `ChangeScalabilityPreviewPlatform`），**不碰 `GShaderPlatformForFeatureLevel`**；`EditorPerProjectUserSettings.ini` 的 `PreviewShaderPlatformName=None` + `bPreviewFeatureLevelActive=False` → 保持桌面 D3D12 初始值 **`SP_PCD3D_ES3_1`**（`WindowsD3D12Device.cpp:1149`）。材质编译日志实锤 "platform **PCD3D_ES31**"。决策树在 `SP_PCD3D_ES3_1` 上：非 Vulkan/Metal/GL、非 Deferred、HDR、MSAA=1 全不命中 → **return true = MultiPass** → `RenderForwardMultiPass`（两个 render pass：SceneColorRendering + DecalsAndTranslucency，中间 resolve 深度）。**"Android 预览" ≠ "Android Vulkan shader 平台"——前者只切 DeviceProfile，后者才切 ShaderPlatform。**
+- **验证结论**：是否 SinglePass 的唯一判据是**运行时 ShaderPlatform 族**，不能从预览 UI 名称推断。判据 = 材质编译日志的 platform 名（PCD3D_ES31 = 桌面 → MultiPass；VULKAN_ES31_ANDROID = Vulkan → SinglePass）。
+- **调用链**：`bRequiresMultiPass = RequiresMultiPass(...)`（:744）→ `bRequiresMultiPass ? RenderForwardMultiPass : RenderForwardSinglePass`（:2058-2061）。
+- **呼应**：Vulkan 的 SinglePass 是真 subpass 结构（`RenderForwardSinglePass` 内 `RHICmdList.NextSubpass()`，仅 Vulkan/Metal/OpenGL override，`RHIContext.h:819` 基类空实现、D3D12 不 override → 桌面模拟时 no-op）。
+- **为什么 Vulkan 被"强制" SinglePass（2026-08-21 深挖）**：第一分支 `IsVulkanPlatform → return false`（:2925 注释 "Vulkan uses subpasses"）是**架构取舍，不是能力限制**——Vulkan 技术上完全能开两个 render pass 走 MultiPass，是 UE 设计上短路掉这条路径。三个理由：
+  1. **subpass 原生能力**：Vulkan render pass 支持多 subpass + subpass dependency（`vkCmdNextSubpass`，VulkanRenderTarget.cpp:707），base pass→decals→fog→translucency→tonemap 内联全串进一个 render pass。
+  2. **省带宽（最核心）**：SinglePass 的 SceneColor 留在 on-chip/tile，后续 subpass 直接读，**不 resolve 回内存再读回**；MultiPass 则第一个 pass 必须 resolve 到内存、第二 pass 读回 = **双倍带宽**（移动端最贵资源）。
+  3. **MSAA 兼容**：MSAA 深度无法跨 pass 采样（与 :2956 `NumMSAASamples>1 → return false` 同一原因），SinglePass 的 subpass 能拿到 on-chip MSAA 值。
+  **决策树整体规律**：所有 `return false` 分支（Vulkan/Metal+FBF/GL+FBF/LDR/MSAA）都是"SinglePass 可行且更优"；`return true`（MultiPass）是**兜底**，只留给"无 subpass 且无 FBF + HDR + 非 MSAA"的老平台（被迫拆 pass）。所以：桌面 PCD3D_ES31 = **被迫 MultiPass**（没得选）；真 Android Vulkan = **不必 MultiPass**（有更优解）。
+  **硬让 Vulkan 走 MultiPass 的后果**：① 丢 subpass 带宽优势（SceneColor 双次读写）；② MSAA 场景 decals/translucency 深度采样失效；③ 与 tonemap 内联冲突——`bTonemapSubpassInline` 仅 Vulkan 且**依赖** SinglePass 的 subpass 结构（:2141-2145 `NextSubpass + RenderMobileCustomResolve`）。
 
 ### 2.2 Tonemap 内联标志（397-399）
 
@@ -241,7 +255,7 @@ DepthCreateFlags = DepthStencilTargetable | ShaderResource | InputAttachmentRead
 
 ### 2.5 LDR vs HDR 对 SinglePass 的影响（`r.MobileHDR`，默认 1）
 
-决策树里 LDR 走 SinglePass（§2.1 决策树 L3228-3232：`!IsMobileHDR() && !IsSimulatedPlatform → return false`）。但 LDR 不只是"绕开 MultiPass 的开关"——它把 SinglePass 整体降级成**直通管线**，7 个连锁效应：
+决策树里 LDR 走 SinglePass（§2.1 决策树 L2950-2953：`!IsMobileHDR() && !IsSimulatedPlatform → return false`）。但 LDR 不只是"绕开 MultiPass 的开关"——它把 SinglePass 整体降级成**直通管线**，7 个连锁效应：
 
 | # | 维度 | HDR（默认） | LDR（`r.MobileHDR=0`） | 证据 |
 |---|---|---|---|---|
@@ -439,6 +453,35 @@ RenderBasePass → RenderDecals → RenderModulatedShadow → RenderFog → Rend
 | tonemap 内联 | 能（最后 subpass 读 input attachment） | **不能**（无 subpass → 独立 pass 读 Resolve，见 §2.2） |
 
 **推论**：tonemap 内联只有 Vulkan，不是 Metal/GL 硬件做不到，而是它们的 SinglePass **没有 subpass 结构**（`NextSubpass` no-op），内联无从谈起；要在 Metal/GL 内联需先实现"场景 pass 最后一步 FBF 读 SceneColor 写 backbuffer"的路径（技术可行，UE 未实现）。
+
+### 4.3 RenderDoc 实测：SinglePass 帧的实际 Pass 组成（2026-08-21）
+
+**实测环境**：编辑器 `-vulkan`（AndroidVulkan_Preview / Android_High）+ Forward（`r.Mobile.ShadingPath=0`）+ `r.Mobile.TonemapSubpass=1` + `r.Mobile.EarlyZPass=2`（masked prepass）+ `r.ShadowQuality=0`。RenderDoc 截帧 `2026.08.21-20.25.51_capture.rdc`。
+
+**移动渲染侧（`MobileSceneRender`）按执行顺序**：
+
+| 阶段 | Pass | draw | 说明 |
+|---|---|---|---|
+| ① GPU Scene | `ClearGPUMessageBuffer` / `ShaderPrint::UploadParameters` | 1+1 | 诊断缓冲 |
+| | `GPUScene.UploadDynamicPrimitiveShaderDataForView` | 3 | `SetInstancePrimitiveIdCS` + `ScatterUpload`（primitive/instance 动态数据） |
+| ② 光照网格 | `ComputeLightGrid`：`CullLights` → `LightDataBufferCopy` → `LightGridInject` → `LightGridFeedbackStatus` | 4 | 3D tile 光照聚类（此帧 `NumLights=0`） |
+| ③ 天空大气 | `SkyAtmosphereLUTs`：`TransmittanceLut` → `MultiScatteringLut` → `DistantSkyLightLut` → `SkyViewLut` → `CameraVolumeLut` | 5 | 大气 LUT 预计算 |
+| ④ 阴影 | `ShadowDepths`：`ClearIndirectArgInstanceCount` → `CullInstances` | 2 | `r.ShadowQuality=0`，仅 GPU culling、无实际阴影渲染 |
+| ⑤ 主场景 | **`SceneColorRendering`**（单个 render pass，`SubpassHint=CustomResolveSubpass`） | | |
+| | `MobileRenderPrePass` | 58 | **masked-only prepass**（`r.Mobile.EarlyZPass=2` → `DDM_MaskedOnly` → `bIsFullDepthPrepassEnabled=false`） |
+| | **`MobileBasePass`** | **62** | forward base pass 写 SceneColor + depth（GPU 主开销 ~2.3ms） |
+| | `Translucency` | 2 | 半透明 |
+| | `BeginOcclusionTests` | 1 | 遮挡查询 |
+| | **`MobileTonemapSubpass`** | **1** | **subpass 2 内联 tonemap：SceneColor → backbuffer（SinglePass 判别特征）** |
+| ⑥ UI | `CanvasBatchedElements` / `SlateUI` / `CopyImageToBackBuffer` | — | 编辑器 UI，非移动渲染核心（真机帧无） |
+
+**与 §4 subpass 图的对应与配置差异**：
+
+- **`MobileTonemapSubpass`（1 draw）即 subpass 2 的 `RenderMobileCustomResolve`**——SinglePass 的铁证；MultiPass 帧里它是独立 `PostProcessing/Tonemap` pass。
+- 本帧**无独立 `PostProcessing`**（bloom/tonemap）marker：tonemap 已内联进 render pass，且编辑器 LDR/简化设置下后处理被收窄。
+- `MobileRenderPrePass` 是 masked prepass（非 full prepass），由 `r.Mobile.EarlyZPass=2` 决定。
+- 无 LuxGI / SSXR pass（Forward 下该场景未触发）。
+- **尺寸约束（关联 2026-08-21 修复）**：内联 tonemap 把 SceneColor 与 backbuffer 绑进**同一个 render pass**，Vulkan 要求两者**同尺寸**。SceneColor 经 `QuantizeSceneBufferSize` 对齐到 4（视口 837→840），backbuffer 未对齐（837）→ 此前 `VulkanRenderTarget.cpp:1018` Ensure、RenderDoc 截帧崩溃。已修复：`MobileShadingRenderer.cpp` `InitViews` 内 `bTonemapSubpassInline` 时把 `SceneTexturesConfig.Extent` 覆盖为 backbuffer 尺寸（见 §9.1）。
 
 ---
 
@@ -715,6 +758,7 @@ SetupMode 枚举定义在 `SceneRenderTargetParameters.h:89-103`（None/SceneCol
 | 131 [GR Mobile SceneCapture] | `CVarMobileSceneCaptureMainViewPP`（`r.Mobile.SceneCapture.MainViewPP`，默认 1） | Mobile SceneCapture MainView 合成/后处理流程（lemonxqyang）；关联 scene capture 强制 `bResolveScene=true`（SceneCaptureRendering.cpp:879） |
 | 140 [GR LuxGI Debug] | `CVarLuxGIDepthVisibilityTestCount`（`r.LuxGI.DepthVisibilityTestCount`，默认 2） | LuxGI 间接光深度可见性测试迭代数（lemonxqyang）；与 §3.4 LuxGI 对齐呼应 |
 | 2444-2454 [GR] zhangyuhao | Deferred**Single**Pass 的 `CreateMobileBasePassUniformBuffer` 加 `MobileBasePassTextures`（ScreenSpaceOutline = `MobileCharFeatureTexture.Resolve`，`[ZXB]` 注释同 Forward 2049） | §5.2 已列 DeferredMultiPass 2540-2541；此处为 DeferredSinglePass 的对应注入 |
+| `MobileShadingRenderer.cpp` `InitViews`（`SceneTexturesConfig::Set` 前） | [ZXB Fix 2026-08-21] `bTonemapSubpassInline` 时把 `SceneTexturesConfig.Extent` 覆盖为 backbuffer 尺寸（`ViewFamily.RenderTarget`），修复 SinglePass 内联 tonemap 绑 SceneColor+backbuffer 时 `QuantizeSceneBufferSize` 4 对齐（视口 837→840）与未对齐 backbuffer（837）尺寸不一致导致的 `VulkanRenderTarget.cpp:1018` Ensure / RenderDoc 截帧崩溃（详见 §4.3） | 内联 tonemap 的 render pass 颜色附件必须同尺寸 |
 
 > 范围声明：§9.1 聚焦 Forward 路径及直接相关定制；Deferred/前置阶段另有定制未逐一展开（如 qiacongshe MMH shadow map 1314、Linsan LuxGI `InitViews` 1310、**Mobile Lighting Split `r.Mobile.DeferredLightingSplitPass` 默认 1**（`MOBILE_SPLIT_IS_ENABLED`，Deferred lighting 拆 Direct/Indirect/LocalLight 三路，MobileDeferredShadingPass.cpp:66；§9.2 引用的 MobileDeferredShading.usf 中大量 `MOBILE_SPLIT` 分支即此）**、Beiyu 514 等）。
 

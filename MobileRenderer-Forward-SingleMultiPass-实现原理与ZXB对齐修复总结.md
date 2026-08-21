@@ -13,7 +13,7 @@
 
 ## 二、核心原理：SinglePass vs MultiPass
 
-### 2.1 分流：`RequiresMultiPass` 决策树（`MobileShadingRenderer.cpp:3191-3241`）
+### 2.1 分流：`RequiresMultiPass` 决策树（`MobileShadingRenderer.cpp:2923-2962`，2026-08-21 复核；原记 3191-3241 系源码版本漂移）
 
 `RenderForward` 据此在两种实现间二选一：
 
