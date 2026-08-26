@@ -206,3 +206,33 @@ bool IsMobileToonOutlineExpandEnabled(EShaderPlatform ShaderPlatform)
 - `E:\AiDoc\UE-Mobile-Toon描边-PreOutline深度偏移污染-MSAA角色涂黑与BasePass剔除修复.md` —— 移动描边历史坑（MSAA 深度污染）
 - `E:\AiDoc\MobileShadingRenderer_RenderForward_SingleMultiPass.md` —— Single/MultiPass 渲染结构
 - 描边完整调试史：`.planning/2026-08-23-mobileforward-simpleoutline-outlinepassw/`（progress.md / task_plan.md / findings.md）
+
+---
+
+## 八、外扩描边颜色对齐黑色（2026-08-26）
+
+**决策（波哥）**：外扩描边只对 toon 对象参与渲染（`bIsSupportShadingModel` 只收 `MSM_Toon/ToonFace/ToonHair/ToonSkin/ToonStandard`，排除眉毛），描边色此前是**角色原色环**；与 CL 1088788 的图像描边语义（`MobileBasePassPixelShader.usf:1266` toon 一律描黑 `OutlineColor = 0`）不一致。**只处理 toon 描边色对齐黑色**，非 toon（`TOON_ENVIRONMENT` 场景描边）缺口本次不动。
+
+### 改动（`UE5EA/Engine/Shaders/Private/MobileToonOutlineExpand.usf`）
+
+| 位置 | 改前 | 改后 |
+|---|---|---|
+| PS 取色 | `OutBaseColor = GetMaterialBaseColor(...)`（原色环）+ `max(0,·)` | `float3(0.0f, 0.0f, 0.0f)`（纯黑），删 max |
+| 头注释 | `outputs the character's own base color as a colored outline ring` | `outputs a solid black outline ring (aligned with CL1088788's toon outline color)` |
+| ZXB 注释 | 说明原色环、不取 OutlineColor | 说明对齐 CL1088788 toon 黑边 |
+
+clip 语义（mask + AdditionalOutlineMask 跟随轮廓）保持不变。
+
+### 语义对齐前后对比
+
+| 对象 | 外扩描边（改前） | 外扩描边（改后） | CL 1088788 图像描边 |
+|---|---|---|---|
+| toon 角色/脸/发/肤/标准 | 原色环 | **黑色** ✅ 对齐 | 黑色 |
+| toon 眉毛 | 不描边（显式排除） | 不描边 | 黑边（无单独排除） |
+| 非 toon TOON_ENVIRONMENT | 不描边（过滤不收） | 不描边 | 场景描边色（`SceneOutlineColor`） |
+
+### 备注
+
+- **p4 edit** 已挂（client `DJANGOZHAN-PCFW_GR_DevTest`；文件在 depot headRev1，headChange 1103664）；行尾 LF 干净；`p4 diff` 仅 2 处（头注释 + PS 取色）。
+- **非 toon 场景描边仍缺失**：`TOON_ENVIRONMENT` 在外扩模式下既不描黑也不描场景色（图像描边链被 `!IsMobileToonOutlineExpandEnabled` 掐断 → `MobileCharacterOutline` fallback Black → base pass 描边块 `OutlineMask=0` 失效）。属已知缺口，波哥决策暂不处理。
+- **待验证**：编译 + 切 AndroidVulkan 截图确认黑描边。
