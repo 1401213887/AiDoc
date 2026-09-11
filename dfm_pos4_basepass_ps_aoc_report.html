@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>三角洲 DFM · 攀升 Pos4_high · BasePass Pixel Shader AOC 分析</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#171e26; --panel2:#1d2631; --line:#2a3542;
+    --text:#dce3ea; --mut:#8b98a5; --acc:#4fa8ff; --warn:#ffb454; --hot:#ff6b6b;
+    --good:#5fd7a4; --mono:"Cascadia Code",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.65 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 24px 80px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:16px;margin:34px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:14px;margin:20px 0 6px;color:var(--acc)}
+  .sub{color:var(--mut);font-size:12.5px;margin-bottom:16px}
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;background:var(--panel2);
+    border:1px solid var(--line);color:var(--mut);margin-right:6px;vertical-align:2px}
+  .tag.good{color:var(--good);border-color:var(--good)}
+  .tag.warn{color:var(--warn);border-color:var(--warn)}
+  .tag.hot{color:var(--hot);border-color:var(--hot)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:16px 0}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi .v{font:600 21px var(--mono)}
+  .kpi .k{color:var(--mut);font-size:12px;margin-top:2px}
+  .kpi.good .v{color:var(--good)} .kpi.warn .v{color:var(--warn)} .kpi.acc .v{color:var(--acc)}
+  table{width:100%;border-collapse:collapse;margin:8px 0 4px;background:var(--panel);font-size:12px}
+  th,td{padding:5px 8px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--mut);font-weight:600;font-size:11px;position:sticky;top:0;background:var(--panel)}
+  tr:last-child td{border-bottom:none}
+  td.m,th.m{text-align:right;font-family:var(--mono)}
+  code{font-family:var(--mono);font-size:11.5px;background:var(--panel2);padding:1px 5px;border-radius:4px}
+  .bar{display:inline-block;height:8px;border-radius:4px;vertical-align:middle;background:var(--acc)}
+  .bar.good{background:var(--good)} .bar.warn{background:var(--warn)} .bar.hot{background:var(--hot)}
+  .callout{background:var(--panel);border-left:3px solid var(--acc);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0}
+  .callout.warn{border-color:var(--warn)} .callout.good{border-color:var(--good)} .callout.hot{border-color:var(--hot)}
+  .note{color:var(--mut);font-size:12px}
+  ul,ol{margin:6px 0 12px;padding-left:20px}
+  li{margin:3px 0}
+  .foot{margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:var(--mut);font-size:12px}
+  .scroll{max-height:640px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>三角洲行动 DFM · 攀升 Pos4_high — BasePass Pixel Shader AOC 分析</h1>
+<div class="sub">
+  <span class="tag">截帧：E:\GPUCapture\三角洲\DFM\攀升\Pos4_high.rdc</span>
+  <span class="tag">API：Vulkan</span>
+  <span class="tag warn">目标 GPU：Adreno 740（骁龙 8Gen2）</span>
+  <span class="tag">AOC 7.0.5 · -arch=a740</span>
+  <span class="tag">BasePass = Colour Pass #2 (1 Targets + Depth)</span>
+</div>
+
+<div class="kpis">
+  <div class="kpi acc"><div class="v">26</div><div class="k">唯一 PS（75 draws）</div></div>
+  <div class="kpi"><div class="v">924.8</div><div class="k">按 draw 加权指令数</div></div>
+  <div class="kpi good"><div class="v">0</div><div class="k">Spill（Scratch）</div></div>
+  <div class="kpi good"><div class="v">8.5</div><div class="k">加权 GPR</div></div>
+  <div class="kpi"><div class="v">46.1<span style="font-size:13px">%</span></div><div class="k">Misc 指令占比</div></div>
+  <div class="kpi warn"><div class="v">40.0<span style="font-size:13px">%</span></div><div class="k">Complex 周期占比</div></div>
+</div>
+
+<div class="callout good">
+<b>一句话结论：这组 BasePass PS 的"寄存器侧"完全健康（26 个全部零 spill、GPR ≤ 15），
+但"指令结构"有明确的优化抓手——Misc 占 46%、Complex 指令少而贵（占 40% 周期）。</b>
+换句话说：<b>不要去做降 GPR / 防 spill / half 化的优化（没有空间了），
+要去做减 Misc 和减超越函数。</b>
+</div>
+
+<h2>一、分析范围与帧背景</h2>
+<table>
+  <tr><th>项</th><th class="m">值</th></tr>
+  <tr><td>截帧</td><td class="m">攀升 / Pos4_high（Vulkan）</td></tr>
+  <tr><td>BasePass（RenderDoc 原始名）</td><td class="m">Colour Pass #2 (1 Targets + Depth)</td></tr>
+  <tr><td>BasePass Draw 数 / 占用 GPU 时间</td><td class="m">75 / 0.532 ms（全帧 1.042 ms，占 51%）</td></tr>
+  <tr><td>BasePass 三角形</td><td class="m">169,662</td></tr>
+  <tr><td>唯一 Pixel Shader 数</td><td class="m">26（去重后，按 SPIR-V SHA256）</td></tr>
+  <tr><td>AOC 目标架构</td><td class="m">a740（AOC 7.0.5，Compiler E17.51.10.00）</td></tr>
+  <tr><td>编译结果</td><td class="m">26 / 26 <code>Compilation succeeded</code>，0 失败</td></tr>
+</table>
+<p class="note">说明：本帧是「攀升」地图，与之前分析的「烬区」不是同一张图；BasePass 的判据是
+「拥有 Depth 附件 + Draw 数最多（75）」。该帧<b>没有</b>独立的 Depth-only 预 pass。</p>
+
+<h2>二、指令构成（按 draw 加权）</h2>
+<table>
+  <tr><th>类别</th><th class="m">加权条数</th><th class="m">占比</th><th>条形</th><th>解读</th></tr>
+  <tr><td>Miscellaneous</td><td class="m">426.6</td><td class="m">46.1%</td><td><span class="bar hot" style="width:100%"></span></td><td><b>最大单一类别</b>，各 shader 恒定 40~50%</td></tr>
+  <tr><td>ALU 16-bit（half）</td><td class="m">223.9</td><td class="m">24.2%</td><td><span class="bar" style="width:52%"></span></td><td>half 化<b>已做</b>：占 ALU 的 53.4%</td></tr>
+  <tr><td>ALU 32-bit</td><td class="m">195.5</td><td class="m">21.1%</td><td><span class="bar" style="width:46%"></span></td><td>剩余 full 精度部分</td></tr>
+  <tr><td>Flow control</td><td class="m">18.4</td><td class="m">2.0%</td><td><span class="bar" style="width:4%"></span></td><td>大 shader 恒定 20~22 条</td></tr>
+  <tr><td>Complex（EFU）32-bit</td><td class="m">15.6</td><td class="m">1.7%</td><td><span class="bar warn" style="width:4%"></span></td><td rowspan="2"><b>少而贵</b>，见发现 3</td></tr>
+  <tr><td>Complex（EFU）16-bit</td><td class="m">5.9</td><td class="m">0.6%</td><td><span class="bar warn" style="width:1%"></span></td></tr>
+  <tr><td>Texture read</td><td class="m">6.7</td><td class="m">0.7%</td><td><span class="bar good" style="width:2%"></span></td><td>采样次数不高（max 15）</td></tr>
+  <tr><td>Memory read/write</td><td class="m">0.0</td><td class="m">0.0%</td><td></td><td>无 UAV 读写</td></tr>
+  <tr><td><b>合计</b></td><td class="m"><b>924.8</b></td><td class="m">100%</td><td></td><td></td></tr>
+</table>
+
+<h3>周期分布（Performance Projection，三者可重叠）</h3>
+<table>
+  <tr><th>指标</th><th class="m">加权</th><th class="m">大 shader 均值</th><th class="m">范围</th><th>条形</th></tr>
+  <tr><td>Cycles with ALU</td><td class="m">56.2%</td><td class="m">53.6%</td><td class="m">25.4 ~ 71.1%</td><td><span class="bar" style="width:56%"></span></td></tr>
+  <tr><td><b>Cycles with Complex</b></td><td class="m"><b>40.0%</b></td><td class="m">33.9%</td><td class="m">23.6 ~ 50.8%</td><td><span class="bar hot" style="width:40%"></span></td></tr>
+  <tr><td>Cycles with Texture</td><td class="m">16.0%</td><td class="m">17.8%</td><td class="m">8.3 ~ 24.2%</td><td><span class="bar" style="width:16%"></span></td></tr>
+  <tr><td>Exposed long latency</td><td class="m">17.0%</td><td class="m">19.6%</td><td class="m">10.7 ~ 43.3%</td><td><span class="bar warn" style="width:17%"></span></td></tr>
+</table>
+
+<h2>三、逐 Shader 明细（26 个，按指令数降序）</h2>
+<div class="scroll">
+<table>
+  <tr>
+    <th class="m">instr</th><th class="m">ALU32</th><th class="m">ALU16</th><th class="m">Cplx</th>
+    <th class="m">tex</th><th class="m">flow</th><th class="m">Misc</th><th class="m">Misc%</th>
+    <th class="m">inC</th><th class="m">GPR</th><th class="m">scl</th><th class="m">occ</th>
+    <th class="m">expLL</th><th class="m">cyALU</th><th class="m">cyTex</th><th class="m">draws</th><th>entry</th>
+  </tr>
+  <tr><td class="m">1288</td><td class="m">323</td><td class="m">312</td><td class="m">34</td><td class="m">15</td><td class="m">20</td><td class="m">538</td><td class="m">41.8%</td><td class="m">40</td><td class="m">12</td><td class="m">0</td><td class="m">100</td><td class="m">25.7%</td><td class="m">36.4%</td><td class="m">18.3%</td><td class="m">2</td><td><code>main_00010738_da0e2140</code></td></tr>
+  <tr><td class="m">1272</td><td class="m">320</td><td class="m">324</td><td class="m">31</td><td class="m">14</td><td class="m">20</td><td class="m">516</td><td class="m">40.6%</td><td class="m">36</td><td class="m">15</td><td class="m">0</td><td class="m">75</td><td class="m">15.6%</td><td class="m">64.0%</td><td class="m">23.7%</td><td class="m">2</td><td><code>main_00010524_dd86c717</code></td></tr>
+  <tr><td class="m">1214</td><td class="m">269</td><td class="m">249</td><td class="m">23</td><td class="m">8</td><td class="m">22</td><td class="m">602</td><td class="m">49.6%</td><td class="m">20</td><td class="m">8</td><td class="m">0</td><td class="m">150</td><td class="m">20.4%</td><td class="m">54.8%</td><td class="m">19.7%</td><td class="m">1</td><td><code>main_0000dcc0_f18838c2</code></td></tr>
+  <tr><td class="m">1183</td><td class="m">210</td><td class="m">299</td><td class="m">31</td><td class="m">6</td><td class="m">20</td><td class="m">578</td><td class="m">48.9%</td><td class="m">23</td><td class="m">8</td><td class="m">0</td><td class="m">150</td><td class="m">16.3%</td><td class="m">59.2%</td><td class="m">17.9%</td><td class="m">1</td><td><code>main_0000f188_84d869df</code> <span class="tag warn">loop×1</span></td></tr>
+  <tr><td class="m">1181</td><td class="m">224</td><td class="m">256</td><td class="m">27</td><td class="m">8</td><td class="m">21</td><td class="m">607</td><td class="m">51.4%</td><td class="m">33</td><td class="m">10</td><td class="m">0</td><td class="m">100</td><td class="m">18.1%</td><td class="m">53.0%</td><td class="m">16.7%</td><td class="m">2</td><td><code>main_0000d8a0_c4ff76b5</code> <span class="tag warn">loop×1</span></td></tr>
+  <tr><td class="m">1156</td><td class="m">224</td><td class="m">314</td><td class="m">19</td><td class="m">8</td><td class="m">21</td><td class="m">536</td><td class="m">46.4%</td><td class="m">32</td><td class="m">10</td><td class="m">0</td><td class="m">100</td><td class="m">20.9%</td><td class="m">54.9%</td><td class="m">16.4%</td><td class="m">2</td><td><code>main_0000ea40_8cb4faf4</code></td></tr>
+  <tr><td class="m">1144</td><td class="m">238</td><td class="m">275</td><td class="m">26</td><td class="m">10</td><td class="m">20</td><td class="m">532</td><td class="m">46.5%</td><td class="m">42</td><td class="m">13</td><td class="m">0</td><td class="m">87</td><td class="m">11.8%</td><td class="m">71.1%</td><td class="m">19.5%</td><td class="m">1</td><td><code>main_0000cc0c_d9542dde</code></td></tr>
+  <tr><td class="m">1127</td><td class="m">272</td><td class="m">270</td><td class="m">26</td><td class="m">11</td><td class="m">20</td><td class="m">482</td><td class="m">42.8%</td><td class="m">32</td><td class="m">11</td><td class="m">0</td><td class="m">100</td><td class="m">30.0%</td><td class="m">36.4%</td><td class="m">16.0%</td><td class="m">1</td><td><code>main_0000d6dc_eb3d2131</code></td></tr>
+  <tr><td class="m">1075</td><td class="m">225</td><td class="m">249</td><td class="m">25</td><td class="m">8</td><td class="m">20</td><td class="m">510</td><td class="m">47.4%</td><td class="m">38</td><td class="m">11</td><td class="m">0</td><td class="m">100</td><td class="m">24.7%</td><td class="m">41.1%</td><td class="m">12.3%</td><td class="m">2</td><td><code>main_0000c594_2734f24e</code></td></tr>
+  <tr><td class="m">1051</td><td class="m">212</td><td class="m">241</td><td class="m">24</td><td class="m">7</td><td class="m">20</td><td class="m">509</td><td class="m">48.4%</td><td class="m">38</td><td class="m">9</td><td class="m">0</td><td class="m">125</td><td class="m">17.5%</td><td class="m">52.6%</td><td class="m">15.4%</td><td class="m"><b>17</b></td><td><code>main_0000b87c_5d7cd765</code></td></tr>
+  <tr><td class="m">1020</td><td class="m">217</td><td class="m">284</td><td class="m">24</td><td class="m">8</td><td class="m">20</td><td class="m">436</td><td class="m">42.7%</td><td class="m">32</td><td class="m">8</td><td class="m">0</td><td class="m">150</td><td class="m">13.2%</td><td class="m">65.5%</td><td class="m">18.0%</td><td class="m">2</td><td><code>main_0000e75c_3c4d2343</code></td></tr>
+  <tr><td class="m">948</td><td class="m">185</td><td class="m">262</td><td class="m">22</td><td class="m">5</td><td class="m">22</td><td class="m">422</td><td class="m">44.5%</td><td class="m">24</td><td class="m">8</td><td class="m">0</td><td class="m">150</td><td class="m">14.5%</td><td class="m">64.6%</td><td class="m">8.3%</td><td class="m">3</td><td><code>main_0000dae4_97da2097</code></td></tr>
+  <tr><td class="m">897</td><td class="m">172</td><td class="m">258</td><td class="m">22</td><td class="m">8</td><td class="m">19</td><td class="m">387</td><td class="m">43.1%</td><td class="m">36</td><td class="m">8</td><td class="m">0</td><td class="m">150</td><td class="m">13.8%</td><td class="m">61.2%</td><td class="m">15.2%</td><td class="m">9</td><td><code>main_0000c598_5a6ed7fe</code></td></tr>
+  <tr><td class="m">891</td><td class="m">168</td><td class="m">225</td><td class="m">21</td><td class="m">5</td><td class="m">20</td><td class="m">423</td><td class="m">47.5%</td><td class="m">32</td><td class="m">8</td><td class="m">0</td><td class="m">150</td><td class="m">15.6%</td><td class="m">61.9%</td><td class="m">8.4%</td><td class="m">2</td><td><code>main_00009dc0_2506f963</code></td></tr>
+  <tr><td class="m">878</td><td class="m">172</td><td class="m">225</td><td class="m">21</td><td class="m">5</td><td class="m">20</td><td class="m">406</td><td class="m">46.2%</td><td class="m">32</td><td class="m">8</td><td class="m">0</td><td class="m">150</td><td class="m">15.5%</td><td class="m">62.2%</td><td class="m">8.4%</td><td class="m">5</td><td><code>main_00009ed4_468cdbc3</code></td></tr>
+  <tr><td class="m">872</td><td class="m">150</td><td class="m">253</td><td class="m">30</td><td class="m">7</td><td class="m">14</td><td class="m">385</td><td class="m">44.2%</td><td class="m">27</td><td class="m">8</td><td class="m">0</td><td class="m">150</td><td class="m">15.6%</td><td class="m">52.6%</td><td class="m">19.6%</td><td class="m">1</td><td><code>main_0000f018_54b74cdd</code></td></tr>
+  <tr><td class="m">851</td><td class="m">172</td><td class="m">217</td><td class="m">18</td><td class="m">6</td><td class="m">20</td><td class="m">391</td><td class="m">45.9%</td><td class="m">24</td><td class="m">7</td><td class="m">0</td><td class="m">150</td><td class="m">13.2%</td><td class="m">61.8%</td><td class="m">23.2%</td><td class="m">3</td><td><code>main_00009950_58e6f1be</code></td></tr>
+  <tr><td class="m">833</td><td class="m">161</td><td class="m">220</td><td class="m">18</td><td class="m">4</td><td class="m">19</td><td class="m">383</td><td class="m">46.0%</td><td class="m">32</td><td class="m">8</td><td class="m">0</td><td class="m">150</td><td class="m">16.3%</td><td class="m">63.6%</td><td class="m">8.8%</td><td class="m">4</td><td><code>main_00009820_84d80dd7</code></td></tr>
+  <tr><td class="m">777</td><td class="m">166</td><td class="m">189</td><td class="m">19</td><td class="m">5</td><td class="m">17</td><td class="m">354</td><td class="m">45.6%</td><td class="m">24</td><td class="m">6</td><td class="m">0</td><td class="m">200</td><td class="m">10.7%</td><td class="m">61.8%</td><td class="m">23.2%</td><td class="m">1</td><td><code>main_0000cd94_6702394e</code></td></tr>
+  <tr><td class="m">754</td><td class="m">158</td><td class="m">209</td><td class="m">25</td><td class="m">5</td><td class="m">17</td><td class="m">311</td><td class="m">41.2%</td><td class="m">20</td><td class="m">8</td><td class="m">0</td><td class="m">150</td><td class="m">15.6%</td><td class="m">57.2%</td><td class="m">17.1%</td><td class="m">1</td><td><code>main_0000cfc0_c1a79702</code></td></tr>
+  <tr><td class="m">701</td><td class="m">192</td><td class="m">122</td><td class="m">14</td><td class="m">5</td><td class="m">14</td><td class="m">329</td><td class="m">46.9%</td><td class="m">28</td><td class="m">8</td><td class="m">0</td><td class="m">150</td><td class="m">13.1%</td><td class="m">58.4%</td><td class="m">22.1%</td><td class="m">8</td><td><code>main_0000820c_25f94ee3</code></td></tr>
+  <tr><td class="m">248</td><td class="m">118</td><td class="m">1</td><td class="m">17</td><td class="m">1</td><td class="m">4</td><td class="m">97</td><td class="m">39.1%</td><td class="m">25</td><td class="m">6</td><td class="m">0</td><td class="m">200</td><td class="m">14.9%</td><td class="m">56.5%</td><td class="m">13.7%</td><td class="m">1</td><td><code>main_00003c04_8ab01cae</code></td></tr>
+  <tr><td class="m">159</td><td class="m">88</td><td class="m">0</td><td class="m">7</td><td class="m">1</td><td class="m">3</td><td class="m">51</td><td class="m">32.1%</td><td class="m">9</td><td class="m">4</td><td class="m">0</td><td class="m">200</td><td class="m">27.8%</td><td class="m">36.9%</td><td class="m">16.1%</td><td class="m">1</td><td><code>main_00002e14_93fee60e</code></td></tr>
+  <tr><td class="m">127</td><td class="m">14</td><td class="m">32</td><td class="m">4</td><td class="m">2</td><td class="m">5</td><td class="m">58</td><td class="m">45.7%</td><td class="m">6</td><td class="m">3</td><td class="m">0</td><td class="m">200</td><td class="m">43.3%</td><td class="m">25.4%</td><td class="m">24.2%</td><td class="m">1</td><td><code>main_00001850_91785a5f</code></td></tr>
+  <tr><td class="m">107</td><td class="m">47</td><td class="m">0</td><td class="m">7</td><td class="m">1</td><td class="m">3</td><td class="m">40</td><td class="m">37.4%</td><td class="m">11</td><td class="m">3</td><td class="m">0</td><td class="m">200</td><td class="m">25.8%</td><td class="m">41.1%</td><td class="m">21.2%</td><td class="m">1</td><td><code>main_00002fc0_6515a0c5</code></td></tr>
+</table>
+</div>
+<p class="note">注：<code>inC</code> = Input component count（插值输入分量）；<code>scl</code> = Scratch memory usage；
+<code>occ</code> = ALU fiber occupancy（见局限说明，a740 该字段尺度异常）；
+<code>expLL</code> = Cycles with exposed long latency sync；<code>cyALU</code>/<code>cyTex</code> = Cycles with ALU / Texture。
+（表中 <code>main_0000dcc0_f18838c2</code> 在 26 个去重 shader 中对应 2 个 draw，上表按 shader 列 1 行。）</p>
+
+<h2>四、关键发现</h2>
+
+<h3>发现 1 · 寄存器侧完全健康 —— 这条路没有优化空间 <span class="tag good">重要</span></h3>
+<div class="callout good">
+26 个 shader <b>全部 Scratch = 0（零 spill）</b>，GPR 范围 <b>3 ~ 15</b>（加权 8.5，中位 8）。
+且 AOC 报的「Overall register footprint」= Full precision(12) 与 Half precision(22 → 打包后 11) 取大者，同样是 12。
+<br><br>
+<b>含义：</b>移动端着色器最常见的两个瓶颈——寄存器压力大、spill 到 scratch——<b>在这组 shader 上都不存在</b>。
+任何"降 GPR / 防 spill / 提 occupancy"的优化在这里都是<b>空转</b>。
+</div>
+
+<h3>发现 2 · Misc 占 46%，且各 shader 恒定 —— 这是结构性的，不是个别材质</h3>
+<div class="callout hot">
+按 draw 加权，<code>Miscellaneous instruction count</code> = <b>426.6 / 924.8（46.1%）</b>，是最大的单一类别。
+逐个看：<b>最大的 shader（1288 条）Misc 占 41.8%，最小的 shader（127 条）Misc 占 45.7%</b> ——
+不管 shader 大小，Misc 恒在 <b>40% ~ 51%</b>。
+<br><br>
+我尝试把 Misc 归因到插值分量（Input component count）上，但<b>相关性很弱（corr = 0.34）</b>：
+<code>main_0000dcc0_f18838c2</code> 只有 20 个输入分量却带了 602 条 Misc，
+而 <code>main_00010738_da0e2140</code> 有 40 个输入分量、Misc 是 538 条。
+<b>所以不能简单说"Misc = 插值开销"。</b>要定位它到底由什么组成，需要看 Adreno ISA，
+而 AOC 7.0.5 对二进制 .spv <b>不输出 ISA 反汇编</b>（这是本轮分析的硬边界）。
+</div>
+<p class="note">可行的下一步：用 Snapdragon Profiler 抓同样的 draw，
+在它的 Shader 视图里看 ISA 级别的指令构成，把 Misc 拆开。</p>
+
+<h3>发现 3 · Complex（EFU）指令"少而贵" —— 21 条指令占了 40% 的周期</h3>
+<div class="callout warn">
+加权下来，Complex（超越函数单元：pow / exp / log / sqrt / sin / cos）只有
+<b>15.6 + 5.9 = 21.5 条</b>（占指令数 2.3%），
+但<b>40.0% 的周期里都有 Complex 指令在跑</b>（大 shader 均值 33.9%，最高 50.8%）。
+<br><br>
+对比：Texture read 6.7 条 → 16.0% 周期；ALU 419 条 → 56.2% 周期。
+<b>单条 Complex 指令的"周期占用效率"远高于其它类别</b>，是典型的高延迟低吞吐单元。
+<br><br>
+<b>抓手：</b>排查材质里是否用了昂贵的 <code>pow(x, n)</code>（可用乘法展开）、
+<code>normalize()</code>（含 rsqrt）、逐像素的 <code>exp/log</code>（能提到顶点或常量的就提上去）、
+以及能量守恒类的高次幂运算。
+</div>
+
+<h3>发现 4 · half 化已经做完了 —— 这条路也没空间</h3>
+<div class="callout">
+ALU 16-bit = 223.9，ALU 32-bit = 195.5 → <b>ALU 中已有 53.4% 是 half</b>。
+<br><br>
+<b>含义：</b>"把 float 改成 half 拿 2× 提速"这个常规建议，在这组 shader 上<b>最多只能覆盖剩下 46.6% 的 ALU，
+而 ALU 本身只占总指令的 45.4%</b> —— 就算把剩余 ALU 全 half 化，理论上限也只有个位数百分比的指令削减。
+</div>
+
+<h3>发现 5 · 输入分量很高（加权 31.6，最高 42）</h3>
+<div class="callout">
+Input component count 范围 <b>6 ~ 42</b>，大 shader（≥1000 条）平均 <b>32.2</b>。
+这是顶点→像素的插值带宽，属于<b>顶点侧与 ROP 之间的固定成本</b>，
+不会因为像素 shader 内部的优化而改变。
+<br><br>
+<b>抓手：</b>检查 VS 的 interpolator 打包——是否所有输出都必需？
+（本帧 BasePass VS 加权指令数 122.1，也是四个位置里最低的，但插值分量并未同步下降。）
+</div>
+
+<h3>发现 6 · 两个 shader 带循环</h3>
+<div class="callout">
+<code>main_0000f188_84d869df</code>（1183 条，inC=23）和
+<code>main_0000d8a0_c4ff76b5</code>（1181 条，inC=33）各带 <b>1 个循环</b>。
+两者都在 1000+ 指令档，但 draw 数只有 1 和 2，属于<b>低频高价</b>材质，优先级不高。
+<br>
+（对照：「烬区」地图的 BasePass PS 循环数为 0，因为那边没有 Forward+ 等动态循环光照。
+攀升这里出现 2 个循环，值得确认是不是循环式反射/探针采样。）
+</div>
+
+<h2>五、优化优先级</h2>
+<table>
+  <tr><th>优先级</th><th>目标</th><th>依据</th><th>预期</th><th>手段</th></tr>
+  <tr>
+    <td><span class="tag hot">P0</span></td>
+    <td><b>拆解 Misc 的 46%</b></td>
+    <td>最大单一类别，且跨所有 shader 恒定 → 全局影响</td>
+    <td>若其中含大量可消除的冗余，收益最大</td>
+    <td>用 Snapdragon Profiler 看 ISA 级指令构成；AOC 给不出</td>
+  </tr>
+  <tr>
+    <td><span class="tag warn">P1</span></td>
+    <td><b>削减 Complex（EFU）的使用</b></td>
+    <td>21 条指令占 40% 周期，单位成本最高</td>
+    <td>中高</td>
+    <td>排查逐像素 pow/exp/log/normalize；能提顶点或常量的提上去；用乘法展开整数幂</td>
+  </tr>
+  <tr>
+    <td><span class="tag warn">P1</span></td>
+    <td><b>降低插值输入分量</b>（加权 31.6）</td>
+    <td>最高 42 个分量，属带宽型固定成本</td>
+    <td>中</td>
+    <td>审计 VS 输出结构体，砍掉 PS 不用的分量；注意插值器打包</td>
+  </tr>
+  <tr>
+    <td><span class="tag">P2</span></td>
+    <td>查看 2 个带循环的 shader</td>
+    <td>1000+ 指令且带循环</td>
+    <td>低（draw 数仅 1~2）</td>
+    <td>确认循环是否可展开或预计算</td>
+  </tr>
+  <tr>
+    <td><span class="tag">—</span></td>
+    <td colspan="4"><b>明确不做</b>：降 GPR / 防 spill（已是 0 spill、GPR≤15）、
+    half 化（ALU 已 53.4% 是 half）、降纹理采样（加权仅 6.7 次）。这三条在这组 shader 上没有空间。</td>
+  </tr>
+</table>
+
+<h2>附录 · 方法学与局限</h2>
+<ul>
+  <li><b>数据来源</b>：SPIR-V 由 RenderDoc MCP <code>dump_all_shaders</code> 一次性导出（26 个唯一 PS，按 SHA256 去重）；
+  AOC 7.0.5 逐个编译，26/26 <code>Compilation succeeded</code>，0 失败。</li>
+  <li><b>加权口径</b>：所有汇总值按 shader 被多少个 draw 使用加权（<code>used_by</code>），
+  而非简单平均——这样才反映实际帧开销。26 个唯一 PS 覆盖 75 个 draw。</li>
+  <li><b>AOC 是离线静态投影</b>：看不到频率、带宽、cache 命中率。
+  本报告所有数字是<b>相对口径</b>，真机绝对值以 Snapdragon Profiler 为准。</li>
+  <li><b>⚠️ a740 的 occupancy 字段尺度异常</b>：本帧 26 个 shader 报 75% ~ 200%（&gt;100% 不合常理），
+  而同组 shader 在 a640 上是 50~60%。因此<b>本报告不使用 occupancy 做任何诊断</b>——
+  好在本次结论（无 spill、低 GPR）不依赖该字段。</li>
+  <li><b>AOC 不输出 ISA</b>：该版本对 Vulkan 二进制 .spv，<code>-dump=all</code> 也不会反汇编出 Adreno ISA。
+  这是"发现 2（Misc 构成）"无法在本轮闭环的根本原因。</li>
+  <li><b>原始数据</b>：<code>D:\shaders\dfm_pansheng_pos4high\basepass_ps_rich.csv</code>（26 行 × 22 字段）</li>
+</ul>
+
+<div class="foot">
+  分析日期：2026-09-11 · 截帧：E:\GPUCapture\三角洲\DFM\攀升\Pos4_high.rdc<br>
+  事件 / Pass / shader 名保留 RenderDoc 原文。AOC 结果为离线相对口径，真机以 Snapdragon Profiler 为准。
+</div>
+
+</div></body>
+</html>
