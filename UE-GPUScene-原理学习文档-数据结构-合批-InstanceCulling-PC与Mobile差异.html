@@ -1155,16 +1155,187 @@ DrawInstanceId   - the instance ID (SV_InstanceID) in the current draw</code></p
   顺带：<code>BuildMeshDrawCommandPrimitiveIdBuffer</code> 里那个按 <code>InstanceFactor</code> 复制多份的循环 <span class="ref">MeshDrawCommands.cpp:692-696</span> 带有 <code>//@todo - refactor into instance step rate in the RHI</code>，说明这是尚未重构完的旧机制。
 </div>
 
-<h4>⑤ 移动端根本没有这条流</h4>
+<h4>⑤ 移动端没有这条顶点流 —— 但被换掉的不是它，是整条查表链</h4>
 
-<p>UBO 路径下，shader 侧连属性都不声明，直接把常量 <code>0u</code> 传进去 <span class="ref">VertexFactoryCommon.ush:26-31</span>；C++ 侧也让 <code>PrimitiveIdStreamIndex</code> 失效 <span class="ref">MeshPassProcessor.cpp:1711</span>，转而用<b>动态 UBO 偏移</b>表达「这个 draw 用哪一格」：</p>
+<p><b>先把「没有」这个词限定清楚</b>，否则极易读成「这条 buffer 在移动端被删了」。事实要分三层看：</p>
+
+<table>
+<thead><tr><th style="width:250px">问法</th><th>答案与证据</th></tr></thead>
+<tbody>
+<tr><td><code>InstanceIdOffsetBuffer</code> 这块 buffer 还在吗？</td><td><b>在</b>。照样创建、照样上传 CPU 前缀和 <span class="ref">InstanceCullingContext.cpp:885-886</span></td></tr>
+<tr><td>还有人读它吗？</td><td><b>有</b>。剔除 CS 仍用它算每个 draw 的写入起点：<code>InstanceIdOffsetBuffer[Payload.IndirectArgIndex]</code>，SRV 绑定见 <span class="ref">InstanceCullingContext.cpp:611,930</span></td></tr>
+<tr><td>它还是顶点流吗？</td><td><b>不是</b>。<code>SceneArgs.PrimitiveIdsBuffer</code> 被显式置空 <span class="ref">InstanceCullingContext.cpp:1866</span>，<code>PrimitiveIdStreamIndex</code> 随之失效 <span class="ref">MeshPassProcessor.cpp:1711</span></td></tr>
+</tbody>
+</table>
+
+<p>所以准确说法是：<b>移动端没有的是「这条顶点流」，不是「这条 buffer」</b>。而真正被整体替换掉的，是 <code>InstanceIdsBuffer</code> 的那条<b>查表链</b> —— 因为移动端把完整数据直接塞进了那条 buffer。下面按「UBO 里装什么 → 换了哪两步 → shader 读到什么 → 代价与门控」四步拆开。</p>
+
+<h5>⑤-1 UBO 里装的不是数据，是一个指向那条 buffer 的 SRV</h5>
+
+<p>引擎先把 <code>InstanceIdsBuffer</code> 包成一个「全局 uniform buffer」，再挂到静态槽 <code>BatchedPrimitive</code> 上。这个 UBO 的参数结构只有一个成员：</p>
+
+<pre><code><span class="c">// InstanceCullingContext.h:30-32</span>
+BEGIN_GLOBAL_SHADER_PARAMETER_STRUCT(FBatchedPrimitiveParameters,RENDERER_API)
+	SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer&lt;float4&gt;, Data)   <span class="c">// ← 唯一成员，是个 buffer 视图，不是数据本身</span>
+END_GLOBAL_SHADER_PARAMETER_STRUCT()</code></pre>
+
+<p>注册与填充：</p>
+
+<pre><code><span class="c">// ① 注册成静态槽 + UniformView 用法</span>
+IMPLEMENT_STATIC_UNIFORM_BUFFER_SLOT(BatchedPrimitive);                       <span class="c">// InstanceCullingContext.cpp:74</span>
+IMPLEMENT_STATIC_AND_SHADER_UNIFORM_BUFFER_STRUCT_EX(FBatchedPrimitiveParameters,
+    "BatchedPrimitive", BatchedPrimitive,
+    FShaderParametersMetadata::EUsageFlags::UniformView);                     <span class="c">// :75</span>
+
+<span class="c">// ② SRV 指向的就是那条 InstanceIdsBuffer</span>
+BatchedPrimitiveParameters-&gt;Data = GraphBuilder.CreateSRV(InstanceIdsBuffer); <span class="c">// :1057（延迟路径 :1464）</span>
+InstanceCullingDrawParams-&gt;BatchedPrimitive = GraphBuilder.CreateUniformBuffer(BatchedPrimitiveParameters);  <span class="c">// :1058</span></code></pre>
+
+<p>由此三点可以确定：这个 UBO 的 layout 只有 <b>16 字节 / 1 个成员 / 类型是 buffer SRV</b>；shader 里的 <code>BatchedPrimitive.Data[i]</code> 中，<code>Data</code> 就是那条 SRV、<code>i</code> 是<b>元素下标</b>；所以 <b>Uniform Buffer View</b> 这个名字的含义是 —— <b>用一个全局 UB 静态槽 + 每 draw 的动态偏移，去「看」任意一段 buffer</b>，而不是把数据搬进 UBO。</p>
+
+<p>顺带说明 <code>MeshPassProcessor.cpp</code> 里那个同名的 <code>FDynamicBatchedPrimitiveLayout</code> <span class="ref">MeshPassProcessor.cpp:2455-2471</span>：它是给「动态 pass」用的等效 layout（把 RDG_SRV 换成普通 SRV，好在 RDG pass 内更新 UB），建法完全一样 —— <code>CreateShaderResourceView(SceneArgs.PrimitiveIdsBuffer)</code> 后塞进 UB <span class="ref">MeshPassProcessor.cpp:2519-2526</span>。名字一样、语义一样，只是服务于另一条提交路径，不要当成两套机制。</p>
+
+<h5>⑤-2 被替换的是「查表 + 解包」两步，不是 offset 表</h5>
+
+<p>四条数据流的逐一对照（这是本节最该记住的一张表）：</p>
+
+<table>
+<thead><tr><th style="width:132px">环节</th><th>PC（顶点流路径）</th><th>移动端（UniformView）</th></tr></thead>
+<tbody>
+<tr><td>每 draw 段起点</td><td>顶点流属性 <code>InstanceIdOffset</code></td><td>UBO <b>DynamicOffset</b>（字节）</td></tr>
+<tr><td>表内容（每实例）</td><td>4 B 打包 <code>PackedId</code></td><td>512 / 256 B <b>完整数据</b>（32 / 16 个 float4）</td></tr>
+<tr><td>拿到 InstanceId</td><td>查 <code>InstanceIdsBuffer</code> + <code>UnpackInstanceCullingOutput</code></td><td><b>不查表</b>，直接写死 <code>0U</code></td></tr>
+<tr><td>拿到 PrimitiveId</td><td>由 <code>InstanceData.PrimitiveId</code> 反推</td><td><b>直接</b> <code>= DrawInstanceId</code></td></tr>
+<tr><td>拿到数据本体</td><td><code>GetInstanceSceneData(InstanceId, SOAStride)</code></td><td><code>BatchedPrimitive.Data[DrawInstanceId × stride + idx]</code></td></tr>
+</tbody>
+</table>
+
+<p>两条路径在 shader 里就是<b>同一个函数的两半</b>，强烈建议对照着读：</p>
+
+<pre><code><span class="c">// SceneData.ush:1402-1423 —— UBO 分支：连 InstanceIdsBuffer 都不出现</span>
+#if SHADER_USES_PRIMITIVE_UBO
+	#if USE_INSTANCE_CULLING
+		Intermediates.Primitive    = GetPrimitiveDataFromUniformBuffer();
+		Intermediates.InstanceData = LoadInstanceDataUBO(DrawInstanceId);  <span class="c">// ← 从 UBO 段内直接解出</span>
+	#else
+		Intermediates.Primitive    = LoadPrimitiveDataUBO(DrawInstanceId);
+	#endif
+	Intermediates.PrimitiveId = DrawInstanceId;   <span class="c">// ← 不再从数据里反推</span>
+	Intermediates.InstanceId  = 0U;               <span class="c">// ← 不再查表（SceneData.ush:1422-1423）</span>
+#else
+	<span class="c">// SceneData.ush:1425 / 1452 / 1462 —— PC 三级链路</span>
+	Intermediates.InstanceIdLoadIndex = InstanceIdOffset + DrawInstanceId;
+	const uint PackedId = InstanceCulling.InstanceIdsBuffer[InstanceIdOffset + DrawInstanceId];
+	UnpackInstanceCullingOutput(PackedId, Intermediates.InstanceId, Intermediates.ViewIndex, Intermediates.CullingFlags);
+	Intermediates.InstanceData = GetInstanceSceneData(Intermediates.InstanceId, Scene.GPUScene.InstanceDataSOAStride);
+#endif</code></pre>
+
+<p>属性声明层面也随之全变 —— UBO 分支下 <code>InstanceIdOffset : ATTRIBUTE##Attr0</code> <b>整个不声明</b>，直接把常量 <code>0u</code> 当 offset 传下去；<code>InstanceIdOffset</code> 的内容由<b>动态偏移</b>承担：</p>
+
+<pre><code><span class="c">// VertexFactoryCommon.ush:26-31（UBO 分支）</span>
+#define VF_GPUSCENE_DECLARE_INPUT_BLOCK(Attr0)  uint DrawInstanceId : SV_InstanceID;
+#define VF_GPUSCENE_GET_INTERMEDIATES(VFInput)  GetSceneDataIntermediates(0u, VFInput.DrawInstanceId)
+<span class="c">// VertexFactoryCommon.ush:33-38（顶点流分支）</span>
+#define VF_GPUSCENE_DECLARE_INPUT_BLOCK(Attr0)  uint InstanceIdOffset : ATTRIBUTE##Attr0; \
+                                                 uint DrawInstanceId : SV_InstanceID;
+#define VF_GPUSCENE_GET_INTERMEDIATES(VFInput)  GetSceneDataIntermediates(VFInput.InstanceIdOffset, VFInput.DrawInstanceId)</code></pre>
+
+<p>C++ 侧的对应动作（三条一起看才完整）：</p>
 
 <pre><code>SceneArgs.PrimitiveIdsBuffer = nullptr;                                  <span class="c">// InstanceCullingContext.cpp:1866</span>
-SceneArgs.BatchedPrimitiveSlot = BatchedPrimitiveSlot;                   <span class="c">// :1867</span>
-RHICmdList.SetStaticUniformBuffer(SceneArgs.BatchedPrimitiveSlot, UBRef); <span class="c">// MeshPassProcessor.cpp:2525</span>
-RHICmdList.SetUniformBufferDynamicOffset(SceneArgs.BatchedPrimitiveSlot, SceneArgs.PrimitiveIdOffset);   <span class="c">// :1777</span></code></pre>
+SceneArgs.BatchedPrimitiveSlot = BatchedPrimitiveSlot;                   <span class="c">// InstanceCullingContext.cpp:1867</span>
+SceneArgs.PrimitiveIdOffset = OverrideArgs.InstanceDataByteOffset
+                            + DrawCommandInfo.InstanceDataByteOffset;    <span class="c">// InstanceCullingContext.cpp:1909 —— 字节</span>
+RHICmdList.SetStaticUniformBuffer(SceneArgs.BatchedPrimitiveSlot, UBRef); <span class="c">// MeshPassProcessor.cpp:2525（整 view 一次）</span>
+RHICmdList.SetUniformBufferDynamicOffset(SceneArgs.BatchedPrimitiveSlot,
+                                         SceneArgs.PrimitiveIdOffset);   <span class="c">// MeshPassProcessor.cpp:1777（每 draw 一次）</span></code></pre>
 
-<p>阅读时可以直接类比理解：<b>顶点流的 <code>Offset</code> ↔ UBO 的 <code>DynamicOffset</code>，作用是同一个</b> —— 都只是「指出本 draw 用哪一格」。同一个 <code>SceneArgs.PrimitiveIdOffset</code> 值，在两条路径下分别落到 <code>SetStreamSource</code> 的第 3 参 <span class="ref">MeshPassProcessor.cpp:1719</span> 与 <code>SetUniformBufferDynamicOffset</code> 的第 2 参 <span class="ref">MeshPassProcessor.cpp:1777</span>。</p>
+<p>阅读时可以直接类比：<b>顶点流的 <code>Offset</code> ↔ UBO 的 <code>DynamicOffset</code>，作用是同一个</b> —— 都只是「指出本 draw 用哪一格」。同一个 <code>SceneArgs.PrimitiveIdOffset</code> 值，在两条路径下分别落到 <code>SetStreamSource</code> 的第 3 参 <span class="ref">MeshPassProcessor.cpp:1719</span> 与 <code>SetUniformBufferDynamicOffset</code> 的第 2 参 <span class="ref">MeshPassProcessor.cpp:1777</span>。</p>
+
+<div class="box b-orange">
+  <span class="t">一个容易忽略的分工：primitive 数据不一定来自这个 UBO</span>
+  在 <code>USE_INSTANCE_CULLING</code> 的 UBO 子分支里，<code>Primitive</code> 其实读的是<b>另一个 UBO</b> —— <code>GetPrimitiveDataFromUniformBuffer()</code> 取的是经典的 <code>Primitive</code> uniform buffer <span class="ref">SceneData.ush:199-215</span>；只有 <code>InstanceData</code> 走 <code>BatchedPrimitive</code> <span class="ref">SceneData.ush:1404-1405</span>。<br>
+  反过来，非剔除分支（<code>LoadPrimitiveDataUBO</code>）才把 primitive 数据也放进 <code>BatchedPrimitive</code>，对应剔除 CS 的 <code>SINGLE_INSTANCE_MODE</code> 走 <code>WritePrimitiveDataUBO</code> <span class="ref">BuildInstanceDrawCommands.usf:99-106</span>。两条子分支不要混为一谈。
+</div>
+
+<h5>⑤-3 代价：每实例多占 64~128 倍空间</h5>
+
+<table>
+<thead><tr><th style="width:200px">项</th><th>PC</th><th>移动端 UniformView</th></tr></thead>
+<tbody>
+<tr><td>每实例元素数</td><td>1 个 <code>uint</code></td><td><code>UniformViewInstanceStride / 16</code> = <b>16 或 32</b> 个 float4 <span class="ref">InstanceCullingContext.cpp:132-144</span></td></tr>
+<tr><td>每实例字节</td><td>4 B</td><td>256 B（instance 模式）/ 512 B（primitive 模式）<span class="ref">SceneDefinitions.h:120-124</span></td></tr>
+<tr><td>总元素数</td><td><code>TotalInstances × ViewIds.Num()</code> <span class="ref">InstanceCullingContext.cpp:183-185</span></td><td>按两个 load balancer 的实例数分别乘 stride 再求和 <span class="ref">InstanceCullingContext.cpp:175-181</span></td></tr>
+<tr><td>额外 slack</td><td>无</td><td>再加 <code>PLATFORM_MAX_UNIFORM_BUFFER_RANGE / 16u</code> = <b>1024 个 float4（16 KB）</b>，保证最后一个元素也能凑出完整 UBO 区间 <span class="ref">InstanceCullingContext.cpp:685-689</span>、<span class="ref">Platform.ush:505-508</span></td></tr>
+</tbody>
+</table>
+
+<p>也就是说：<b>移动端是用「空间换掉了一次间接查表」</b>，每实例从 4 B 涨到 256/512 B（<b>64~128 倍</b>）。同时因为 UBO 动态偏移有对齐要求，stride 必须是 256 的整数倍 —— 这也解释了为什么这两个常量恰好是 256 和 512，而不是随便一个紧凑值。</p>
+
+<p>另见 <b>7.8 ⑤</b>：那里从「buffer 本身怎么建、每格装什么」的角度讲了同一件事，可与本节对照。</p>
+
+<h5>⑤-4 门控：什么时候才走这条路</h5>
+
+<table>
+<thead><tr><th style="width:260px">门</th><th>取值条件</th><th>本项目（Android/Vulkan）实际</th></tr></thead>
+<tbody>
+<tr><td><code>PLATFORM_SUPPORTS_<br>UNIFORM_BUFFER_OBJECTS</code></td><td>直接来自 DDSPI 的 <code>bSupportsUniformBufferObjects</code> <span class="ref">ShaderCompiler.cpp:4237</span>；shader 侧缺省为 0 <span class="ref">Platform.ush:262-264</span></td><td><b>true</b>（三个 Android profile 均 true <span class="ref">DataDrivenPlatformInfo.ini:75,97,117</span>）</td></tr>
+<tr><td><code>FEATURE_LEVEL == ES3_1</code></td><td>由 profile 决定：<code>VULKAN_PROFILE</code> → ES3_1 <span class="ref">Platform.ush:389-393</span>；<code>VULKAN_PROFILE_SM5</code> → SM5 <span class="ref">Platform.ush:395-396</span></td><td>Android Vulkan ES3.1 下成立</td></tr>
+<tr><td><code>PLATFORM_USES_PRIMITIVE_UBO</code></td><td>上面两条相与 <span class="ref">SceneData.ush:39-41</span></td><td>成立</td></tr>
+<tr><td><code>SHADER_USES_PRIMITIVE_UBO</code></td><td>再叠加 <code>(PIXELSHADER || VERTEXSHADER) &amp;&amp; !USE_GLOBAL_GPU_SCENE_DATA</code> <span class="ref">SceneData.ush:43-45</span></td><td>成立（本 fork 未启用全局 GPUScene 数据通路）</td></tr>
+<tr><td>C++ 侧总闸 <code>PlatformGPUSceneUses<br>UniformBufferView</code></td><td><code>IsMobilePlatform(Platform) &amp;&amp; GetSupportsUniformBufferObjects(Platform)</code> <span class="ref">RenderUtils.cpp:488-491</span>（声明 <span class="ref">RenderUtils.h:339</span>）</td><td><b>true</b> → <code>BatchedPrimitiveSlot</code> 有效，<code>bUsesUniformBufferView</code> = true <span class="ref">InstanceCullingContext.cpp:121-130,205-206</span></td></tr>
+</tbody>
+</table>
+
+<div class="box b-orange">
+  <span class="t">注意最后一行：C++ 门比 shader 门宽</span>
+  C++ 只看 <code>IsMobilePlatform &amp;&amp; 支持 UBO</code>，<b>不检查 feature level</b>；shader 侧还要 <code>FEATURE_LEVEL == ES3_1</code>。在 Android SM5/SM6 profile 下两者会不一致，此时由 <code>USE_GLOBAL_GPU_SCENE_DATA</code> 等其它通路接管。<b>判断本项目是否走 UBO 路径，要以 <span class="ref">SceneData.ush:39-45</span> 的宏组合为准，而不是只看 C++ 那两行</b>。
+</div>
+
+<h5>⑤-5 一句话记法</h5>
+
+<div class="box b-green">
+  <span class="t">两条 buffer，两种命运</span>
+  <b><code>InstanceIdOffsetBuffer</code></b>：buffer 还在、剔除 CS 还在读，但<b>不再当顶点流</b> —— 它的角色由 UBO 动态偏移顶替。<br>
+  <b><code>InstanceIdsBuffer</code></b>：<b>同一条 buffer 被扩容并改用</b>（4 B → 256/512 B 完整数据），再经 <code>FBatchedPrimitiveParameters.Data</code> 以 UBO 视图暴露出去，于是「查表 + 解包」两步整体消失。<br>
+  判断入口永远只有一句：<code>SHADER_USES_PRIMITIVE_UBO</code> 走 UBO 分支 → <code>InstanceId = 0U</code>、<code>PrimitiveId = DrawInstanceId</code>；否则走顶点流分支 → 三级 ID 链路。
+</div>
+
+<h4>⑥ 这条 buffer 的真名：一条数据、五个名字</h4>
+
+<p>前面反复说「<code>InstanceIdOffset</code> 来自顶点流」，那条流本身究竟叫什么？答案是<b>一张由 CPU 逐 draw 写下的 offset 数组</b>。它值得单独点名，因为同一条数据在 C++ / RDG / RHI 三层之间被<b>改了四次名</b>，顺着代码往下读时极易误判成五个不同的东西：</p>
+
+<table>
+<thead><tr><th style="width:104px">阶段</th><th style="width:330px">代码里的名字</th><th>说明与证据</th></tr></thead>
+<tbody>
+<tr><td>① 数据起源</td><td><code>TArray&lt;uint32&gt; InstanceIdOffsets</code></td><td>CPU 侧每个 draw command 追加一项（batch 拆分时逐 batch）<span class="ref">InstanceCullingContext.cpp:393</span>；成员声明 <span class="ref">InstanceCullingContext.h:339</span></td></tr>
+<tr><td>② 上传成 GPU buffer</td><td><code>InstanceIdOffsetBufferRDG</code></td><td>整段一次性上传，容量 = draw 数量 <span class="ref">InstanceCullingContext.cpp:885-886</span></td></tr>
+<tr><td>③ 挂到绘制参数</td><td><code>InstanceCullingDrawParams::<br>InstanceIdOffsetBuffer</code></td><td>它的 RDG 访问标志被写作 <code>ERHIAccess::VertexOrIndexBuffer</code> <span class="ref">InstanceCullingContext.h:36</span> —— <b>这就是「它是顶点流」的铁证</b></td></tr>
+<tr><td>④ 转成 RHI 句柄</td><td><code>FMeshDrawCommandOverrideArgs::<br>InstanceBuffer</code></td><td>在此换名 <span class="ref">InstanceCullingContext.cpp:114</span></td></tr>
+<tr><td>⑤ 落进绘制参数</td><td><code>FMeshDrawCommandSceneArgs::<br>PrimitiveIdsBuffer</code></td><td>再次换名 <span class="ref">InstanceCullingContext.cpp:1862</span>，最终作为 <code>SetStreamSource</code> 的 buffer 参数 <span class="ref">MeshPassProcessor.cpp:1719</span></td></tr>
+</tbody>
+</table>
+
+<p>所以当你在代码里遇到「<code>PrimitiveIdsBuffer</code>」「<code>InstanceBuffer</code>」「<code>InstanceIdOffsetBuffer</code>」时，它们指的是<b>同一块内存</b>。名字里带 "Primitive" 只是因为它被喂给了 <b>PrimitiveId 那个顶点流槽位</b>，并不意味着该槽位专门存 PrimitiveId。</p>
+
+<h5>最容易混的一对：两条名字都带 "InstanceId" 前缀，用途却完全正交</h5>
+
+<table>
+<thead><tr><th style="width:132px"></th><th><code>InstanceIdOffsetBuffer</code></th><th><code>InstanceIdsBuffer</code></th></tr></thead>
+<tbody>
+<tr><td><b>存什么</b></td><td>每个 draw 一项：本 draw 的可见实例<b>从哪开始</b>（偏移）</td><td>每个可见实例一项：<b>PackedId</b>（真 ID + 剔除标志）</td></tr>
+<tr><td><b>多大</b></td><td>draw 数量（<code>InstanceIdOffsets.Num()</code>）<span class="ref">InstanceCullingContext.cpp:885</span></td><td>累加总量决定的容量 <span class="ref">InstanceCullingContext.cpp:837-838</span></td></tr>
+<tr><td><b>怎么绑</b></td><td><b>顶点流</b>：<code>ERHIAccess::VertexOrIndexBuffer</code> <span class="ref">InstanceCullingContext.h:36</span></td><td><b>SRV</b>：<code>StructuredBuffer&lt;uint&gt;</code> <span class="ref">InstanceCullingContext.h:24</span>，经 uniform buffer 全局下发 <span class="ref">InstanceCullingContext.cpp:1039</span></td></tr>
+<tr><td><b>谁写</b></td><td>CPU（渲染线程逐 draw 累加）</td><td>GPU 剔除 CS（原子累加写入可见清单）</td></tr>
+<tr><td><b>谁读、怎么用</b></td><td>VS 把槽位读成 <code>InstanceIdOffset</code> 属性（per-draw 常量）</td><td>VS 用它查表：<code>InstanceCulling.InstanceIdsBuffer[InstanceIdLoadIndex]</code> <span class="ref">SceneData.ush:1452</span></td></tr>
+</tbody>
+</table>
+
+<div class="box b-green">
+  <span class="t">一句话记法</span>
+  <b>offset 走顶点流（免费拿到 per-draw 常量），ID 走 SRV 大表（查表拿到），两者靠一个加法串起来</b>：<br>
+  <code>InstanceIdLoadIndex = InstanceIdOffset(顶点流) + SV_InstanceID(硬件)</code> → 再去 <code>InstanceIdsBuffer[InstanceIdLoadIndex]</code> 解包出真正的 <code>InstanceId</code>（详见 6.2 的三步链路）。
+</div>
 
 <h3>6.4 两条独立路径：StateBucket 合批 vs ISM InstanceRuns</h3>
 
@@ -1424,6 +1595,134 @@ MaxInstancesThisBatch = ThreadGroupSize - CurrentBatchPrefixSum;
 </table>
 <p class="footnote">证据：<span class="ref">InstanceCullingContext.cpp:437</span>（Compaction permutation 要求 <code>GetMaxSupportedFeatureLevel() &gt; ERHIFeatureLevel::ES3_1</code>）、<span class="ref">InstanceCullingContext.cpp:534</span>（<code>IsMobilePlatform()</code> 直接返回 false）、<span class="ref">InstanceCullingContext.cpp:91,256</span>（顺序保持）。</p>
 
+<h3>7.8 InstanceIdsBuffer：初始化与剔除后的布局</h3>
+
+<p>7.2 的流程图里 <code>InstanceIdsBuffer</code> 是剔除阶段的输出。它有两个反直觉的点值得单独讲：<b>它从不被 clear</b>；<b>它不是紧凑的一整块，而是按 draw 切段的</b>。</p>
+
+<h4>① 分配：容量由「实例数 × 视图数」决定</h4>
+
+<p>容量在创建前一次算清 <span class="ref">InstanceCullingContext.cpp:837</span>，元素数来自 <code>GetInstanceIdNumElements()</code>：</p>
+
+<pre><code><span class="c">// PC（InstanceCullingContext.cpp:184）</span>
+return TotalInstances * ViewIds.Num();
+
+<span class="c">// 移动端（InstanceCullingContext.cpp:178-180）—— 单位是 float4，不是 uint</span>
+uint32 GenericStride  = LoadBalancers[0]-&gt;GetTotalNumInstances() * UniformViewInstanceStride[0] / 16u;
+uint32 UnculledStride = LoadBalancers[1]-&gt;GetTotalNumInstances() * UniformViewInstanceStride[1] / 16u;
+return (GenericStride + UnculledStride) * ViewIds.Num();</code></pre>
+
+<p>描述符按平台分叉 <span class="ref">InstanceCullingContext.cpp:698-711</span>：PC 是每格 4 字节的 <code>StructuredBuffer&lt;uint&gt;</code>（<code>:709</code>），移动端是每格 16 字节的 <code>StructuredBuffer&lt;float4&gt;</code> 并额外打上 <code>EBufferUsageFlags::UniformBuffer</code>（<code>:703-704</code>）——因为它要兼作 UBO 视图。移动端还会额外预留 1024 格余量，保证绑定最后一格时仍有完整 UBO 区间 <span class="ref">InstanceCullingContext.cpp:688</span>。UAV 带 <code>SkipBarrier</code> 创建 <span class="ref">InstanceCullingContext.cpp:839</span>。</p>
+
+<h4>② 初始化：被清零的是计数器，不是数据</h4>
+
+<div class="box b-orange">
+  <span class="t">最关键的一点：全代码里 <code>InstanceIdsBuffer</code> 没有任何 clear pass</span>
+  它是<b>按需覆盖写</b>的：可见实例的线程各自往自己抢到的槽位写一次，被剔除的实例根本不写。所以不需要（也不应该）整块清空。
+</div>
+
+<p>真正需要重置的是<b>计数器</b>——也就是每条 draw 的 indirect args 里的 <code>InstanceCount</code>，因为它是用<b>原子累加</b>推进的，不清就会接着上一轮的值继续涨。UE 用一条独立的轻量 CS 专门干这件事：</p>
+
+<pre><code><span class="c">// BuildInstanceDrawCommands.usf:473-481</span>
+[numthreads(NUM_THREADS_PER_GROUP, 1, 1)]
+void ClearIndirectArgInstanceCountCS(uint3 GroupId : SV_GroupID, int GroupThreadIndex : SV_GroupIndex)
+{
+    uint IndirectArgIndex = GetUnWrappedDispatchThreadId(GroupId, GroupThreadIndex, NUM_THREADS_PER_GROUP);
+    if (IndirectArgIndex &lt; NumIndirectArgs)
+    {
+        DrawIndirectArgsBufferOut[IndirectArgIndex * INDIRECT_ARGS_NUM_WORDS + 1] = 0U;  <span class="c">// :479 —— 只清 word 1</span>
+    }
+}</code></pre>
+
+<p>C++ 侧由 <code>AddClearIndirectArgInstanceCountPass</code> 调度 <span class="ref">InstanceCullingContext.cpp:1519</span>，调用点在创建 buffer 之前 <span class="ref">InstanceCullingContext.cpp:882</span>；延迟剔除路径同理 <span class="ref">InstanceCullingContext.cpp:1222</span>。其中 <code>INDIRECT_ARGS_NUM_WORDS = 5</code> <span class="ref">InstanceCullingContext.h:92</span>，所以每条 draw 占 5 个 word，被清的恒为 <code>word[1]</code>。</p>
+
+<p><b>为什么不清数据也不会读到脏值？</b>因为索引边界由计数器封死：VS 的实例号来自硬件（<code>DrawInstanceId ∈ [0, InstanceCount)</code>，见 6.3），访问地址 <code>InstanceIdOffset + DrawInstanceId</code> 必然落在本 draw 段内；段外的残留内容没有任何索引能到达。</p>
+
+<h4>③ 布局：按 draw 切段，段内紧凑 + 段尾空洞</h4>
+
+<p>整条 buffer 被切成若干段，一段对应一条 draw，段的边界全部由 CPU 预先算好：</p>
+
+<table>
+<thead><tr><th style="width:120px">要素</th><th>怎么定</th><th style="width:230px">证据</th></tr></thead>
+<tbody>
+<tr><td><b>段起点</b></td><td>前缀和：逐条 draw 把「当前累计元素数」追加进 <code>InstanceIdOffsets</code>，整段一次上传成 <code>InstanceIdOffsetBuffer</code></td><td><span class="ref">InstanceCullingContext.cpp:393</span><br><span class="ref">InstanceCullingContext.cpp:885-886</span></td></tr>
+<tr><td><b>段长度</b><br>（预留）</td><td>该 draw 的实例总数 × 视图数 —— 即「全部可见时需要多少格」</td><td><span class="ref">InstanceCullingContext.cpp:184</span></td></tr>
+<tr><td><b>段内有效长度</b></td><td><code>InstanceCount</code> —— GPU 原子累加出来的终值，写进 indirect args</td><td><span class="ref">BuildInstanceDrawCommands.usf:453</span></td></tr>
+<tr><td><b>段尾空洞</b></td><td>被剔除的实例不占位，于是段尾留下未使用空间（Compaction 可消除，见 7.7）</td><td><span class="ref">BuildInstanceDrawCommands.usf:447-455</span></td></tr>
+</tbody>
+</table>
+
+<p>段内的写入是一次「原子抢位 + 就地覆盖」，两条语句就够了：</p>
+
+<pre><code><span class="c">// BuildInstanceDrawCommands.usf:395 / :452-454（非 Stereo 路径）</span>
+const uint InstanceDataOutputOffset = InstanceIdOffsetBuffer[Payload.IndirectArgIndex];   <span class="c">// 段起点（元素下标）</span>
+
+uint OutputOffset;
+InterlockedAdd(DrawIndirectArgsBufferOut[Payload.IndirectArgIndex * INDIRECT_ARGS_NUM_WORDS + 1], 1U, OutputOffset);
+WriteInstance(InstanceDataOutputOffset + OutputOffset * INSTANCE_DATA_STRIDE_ELEMENTS, ...);</code></pre>
+
+<p>注意 <code>InterlockedAdd</code> 的<b>目标就是 indirect args 的 <code>InstanceCount</code> 字段本身</b>——计数器与「这段有几个可见实例」是同一个值，不存第二份，也不会不一致。<code>INSTANCE_DATA_STRIDE_ELEMENTS</code> 默认 <code>1u</code>（每实例 1 格）<span class="ref">BuildInstanceDrawCommands.usf:15-17</span>，移动端被重定义为 <code>UniformViewInstanceStride[Mode] / 16u</code>，即 16 或 32 格 <span class="ref">InstanceCullingContext.cpp:132-144</span>。</p>
+
+<p>VS 侧用的是<b>字节</b>偏移，而 <code>InstanceIdOffsetBuffer</code> 里存的是<b>元素下标</b>——两者在 PC 上恰好差 4 倍，因此不能混用：</p>
+
+<pre><code><span class="c">// CS 侧用元素下标（InstanceCullingContext.cpp:169 的 PC 分支：NumStepDraws * sizeof(uint32)）</span>
+WriteInstance(InstanceDataOutputOffset + OutputOffset * 1, ...)
+
+<span class="c">// VS 侧用字节偏移（InstanceCullingContext.cpp:1909）</span>
+SceneArgs.PrimitiveIdOffset = OverrideArgs.InstanceDataByteOffset + DrawCommandInfo.InstanceDataByteOffset;</code></pre>
+
+<h4>④ 每格装什么：PackedId 的 32 位</h4>
+
+<p>PC 上每格是一个 <code>uint</code>，把三样东西打进一个 DWORD（<code>ViewIndex</code> 占最高的 4 位）：</p>
+
+<pre><code><span class="c">// SceneData.ush:1359-1366 打包 / :1368-1373 解包</span>
+PackedId = (InstanceId   &amp; INSTANCE_ID_MASK)                     <span class="c">// bit 0..23</span>
+         | ((CullingFlags &amp; INSTANCE_CULLING_FLAGS_MASK) &lt;&lt; 24)  <span class="c">// bit 24..27</span>
+         | (ViewIndex                                   &lt;&lt; 28); <span class="c">// bit 28..31</span></code></pre>
+
+<table>
+<thead><tr><th style="width:150px">字段</th><th style="width:100px">位宽</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>InstanceId</code></td><td>24 bit</td><td>GPUScene 全局实例槽位，解包后直接喂给 <code>GetInstanceSceneData()</code> <span class="ref">SceneDefinitions.h:14</span></td></tr>
+<tr><td><code>CullingFlags</code></td><td>4 bit</td><td>目前只用了 <code>bit0 = EVALUATE_WPO</code>，其余备用（注释：<i>Currently limited to 4 bits to fit into instance culling data DWORD</i>）<span class="ref">SceneData.ush:1351-1357</span></td></tr>
+<tr><td><code>ViewIndex</code></td><td>4 bit</td><td>本 render pass 内的视图序号，用于立体渲染 / 多视图 <span class="ref">SceneData.ush:1361-1362</span></td></tr>
+</tbody>
+</table>
+
+<div class="box b-green">
+  <span class="t">两条附加路径会改变写入方式（但布局规则不变）</span>
+  <b>Compaction</b>：可见写 <code>CompactInstanceIdsBufferOut[SrcInstanceIdOffset + OutputOffset]</code>，不可见写 <code>0xFFFFFFFF</code> 占位以保持顺序 <span class="ref">BuildInstanceDrawCommands.usf:413-415</span>、<span class="ref">BuildInstanceDrawCommands.usf:444-445</span>、<span class="ref">BuildInstanceDrawCommands.usf:123-130</span>；块计数粒度 64 <span class="ref">InstanceCullingContext.h:93</span>。<br>
+  <b>Stereo</b>：一次 <code>InterlockedAdd(..., 2U, ...)</code> 抢两个槽位，成对写入 <span class="ref">BuildInstanceDrawCommands.usf:420-422</span>。
+</div>
+
+<h4>⑤ 移动端：同一块 buffer，每格不是 4 字节</h4>
+
+<p><b>另见本文 6.3 ⑤</b>：那一节从「UBO 里装的其实是个 SRV、被替换掉的是哪两步、门控宏怎么叠」的角度讲同一条机制；本节只讲这条 buffer 自身的建法与格内容。</p>
+
+<p>移动端往同一个 UAV 里写的<b>不是 PackedId，而是完整的实例数据</b>（走 UBO 视图那条路），每实例占 <code>UniformViewInstanceStride / 16</code> 格：</p>
+
+<pre><code><span class="c">// BuildInstanceDrawCommands.usf:109-121</span>
+void WriteInstance(...)
+{
+#if PLATFORM_USES_PRIMITIVE_UBO
+    WriteDataUBO(InstanceIdsBufferOutMobile, Offset, ...);   <span class="c">// 移动端：写 float4 实例数据</span>
+#else
+    uint PackedId = PackInstanceCullingOutput(InstanceId, ViewIdIndex, CullingFlags);
+    InstanceIdsBufferOut[Offset] = PackedId;                 <span class="c">// PC：写 1 个 uint</span>
+#endif
+}</code></pre>
+
+<table>
+<thead><tr><th style="width:130px"></th><th>PC</th><th>Mobile</th></tr></thead>
+<tbody>
+<tr><td>每格字节数</td><td>4（<code>sizeof(uint32)</code>）<span class="ref">InstanceCullingContext.cpp:709</span></td><td>16（float4）<span class="ref">InstanceCullingContext.cpp:703</span></td></tr>
+<tr><td>每实例占格数</td><td>1 <span class="ref">BuildInstanceDrawCommands.usf:16</span></td><td>16（Generic）或 32（UnCulled）<span class="ref">InstanceCullingContext.cpp:132-144</span></td></tr>
+<tr><td>格内容</td><td>PackedId（位域打包）</td><td>完整实例数据（float4 展开）</td></tr>
+<tr><td>额外余量</td><td>无</td><td>+1024 格，保证 UBO 区间完整 <span class="ref">InstanceCullingContext.cpp:688</span></td></tr>
+</tbody>
+</table>
+
+<p class="footnote">一句话总结：<b>容量由 CPU 一次算清，计数器由专用 CS 清零，数据靠原子抢位覆盖写；段起点（元素下标）走顶点流给 VS，段有效长度（InstanceCount）走 indirect args 给硬件，两者共同围出「哪些格是有效的」。</b></p>
+
 <h2 id="s8">8. PC / Mobile 差异对比</h2>
 
 <div class="box b-red">
@@ -1589,7 +1888,7 @@ MaxInstancesThisBatch = ThreadGroupSize - CurrentBatchPrefixSum;
 <tr><td>移动端可关闭纹理化</td><td><code>MOBILE_DISABLE_PRIMITIVE_DATA_USE_TEXTURE</code> 宏提供回退</td><td class="tag tag-fork">@Beiyu</td><td><span class="ref">SceneData.ush:90</span></td></tr>
 <tr><td><b>移动端强制 PrimitiveUB</b></td><td>Proxy 层对 ES3_1 直接 <code>bSupportsGPUScene = false</code>，注释：「enable PrimitiveUB for mobile for now since some VFs don't support GPUScene, may optimize it later」</td><td class="tag tag-fork">@lemonxqyang</td><td><span class="ref">PrimitiveSceneProxy.cpp:1604-1607</span></td></tr>
 <tr><td>VisibilityFlags 位扩展</td><td>官方 10 位之外额外占用 6 位：CAST_SHADOWS_DISABLE_WPO(0x400)、FORCE_HIDDEN_IN_PVS_SCENE_CAPTURE(0x800)、AXIS_Z_CONE_CULLING(0x1000)、BLUECIRCLE_CULLING(0x2000)、IS_LANDSCAPE(0x4000)、PROBABILISTIC_INSTANCE_CULLING(0x8000)</td><td class="tag tag-fork">多人</td><td><span class="ref">SceneDefinitions.h:74-82</span></td></tr>
-<tr><td>Primitive 槽位扩展</td><td>新增 <code>AxisZConeCullingAngle</code>、<code>LODScreenSizes[2]</code>、<code>MinLOD/MaxLOD</code>（占用原 43/44/45 槽）</td><td class="tag tag-fork">多人</td><td><span class="ref">PrimitiveSceneShaderData 打包:175,186-192</span></td></tr>
+<tr><td>Primitive 槽位扩展</td><td><code>LODScreenSizes[2]</code> 占<b>槽 43、44</b>，<code>MinLOD/MaxLOD</code> 占<b>槽 45</b>（= stride 46 的最后一格，见 <span class="ref">SceneDefinitions.h:90</span>）；而 <code>AxisZConeCullingAngle</code> <b>不额外占槽</b>，是塞进槽 33 原本写 <code>0u</code> 的闲置分量</td><td class="tag tag-fork">多人</td><td><span class="ref">PrimitiveUniformShaderParameters.cpp:172-176</span>（槽 33）<br><span class="ref">PrimitiveUniformShaderParameters.cpp:179-190</span>（槽 34+9 起）<br><span class="ref">PrimitiveUniformShaderParameters.cpp:192-197</span>（槽 45）<br><span class="ref">SceneTypes.h:38</span>（<code>NumCustomPrimitiveDataFloat4s = 9</code>）</td></tr>
 <tr><td>ISM Dithered LOD 定制</td><td><code>CUSTOM_INSTANCE_CULLING_FLAG_ISM_DITHERED_LOD</code>、<code>..._WRITE_IMPOSTER_INSTANCE_ID</code>；剔除 shader 内新增 Imposter 屏幕尺寸/概率剔除分支</td><td class="tag tag-fork">@yinnhaowang</td><td><span class="ref">SceneDefinitions.h:126-129</span><br><span class="ref">BuildInstanceDrawCommands.usf:219,222,312</span></td></tr>
 <tr><td>丢弃 Lightmap 数据开关</td><td><code>r.GPUScene.DiscradLightMapData</code>（官方无此 CVar，注意拼写为 Discrad）</td><td class="tag tag-fork">分叉新增</td><td><span class="ref">GPUScene.cpp:118</span></td></tr>
 <tr><td>SplineMesh 移动端禁用</td><td>移动端直接关掉 SplineMesh SceneResources（因其依赖 payload extension）</td><td class="tag tag-fork">@Hexingzhao</td><td><span class="ref">RenderUtils.cpp:1960</span></td></tr>

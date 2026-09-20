@@ -1,0 +1,1801 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPUScene 实现剖析 — 原理 / PC-Mobile 差异 / 合批 / InstanceCulling</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --ink:#1a1d21; --ink2:#4a5158; --ink3:#7a828a;
+    --line:#e2e6ea; --accent:#2f6feb; --accent-soft:#eaf1fe;
+    --pc:#2f6feb; --mobile:#d9741a; --fork:#8e44ad;
+    --ok:#1f9254; --warn:#c0392b; --note:#8a6d1f;
+    --code-bg:#f2f4f7;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.75; font-size:15px;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:40px 28px 100px}
+  header.top{
+    background:linear-gradient(135deg,#1f3a63 0%,#2f6feb 100%);
+    color:#fff; border-radius:14px; padding:34px 36px; margin-bottom:28px;
+  }
+  header.top h1{margin:0 0 10px; font-size:27px; letter-spacing:.3px}
+  header.top p{margin:0; opacity:.9; font-size:14px}
+  header.top .meta{margin-top:16px; font-size:12.5px; opacity:.82; border-top:1px solid rgba(255,255,255,.22); padding-top:12px}
+  h2{
+    font-size:21px; margin:44px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--line);
+  }
+  h2 .num{color:var(--accent); font-weight:700; margin-right:8px}
+  h3{font-size:17px; margin:28px 0 10px; color:var(--ink)}
+  h4{font-size:15px; margin:20px 0 8px; color:var(--ink2)}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0; padding-left:24px}
+  li{margin:5px 0}
+  code{
+    background:var(--code-bg); padding:1.5px 5px; border-radius:4px;
+    font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace; font-size:12.8px;
+  }
+  pre{
+    background:#1e232b; color:#dfe6ee; padding:14px 16px; border-radius:8px;
+    overflow-x:auto; font-size:12.5px; line-height:1.6;
+    font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  }
+  pre .c{color:#7f8c9b}
+  pre .k{color:#7cc4ff}
+  pre .s{color:#c3e88d}
+  .ref{
+    font-family:"Cascadia Mono",Consolas,monospace; font-size:11.5px;
+    color:var(--ink3); background:#eef1f4; border-radius:3px; padding:0 4px;
+    white-space:nowrap;
+  }
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 22px; margin:16px 0}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:13.4px; background:var(--panel)}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top}
+  th{background:#eef2f7; font-weight:600; font-size:13px}
+  tbody tr:nth-child(even){background:#fafbfc}
+  .tag{display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; font-weight:600; white-space:nowrap}
+  .t-pc{background:#e8f0fe; color:var(--pc)}
+  .t-mob{background:#fdf0e4; color:var(--mobile)}
+  .t-fork{background:#f5ebfa; color:var(--fork)}
+  .t-ok{background:#e6f6ec; color:var(--ok)}
+  .t-bad{background:#fdeaea; color:var(--warn)}
+  .callout{border-left:4px solid var(--accent); background:var(--accent-soft); padding:12px 16px; border-radius:0 8px 8px 0; margin:14px 0}
+  .callout.warn{border-color:var(--warn); background:#fdf0ef}
+  .callout.note{border-color:var(--note); background:#fdf8e8}
+  .callout .h{font-weight:700; margin-bottom:4px; font-size:13.5px}
+  .fig{margin:22px 0; text-align:center}
+  .fig svg{max-width:100%; height:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px}
+  .fig .cap{font-size:12.5px; color:var(--ink3); margin-top:8px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  .toc{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 22px; margin-bottom:26px}
+  .toc ol{margin:6px 0; padding-left:22px; columns:2; column-gap:30px}
+  @media(max-width:700px){.toc ol{columns:1}}
+  .toc a{color:var(--ink2); text-decoration:none}
+  .toc a:hover{color:var(--accent)}
+  .kv{font-size:13px}
+  .kv td:first-child{white-space:nowrap; font-weight:600; width:1%}
+  footer{margin-top:60px; padding-top:20px; border-top:1px solid var(--line); font-size:12.5px; color:var(--ink3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>GPUScene 实现剖析</h1>
+  <p>原理 · 数据结构 · 合批 · InstanceCulling · PC 与 Mobile 差异</p>
+  <div class="meta">
+    代码基线：<code>D:\GR_DevTest\UE5EA</code>（UE 5.5.4 分叉 <code>++GR+DevTest</code>，CL 1011149）<br>
+    所有结论均标注 <span style="background:rgba(255,255,255,.18);padding:0 4px;border-radius:3px">完整文件名:行号</span>；凡本仓库未找到的写法一律标「未找到」，不做推测。
+  </div>
+</header>
+
+<div class="toc">
+  <strong>目录</strong>
+  <ol>
+    <li><a href="#s1">TL;DR：一页结论</a></li>
+    <li><a href="#s2">动机：为什么必须有 GPUScene</a></li>
+    <li><a href="#s3">总体架构与每帧流程</a></li>
+    <li><a href="#s4">数据结构：三条缓冲与位域打包</a></li>
+    <li><a href="#s5">SOA 布局：SSBO 路径的地址算术</a></li>
+    <li><a href="#s6">上传链路：CPU → GPU</a></li>
+    <li><a href="#s7">合批原理：从 StateBucket 到 Indirect Draw</a></li>
+    <li><a href="#s8">InstanceCulling 原理</a></li>
+    <li><a href="#s9">PC vs Mobile 差异总表</a></li>
+    <li><a href="#s10">本分叉（GR）定制清单</a></li>
+    <li><a href="#s11">网络资料勘误</a></li>
+    <li><a href="#s12">CVar 与调试速查</a></li>
+    <li><a href="#s13">一页总结</a></li>
+  </ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s1"><span class="num">01</span>TL;DR：一页结论</h2>
+
+<table>
+<thead><tr><th style="width:22%">问题</th><th style="width:56%">结论</th><th style="width:22%">证据</th></tr></thead>
+<tbody>
+<tr>
+  <td>GPUScene 是什么</td>
+  <td>把「每个 Primitive / 每个 Instance 的着色参数」打包成 GPU 上的大缓冲，shader 靠 ID 索引取数据。它是<b>自动实例化（auto-instancing）与 GPU 剔除的前提</b>——没有它，每个物体必须绑定自己的 UBO，无法合批。</td>
+  <td><span class="ref">SceneData.ush:51-52</span></td>
+</tr>
+<tr>
+  <td>有几条缓冲</td>
+  <td>Primitive / InstanceSceneData / InstancePayloadData 三条核心缓冲，外加 LightmapData、LightData 两条。本分叉为 Primitive / Payload 写了一条 <b>Texture2D</b> 备选分支（<code>PRIMITIVE_DATA_USE_TEXTURE</code>），<b>但该宏默认 0 → 实际仍走 Buffer</b>，见 §4.1 / §10.2。</td>
+  <td><span class="ref">GPUScene.h:332-356</span><br><span class="ref">GPUSceneWriter.h:13-15</span></td>
+</tr>
+<tr>
+  <td>PC 与 Mobile 最大差异</td>
+  <td><b>缓冲类型与布局都不同</b>。PC：Instance/Primitive 走 <b>SSBO，SOA 布局</b>，靠 <code>slot*SOAStride+InstanceId</code> 寻址。Mobile：走 <b>Uniform Buffer（UniformView），AOS 布局</b>，靠 <code>DrawInstanceId*stride+idx</code> 寻址。</td>
+  <td><span class="ref">RenderUtils.cpp:488-491</span><br><span class="ref">SceneDataMobileLoader.ush:15-16</span><br><span class="ref">SceneData.ush:1028</span></td>
+</tr>
+<tr>
+  <td>移动端是否用 GPUScene</td>
+  <td>用。<code>r.Mobile.SupportGPUScene</code> 默认 <code>1</code>；ES3.1 下 <code>UseGPUScene()</code> 直接转调 <code>MobileSupportsGPUScene()</code>。但<b>用 GPUScene ≠ 用 SSBO</b>——移动端取的是 UBO 子集。</td>
+  <td><span class="ref">RenderUtils.cpp:1753-1756</span><br><span class="ref">BaseEngine.ini:3798</span></td>
+</tr>
+<tr>
+  <td>合批上限是多少</td>
+  <td>两套：<b>通用批 64</b>、<b>Primitive 批 32</b>。来源是 <code>PLATFORM_MAX_UNIFORM_BUFFER_RANGE(16384) / stride</code>。PC 上 <code>std::numeric_limits&lt;uint32&gt;::max()</code>（不受限）。</td>
+  <td><span class="ref">InstanceCullingContext.cpp:1631-1632</span><br><span class="ref">HAL/Platform.h:640-641</span></td>
+</tr>
+<tr>
+  <td>InstanceCulling 干什么</td>
+  <td>在 GPU 上对「实例」做视锥 + HZB 遮挡剔除，把结果紧凑化写进 <code>InstanceIdsBuffer</code>，并直接产出 Indirect Draw 参数。CPU 只准备 Draw 命令模板，不碰逐实例数据。</td>
+  <td><span class="ref">BuildInstanceDrawCommands.usf:395-479</span></td>
+</tr>
+<tr>
+  <td>SceneCulling 是什么</td>
+  <td>是<b>比 InstanceCulling 更新的一层</b>（层级化 cell 剔除），但它 <code>UseSceneCulling = r.SceneCulling!=0 &amp;&amp; UseNanite()</code>——<b>依赖 Nanite，移动端跑不到</b>。别把两者混为一谈。</td>
+  <td><span class="ref">SceneCulling.cpp:272-275</span></td>
+</tr>
+</tbody>
+</table>
+
+<div class="callout note">
+  <div class="h">阅读提示</div>
+  本文中 <span class="tag t-pc">PC</span> 表示 SSBO/SOA 路径，<span class="tag t-mob">Mobile</span> 表示 Uniform Buffer/AOS 路径，<span class="tag t-fork">GR</span> 表示本分叉自研改动。这三者在源码里是<b>三条不同的 <code>#if</code> 分支</b>，混读必踩坑。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s2"><span class="num">02</span>动机：为什么必须有 GPUScene</h2>
+
+<h3>2.1 没有 GPUScene 的世界</h3>
+<p>传统路径下，每个绘制物体都有自己的一份 Primitive 常量（LocalToWorld、Bounds、Flags…），走的是「一次 draw 绑一个 UBO」的模型。这直接导致两件事：</p>
+<ul>
+  <li><b>CPU 侧</b>：每次 draw 都要在渲染线程/RHI 线程写入并绑定一次 UBO，绘制数一多就是瓶颈。</li>
+  <li><b>无法合批</b>：两个物体哪怕网格、材质、状态完全一样，只要 Primitive 数据不同，就不能合并成一次 instanced draw——因为 shader 只有一个 Primitive 槽位。</li>
+</ul>
+
+<h3>2.2 GPUScene 的三步解法</h3>
+<ol>
+  <li><b>数据池化</b>：把全部 Primitive / Instance 数据放进几条大缓冲，CPU 只维护「哪一段归谁」。</li>
+  <li><b>ID 化</b>：每次 draw 不再传整个 Primitive 结构，而是传一个 <code>PrimitiveId</code>（实例则是 <code>InstanceId</code>），shader 自己索引。</li>
+  <li><b>可剔除化</b>：ID 列表可以在 GPU 上被并行地剔除、紧凑化，剔除结果直接喂给 Indirect Draw——<b>这正是 InstanceCulling 存在的前提</b>。</li>
+</ol>
+
+<p>引擎自己在源码里把这件事写得很直白：</p>
+<pre><span class="c">// SceneData.ush:51-55（逐字符照录；第 51 行在源码中就是一行，此处不折行）</span>
+<span class="c">// Whether to fetch primitive values (eg LocalToWorld) by dynamically indexing a scene-wide buffer, or to reference a single Primitive uniform buffer</span>
+<span class="c">// Add by ZXB for GPUScene to Primitive UBO </span>
+<span class="k">#ifndef</span> VF_FORCE_DISABLE_PRIMITIVE_SCENE_DATA
+<span class="k">#define</span> VF_FORCE_DISABLE_PRIMITIVE_SCENE_DATA 0
+<span class="k">#endif</span></pre>
+<p>注意最后一行 <span class="tag t-fork">GR</span>：本分叉在官方注释下追加了自研说明——这句话本身就是「PC 走 scene-wide buffer、Mobile 走 single Primitive UBO」这个二元结构的第一手证据 <span class="ref">SceneData.ush:51-55</span>。</p>
+
+<h3>2.3 关键设计取舍：为什么 Mobile 不直接用 SSBO</h3>
+<p>这是全文最重要的一条设计意图。<b>移动端的 GPU 在「uniform buffer 读取」路径上通常有专用硬件，比 structured buffer 随机读更快、更省带宽。</b>引擎因此做了一条分叉：</p>
+<pre><span class="c">// RenderUtils.cpp:488-491</span>
+<span class="k">RENDERCORE_API bool</span> PlatformGPUSceneUsesUniformBufferView(<span class="k">const</span> FStaticShaderPlatform Platform)
+{
+    <span class="k">return</span> IsMobilePlatform(Platform) &amp;&amp; FDataDrivenShaderPlatformInfo::GetSupportsUniformBufferObjects(Platform);
+}</pre>
+<p>Android 的 DDSPI 里 <code>bSupportsUniformBufferObjects = true</code> <span class="ref">Android/DataDrivenPlatformInfo.ini:75</span>，于是<b>所有 Android 设备都走 UniformBufferView 路径</b>；Windows 虽然也声明支持 UBO，但 <code>IsMobilePlatform</code> 为假，仍走 SSBO。</p>
+
+<div class="callout warn">
+  <div class="h">代价：批大小被 uniform buffer 的 16KB 硬上限锁死</div>
+  走 UBO 路径后，一批实例的数据必须能塞进一个 uniform buffer。<code>PLATFORM_MAX_UNIFORM_BUFFER_RANGE</code> 定义为 <code>16u*1024u</code>，全仓库只有这一处定义（无平台覆盖）<span class="ref">HAL/Platform.h:640-641</span>。于是批大小 = 16384 / 每条实例步长。这就是后文 32/64 两套上限的全部来历。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s3"><span class="num">03</span>总体架构与每帧流程</h2>
+
+<div class="fig">
+<svg viewBox="0 0 1120 620" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/>
+    </marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/>
+    </marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/>
+    </marker>
+  </defs>
+
+  <!-- CPU column -->
+  <rect x="20" y="20" width="300" height="580" rx="10" fill="#f4f7fc" stroke="#c9d8ee"/>
+  <text x="170" y="46" font-size="14" font-weight="700" fill="#1f3a63" text-anchor="middle">CPU（Game / Render 线程）</text>
+
+  <rect x="45" y="66" width="250" height="46" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="170" y="86" font-size="12.5" fill="#1a1d21" text-anchor="middle">FScene 更新 Primitive / Instance</text>
+  <text x="170" y="103" font-size="11" fill="#7a828a" text-anchor="middle">AddPrimitiveToUpdate（脏标记）</text>
+
+  <rect x="45" y="132" width="250" height="46" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="170" y="152" font-size="12.5" fill="#1a1d21" text-anchor="middle">FGPUScene::Update</text>
+  <text x="170" y="169" font-size="11" fill="#7a828a" text-anchor="middle">UpdateInternal → UploadGeneral</text>
+
+  <rect x="45" y="198" width="250" height="56" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="170" y="218" font-size="12.5" fill="#1a1d21" text-anchor="middle">UploadDynamicPrimitiveShaderDataForView</text>
+  <text x="170" y="235" font-size="11" fill="#7a828a" text-anchor="middle">动态图元（每 View 一份）</text>
+  <text x="170" y="249" font-size="11" fill="#7a828a" text-anchor="middle">FGPUScenePrimitiveCollector</text>
+
+  <rect x="45" y="274" width="250" height="52" rx="7" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="170" y="294" font-size="12.5" fill="#1a1d21" text-anchor="middle">MeshDrawCommand 缓存</text>
+  <text x="170" y="311" font-size="11" fill="#a06a2c" text-anchor="middle">StateBucket 去重 / 合批判定</text>
+
+  <rect x="45" y="346" width="250" height="60" rx="7" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="170" y="366" font-size="12.5" fill="#1a1d21" text-anchor="middle">FInstanceCullingContext</text>
+  <text x="170" y="383" font-size="11" fill="#a06a2c" text-anchor="middle">SetupDrawCommands</text>
+  <text x="170" y="397" font-size="11" fill="#a06a2c" text-anchor="middle">算 InstanceIdOffset / 切批</text>
+
+  <rect x="45" y="426" width="250" height="46" rx="7" fill="#eef1f4" stroke="#b9c2cb"/>
+  <text x="170" y="446" font-size="12.5" fill="#1a1d21" text-anchor="middle">上传 Buffer（Scatter Upload）</text>
+  <text x="170" y="463" font-size="11" fill="#7a828a" text-anchor="middle">FRDGAsyncScatterUploadBuffer</text>
+
+  <rect x="45" y="492" width="250" height="56" rx="7" fill="#f3f6fa" stroke="#b9c2cb"/>
+  <text x="170" y="512" font-size="12.5" fill="#1a1d21" text-anchor="middle">RHI 提交</text>
+  <text x="170" y="529" font-size="11" fill="#7a828a" text-anchor="middle">DrawIndexed / DrawIndexedIndirect</text>
+  <text x="170" y="543" font-size="11" fill="#7a828a" text-anchor="middle">+ InstanceIdOffset 顶点流</text>
+
+  <!-- GPU column -->
+  <rect x="800" y="20" width="300" height="580" rx="10" fill="#f4fbf6" stroke="#bfe3cc"/>
+  <text x="950" y="46" font-size="14" font-weight="700" fill="#1f6b41" text-anchor="middle">GPU</text>
+
+  <rect x="825" y="66" width="250" height="72" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="950" y="86" font-size="12.5" fill="#1a1d21" text-anchor="middle">GPUScene 缓冲</text>
+  <text x="950" y="103" font-size="11" fill="#5f7a68" text-anchor="middle">PrimitiveSceneData</text>
+  <text x="950" y="118" font-size="11" fill="#5f7a68" text-anchor="middle">InstanceSceneData / Payload</text>
+  <text x="950" y="133" font-size="11" fill="#5f7a68" text-anchor="middle">LightmapData / LightData</text>
+
+  <rect x="825" y="162" width="250" height="60" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="950" y="182" font-size="12.5" fill="#1a1d21" text-anchor="middle">InstanceCulling CS</text>
+  <text x="950" y="199" font-size="11" fill="#5f7a68" text-anchor="middle">视锥 + HZB 遮挡剔除</text>
+  <text x="950" y="213" font-size="11" fill="#5f7a68" text-anchor="middle">BuildInstanceDrawCommands.usf</text>
+
+  <rect x="825" y="246" width="250" height="56" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="950" y="266" font-size="12.5" fill="#1a1d21" text-anchor="middle">CompactVisibleInstances CS</text>
+  <text x="950" y="283" font-size="11" fill="#5f7a68" text-anchor="middle">前缀和 → 紧凑化</text>
+  <text x="950" y="297" font-size="11" fill="#5f7a68" text-anchor="middle">InstanceIdsBuffer（输出）</text>
+
+  <rect x="825" y="326" width="250" height="56" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="950" y="346" font-size="12.5" fill="#1a1d21" text-anchor="middle">DrawIndirectArgsBuffer</text>
+  <text x="950" y="363" font-size="11" fill="#5f7a68" text-anchor="middle">InterlockedAdd 累加可见数</text>
+  <text x="950" y="377" font-size="11" fill="#5f7a68" text-anchor="middle">5 words / draw</text>
+
+  <rect x="825" y="406" width="250" height="60" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="950" y="426" font-size="12.5" fill="#1a1d21" text-anchor="middle">顶点着色器 / 像素着色器</text>
+  <text x="950" y="443" font-size="11" fill="#5f7a68" text-anchor="middle">InstanceIdOffset + SV_InstanceID</text>
+  <text x="950" y="457" font-size="11" fill="#5f7a68" text-anchor="middle">→ 查 InstanceIds → 取场景数据</text>
+
+  <rect x="825" y="490" width="250" height="58" rx="7" fill="#eef7f1" stroke="#8fc9a8"/>
+  <text x="950" y="510" font-size="12.5" fill="#1a1d21" text-anchor="middle">Instanced Draw</text>
+  <text x="950" y="527" font-size="11" fill="#5f7a68" text-anchor="middle">num_instances = 剔除后可见数</text>
+
+  <!-- arrows CPU internal -->
+  <line x1="170" y1="112" x2="170" y2="130" stroke="#5a6672" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="170" y1="178" x2="170" y2="196" stroke="#5a6672" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="170" y1="254" x2="170" y2="272" stroke="#5a6672" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="170" y1="326" x2="170" y2="344" stroke="#5a6672" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="170" y1="406" x2="170" y2="424" stroke="#5a6672" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="170" y1="472" x2="170" y2="490" stroke="#5a6672" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <!-- CPU -> GPU -->
+  <path d="M295 449 C 520 449, 600 100, 823 100" fill="none" stroke="#2f6feb" stroke-width="2" marker-end="url(#arb)"/>
+  <text x="540" y="418" font-size="11.5" fill="#2f6feb" text-anchor="middle">① 上传 Primitive / Instance / Payload</text>
+
+  <path d="M295 376 C 520 376, 600 190, 823 190" fill="none" stroke="#d9741a" stroke-width="2" marker-end="url(#aro)"/>
+  <text x="540" y="352" font-size="11.5" fill="#d9741a" text-anchor="middle">② 下发 Draw 命令模板 + 剔除参数</text>
+
+  <path d="M823 350 C 600 350, 520 500, 297 515" fill="none" stroke="#1f9254" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="540" y="552" font-size="11.5" fill="#1f9254" text-anchor="middle">③ 回读：Indirect Args 决定实际实例数（RHI 直接消费，不回 CPU）</text>
+
+  <text x="560" y="592" font-size="11.5" fill="#7a828a" text-anchor="middle">虚线框内为「一帧内」的完整闭环；GPUScene 更新与剔除都是每帧执行的</text>
+</svg>
+<div class="cap">图 1 · GPUScene + InstanceCulling 每帧总体数据流</div>
+</div>
+
+<h3>3.1 一帧内的关键调用点</h3>
+<ol>
+  <li><b>FGPUScene::BeginRender</b> — 记录本帧 scene primitive 数量，为动态图元预留分配，开启 Begin/End 块 <span class="ref">GPUScene.h:222-224</span>。</li>
+  <li><b>FGPUScene::Update</b> — 拉取 Scene 的待更新队列，上传 Primitive / Instance / Payload / Lightmap 数据 <span class="ref">GPUScene.h:257</span>。</li>
+  <li><b>FInstanceCullingContext::SetupDrawCommands</b> — 折叠同 StateBucket 的 draw、按批大小切分、分配 indirect 参数槽位 <span class="ref">InstanceCullingContext.cpp:1625-1650</span>。</li>
+  <li><b>InstanceCulling CS</b> — 逐实例剔除，写 <code>InstanceIdsBuffer</code> 与 <code>DrawIndirectArgsBuffer</code>。</li>
+  <li><b>RHI 提交</b> — 用 Indirect Args 直接 DrawIndexedIndirect，实例数由 GPU 决定。</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="s4"><span class="num">04</span>数据结构：三条缓冲与位域打包</h2>
+
+<h3>4.1 FGPUScene 的资源成员</h3>
+<pre><span class="c">// GPUScene.h:332-356（节选，保留了本分叉的 #if 双形态）</span>
+<span class="c">/** GPU mirror of Primitives */</span>
+<span class="k">#if</span> PRIMITIVE_DATA_USE_TEXTURE <span class="c">// [Fix GPU Crash: GPUScene Pagefault] -- ADD @Beiyu</span>
+    TRefCountPtr&lt;IPooledRenderTarget&gt;       PrimitiveTexture;
+<span class="k">#else</span>
+    TRefCountPtr&lt;FRDGPooledBuffer&gt;          PrimitiveBuffer;
+<span class="k">#endif</span>
+    FRDGAsyncScatterUploadBuffer            PrimitiveUploadBuffer;
+
+    <span class="c">/** GPU primitive instance list */</span>
+    TRefCountPtr&lt;FRDGPooledBuffer&gt;          InstanceSceneDataBuffer;
+    FRDGAsyncScatterUploadBuffer            InstanceSceneUploadBuffer;
+    uint32                                  InstanceSceneDataSOAStride;  <span class="c">// Distance between arrays in float4s</span>
+
+    FSpanAllocator                          InstancePayloadDataAllocator;
+<span class="k">#if</span> PRIMITIVE_DATA_USE_TEXTURE  <span class="c">// [Fix GPU Crash: GPUScene Pagefault] -- ADD @Beiyu</span>
+    TRefCountPtr&lt;IPooledRenderTarget&gt;       InstancePayloadDataTexture;
+<span class="k">#else</span>
+    TRefCountPtr&lt;FRDGPooledBuffer&gt;          InstancePayloadDataBuffer;
+<span class="k">#endif</span>
+    FRDGAsyncScatterUploadBuffer            InstancePayloadUploadBuffer;
+
+    <span class="c">/** GPU light map data */</span>
+    FSpanAllocator                          LightmapDataAllocator;
+    TRefCountPtr&lt;FRDGPooledBuffer&gt;          LightmapDataBuffer;
+    FRDGAsyncScatterUploadBuffer            LightmapUploadBuffer;</pre>
+
+<table class="kv">
+<thead><tr><th>缓冲</th><th>装什么</th><th>本分叉形态</th></tr></thead>
+<tbody>
+<tr><td>Primitive</td><td>每个 Primitive 一份着色参数，stride = 46 个 float4</td><td><span class="tag t-fork">GR</span> 加了 Texture2D 分支，<b>但宏默认 0 → 当前走 Buffer</b></td></tr>
+<tr><td>InstanceSceneData</td><td>每个 Instance 一份，SOA 布局，每实例 3 或 4 个 float4</td><td>Buffer（无 Texture 分支）</td></tr>
+<tr><td>InstancePayloadData</td><td>实例的可变长扩展（自定义数据、骨骼、前帧变换…）</td><td><span class="tag t-fork">GR</span> 加了 Texture2D 分支，<b>但宏默认 0 → 当前走 Buffer</b></td></tr>
+<tr><td>LightmapData</td><td>光照贴图采样数据</td><td>仍是 Buffer</td></tr>
+<tr><td>LightData</td><td><code>FLightSceneData</code> 数组</td><td>仍是 Buffer</td></tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+  <div class="h">读本仓库时最容易搞错的一点：<code>PRIMITIVE_DATA_USE_TEXTURE</code> 当前是关的</div>
+  这个宏把 Primitive / Payload 从 Buffer 换成 Texture2D，是 <span class="tag t-fork">GR</span> 的改动，但它<b>只有一个定义点且值为 0</b>：
+  <pre style="margin:8px 0"><span class="c">// GPUSceneWriter.h:13-15</span>
+<span class="k">#ifndef</span> PRIMITIVE_DATA_USE_TEXTURE
+    <span class="k">#define</span> PRIMITIVE_DATA_USE_TEXTURE 0
+<span class="k">#endif</span></pre>
+  已三重核实无覆盖：① <code>Engine/Source</code> 全目录无第二个 <code>#define</code>；② <code>--include=*.cs</code> 搜 <code>Engine/Source</code> 与 <code>S1Game/Source</code>，无任何 <code>GlobalDefinitions</code>/<code>PublicDefinitions</code> 覆盖；③ <code>S1Game/Config</code> 无相关项。<br>
+  <b>结论：本仓库实际编译的是 <code>#else</code> 的 Buffer 分支。</b>源码里那一大片 <code>#if PRIMITIVE_DATA_USE_TEXTURE</code>（<span class="ref">GPUScene.h:38-62</span>、<span class="ref">GPUScene.h:333-337</span>、<span class="ref">GPUScene.h:376-384</span>、<span class="ref">SceneData.ush:90</span> 等）在当前配置下<b>不参与编译</b>。
+  <br><br>
+  附带的第二个坑：shader 侧还有个 <code>MOBILE_DISABLE_PRIMITIVE_DATA_USE_TEXTURE</code> 参与同一条开关（<span class="ref">SceneData.ush:90</span>、<span class="ref">SceneData.ush:704</span>），但它在 <code>Engine/Source/Runtime</code> 与 <code>Engine/Shaders</code> 全范围内<b>没有任何 <code>#define</code> 或 <code>SetDefine</code> 定义点</b>——属于本仓库读不出来的符号，不要把它当成一个可配置开关。
+</div>
+
+<h3>4.2 Primitive 数据：46 个 float4</h3>
+<pre><span class="c">// SceneDefinitions.h:89-90</span>
+<span class="c">// Stride of a single primitive's data in float4's</span>
+<span class="k">#define</span> PRIMITIVE_SCENE_DATA_STRIDE 46</pre>
+<pre><span class="c">// PrimitiveSceneShaderData.h:17-21</span>
+<span class="k">struct</span> FPrimitiveSceneShaderData
+{
+    <span class="k">static const</span> uint32 DataStrideInFloat4s = PRIMITIVE_SCENE_DATA_STRIDE;
+    TStaticArray&lt;FVector4f, DataStrideInFloat4s&gt; Data;
+    ...
+};</pre>
+<p>即 <b>46 × 16 = 736 字节 / Primitive</b>。着色器侧的对应结构是 <code>FPrimitiveSceneData</code>，字段清单见下（<b>逐字抄录，未做任何缩写</b>）：</p>
+
+<pre><span class="c">// SceneData.ush:126-185（从源文件直接生成，逐字含制表符与行尾注释）</span>
+struct FPrimitiveSceneData
+{
+	uint		Flags;
+	uint		VisibilityFlags;
+	int			InstanceSceneDataOffset; <span class="c">// Link to the range of instances that belong to this primitive</span>
+	int			NumInstanceSceneDataEntries;
+	int			PersistentPrimitiveIndex;
+	uint		SingleCaptureIndex; <span class="c">// TODO: Use 16 bits? 8 bits?</span>
+	float3		PositionHigh;
+	uint		PrimitiveComponentId; <span class="c">// TODO: Refactor to use PersistentPrimitiveIndex, ENGINE USE ONLY - will be removed</span>
+	FDFMatrix	LocalToWorld;
+	FDFInverseMatrix WorldToLocal;
+	FDFMatrix	PreviousLocalToWorld;
+	FDFInverseMatrix PreviousWorldToLocal;
+	float4x4	WorldToPreviousWorld; <span class="c">// NOTE: Intentionally not LWC</span>
+	float3		InvNonUniformScale;
+	float		ObjectBoundsX;
+	FDFVector3	ObjectWorldPosition;
+	FDFVector3	ActorWorldPosition;
+	float		MinMaterialDisplacement;
+	float		MaxMaterialDisplacement;
+#if PRIMITIVE_HAS_TILEOFFSET_DATA
+	FLWCVector3	ObjectWorldPositionTO;
+	FLWCVector3	ActorWorldPositionTO;
+#endif
+	float		ObjectRadius;
+	uint		LightmapUVIndex;   <span class="c">// TODO: Use 16 bits? // TODO: Move into associated array that disappears if static lighting is disabled</span>
+	float3		ObjectOrientation; <span class="c">// TODO: More efficient representation?</span>
+	uint		LightmapDataIndex; <span class="c">// TODO: Use 16 bits? // TODO: Move into associated array that disappears if static lighting is disabled</span>
+	float4		NonUniformScale;
+	float3		PreSkinnedLocalBoundsMin;
+	uint		NaniteResourceID;
+	float3		PreSkinnedLocalBoundsMax;
+	uint		NaniteHierarchyOffset;
+	float3		LocalObjectBoundsMin;
+	float		ObjectBoundsY;
+	float3		LocalObjectBoundsMax;
+	float		ObjectBoundsZ;
+	uint		InstancePayloadDataOffset;
+	uint		InstancePayloadDataStride;
+	uint		InstancePayloadExtensionSize;
+	float3		InstanceLocalBoundsCenter;
+	float3		InstanceLocalBoundsExtent;
+	float3		WireframeColor; <span class="c">// TODO: Should refactor out all editor data into a separate buffer</span>
+	float3		PrimitiveColor; <span class="c">// TODO: Should refactor out all editor data into a separate buffer</span>
+	uint		PackedNaniteFlags;
+	float2 		InstanceDrawDistanceMinMaxSquared;
+	float		InstanceWPODisableDistanceSquared;
+	uint		NaniteRayTracingDataOffset;
+	float		MaxWPOExtent;
+	uint		CustomStencilValueAndMask;
+	float		PixelProgrammableDistanceSquared;
+	float		MaterialDisplacementFadeOutSize;
+	uint2		MeshPaintTextureDescriptor;
+	float		AxisZConeCullingAngle;	<span class="c">// [ZConeCulling] @Beiyu @CYH</span>
+	float4		CustomPrimitiveData[NUM_CUSTOM_PRIMITIVE_DATA]; <span class="c">// TODO: Move to associated array to shrink primitive data and pack cachelines more effectively</span>
+	float4      LODScreenSizes[NUM_LOD_SCREEN_SIZE_DATA]; <span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[ADD]</span>
+	uint		MinLOD;
+	uint		MaxLOD;
+};</pre>
+<p>其中两个数组长度常量：<code>NUM_CUSTOM_PRIMITIVE_DATA = 9u</code> <span class="ref">SceneData.ush:121</span>、<code>NUM_LOD_SCREEN_SIZE_DATA = 2u</code> <span class="ref">SceneData.ush:124</span>（后者是 <span class="tag t-fork">GR</span> 为 ISM Dithered LOD 新增的）。</p>
+
+<h3>4.3 Instance 数据：一个 float4 里的三个位域</h3>
+<p>Instance 数据的打包写在 CPU 侧，是理解整套体系的钥匙：</p>
+<pre><span class="c">// InstanceUniformShaderParameters.h:145-171（节选，表达式逐字照录）</span>
+checkSlow((PrimitiveId       &amp; 0x000FFFFF) == PrimitiveId);
+checkSlow((InstanceFlags     &amp; 0x00000FFF) == InstanceFlags);
+checkSlow((RelativeId        &amp; 0x00FFFFFF) == RelativeId);
+checkSlow((CustomDataCount   &amp; 0x000000FF) == CustomDataCount);
+
+<span class="k">const</span> uint32 Packed0 = (InstanceFlags   &lt;&lt; 20u) | PrimitiveId;
+<span class="k">const</span> uint32 Packed1 = (CustomDataCount &lt;&lt; 24u) | RelativeId;
+
+Data[0].X  = *(<span class="k">const float</span>*)&amp;Packed0;
+Data[0].Y  = *(<span class="k">const float</span>*)&amp;Packed1;
+Data[0].Z  = *(<span class="k">const float</span>*)&amp;LastUpdateFrame;
+Data[0].W  = *(<span class="k">const float</span>*)&amp;RandomID;</pre>
+
+<div class="fig">
+<svg viewBox="0 0 1080 330" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <text x="20" y="26" font-size="13.5" font-weight="700" fill="#1a1d21">Instance 数据打包（slot 0 = 头 float4）</text>
+
+  <!-- bit ruler -->
+  <text x="60" y="60" font-size="10.5" fill="#7a828a">bit 31</text>
+  <text x="470" y="60" font-size="10.5" fill="#7a828a" text-anchor="middle">bit 20</text>
+  <text x="530" y="60" font-size="10.5" fill="#7a828a">bit 0</text>
+
+  <!-- Packed0 row -->
+  <text x="20" y="90" font-size="12" fill="#4a5158">Data[0].X</text>
+  <rect x="90" y="70" width="380" height="34" fill="#dbe8fb" stroke="#7ba4dd"/>
+  <text x="280" y="92" font-size="12" fill="#1f3a63" text-anchor="middle">InstanceFlags（12 bits）</text>
+  <rect x="470" y="70" width="270" height="34" fill="#fde8d8" stroke="#e0a26a"/>
+  <text x="605" y="92" font-size="12" fill="#8a4b12" text-anchor="middle">PrimitiveId（20 bits）</text>
+  <text x="760" y="92" font-size="11.5" fill="#7a828a">= Packed0 = (Flags&lt;&lt;20) | PrimitiveId</text>
+
+  <!-- Packed1 row -->
+  <text x="20" y="146" font-size="12" fill="#4a5158">Data[0].Y</text>
+  <rect x="90" y="126" width="120" height="34" fill="#dbe8fb" stroke="#7ba4dd"/>
+  <text x="150" y="148" font-size="11.5" fill="#1f3a63" text-anchor="middle">CustomDataCount</text>
+  <rect x="210" y="126" width="530" height="34" fill="#fde8d8" stroke="#e0a26a"/>
+  <text x="475" y="148" font-size="12" fill="#8a4b12" text-anchor="middle">RelativeId（24 bits）</text>
+  <text x="760" y="148" font-size="11.5" fill="#7a828a">= Packed1 = (CustomDataCount&lt;&lt;24) | RelativeId</text>
+
+  <!-- Z W row -->
+  <text x="20" y="202" font-size="12" fill="#4a5158">Data[0].Z</text>
+  <rect x="90" y="182" width="300" height="34" fill="#e9edf1" stroke="#b9c2cb"/>
+  <text x="240" y="204" font-size="12" fill="#3d454d" text-anchor="middle">LastUpdateFrame（32 bit）</text>
+  <text x="20" y="250" font-size="12" fill="#4a5158">Data[0].W</text>
+  <rect x="90" y="230" width="300" height="34" fill="#e9edf1" stroke="#b9c2cb"/>
+  <text x="240" y="252" font-size="12" fill="#3d454d" text-anchor="middle">RandomID（float）</text>
+
+  <!-- transform slots -->
+  <rect x="430" y="182" width="620" height="120" rx="8" fill="#f7f9fc" stroke="#c9d8ee"/>
+  <text x="740" y="204" font-size="12.5" font-weight="600" fill="#1f3a63" text-anchor="middle">变换槽位（两种布局互斥）</text>
+  <text x="450" y="228" font-size="11.5" fill="#2f6feb">压缩：Data[1] = Translation.xyz + Rotation01(w)　Data[2] = Scale.xyz + Rotation23(w)</text>
+  <text x="450" y="248" font-size="11.5" fill="#2f6feb">　　　→ 合计 3 个 float4（含头）</text>
+  <text x="450" y="272" font-size="11.5" fill="#d9741a">非压缩：Data[1..3] = LocalToWorld 3×4 转置　→ 合计 4 个 float4</text>
+  <text x="450" y="292" font-size="11" fill="#7a828a">决定权在 GetSupportSceneDataCompressedTransforms(平台)</text>
+</svg>
+<div class="cap">图 2 · <code>FInstanceSceneShaderData</code> 的 slot 0 位域与变换槽位（数据源 <span class="ref">InstanceUniformShaderParameters.h:151-171</span>）</div>
+</div>
+
+<p>压缩与否由平台能力决定，CPU 侧的 stride 也随之变化：</p>
+<pre><span class="c">// InstanceUniformShaderParameters.h:72-75</span>
+<span class="c">// Must match GetInstanceSceneData() in SceneData.ush</span>
+<span class="c">// Allocate the max Float4s usage when compressed transform is used.</span>
+<span class="k">static constexpr</span> uint32 CompressedTransformDataStrideInFloat4s   = 3;
+<span class="k">static constexpr</span> uint32 UnCompressedTransformDataStrideInFloat4s = 4;</pre>
+<pre><span class="c">// InstanceUniformShaderParameters.cpp:13-23（逐字符照录）</span>
+uint32 FInstanceSceneShaderData::GetDataStrideInFloat4s()
+{
+	<span class="k">if</span> (FDataDrivenShaderPlatformInfo::GetSupportSceneDataCompressedTransforms(GMaxRHIShaderPlatform))
+	{
+		<span class="k">return</span> CompressedTransformDataStrideInFloat4s;
+	}
+	<span class="k">else</span>
+	{
+		<span class="k">return</span> UnCompressedTransformDataStrideInFloat4s;
+	}
+}</pre>
+
+<div class="callout warn">
+  <div class="h">易错点：「3 还是 4」取决于上下文，不是一个固定答案</div>
+  <ul style="margin:6px 0">
+    <li><code>InstanceTransformSizeFloat4Count</code> = <b>2</b>（压缩）/ <b>3</b>（非压缩）—— 只数<b>变换本身</b>，不含头 <span class="ref">SceneData.ush:115-119</span>。</li>
+    <li><code>CompressedTransformDataStrideInFloat4s</code> = <b>3</b> / <code>UnCompressed...</code> = <b>4</b> —— <b>含头 float4</b> <span class="ref">InstanceUniformShaderParameters.h:74-75</span>。</li>
+    <li>两者数值上差 1，概念上完全不同。写文档或算地址时混用会得到完全相反的结论。</li>
+  </ul>
+</div>
+
+<h3>4.4 位域全表（逐字抄录，未缩写）</h3>
+
+<h4>Instance Scene Data Flags — <span class="ref">SceneDefinitions.h:96-106</span></h4>
+<table class="kv">
+<tbody>
+<tr><td><code>0x1</code></td><td>INSTANCE_SCENE_DATA_FLAG_DETERMINANT_SIGN</td></tr>
+<tr><td><code>0x2</code></td><td>INSTANCE_SCENE_DATA_FLAG_HAS_RANDOM</td></tr>
+<tr><td><code>0x4</code></td><td>INSTANCE_SCENE_DATA_FLAG_HAS_CUSTOM_DATA</td></tr>
+<tr><td><code>0x8</code></td><td>INSTANCE_SCENE_DATA_FLAG_HAS_DYNAMIC_DATA</td></tr>
+<tr><td><code>0x10</code></td><td>INSTANCE_SCENE_DATA_FLAG_HAS_SKINNING_DATA</td></tr>
+<tr><td><code>0x20</code></td><td>INSTANCE_SCENE_DATA_FLAG_HAS_LIGHTSHADOW_UV_BIAS</td></tr>
+<tr><td><code>0x40</code></td><td>INSTANCE_SCENE_DATA_FLAG_HAS_HIERARCHY_OFFSET</td></tr>
+<tr><td><code>0x80</code></td><td>INSTANCE_SCENE_DATA_FLAG_HAS_LOCAL_BOUNDS</td></tr>
+<tr><td><code>0x100</code></td><td>INSTANCE_SCENE_DATA_FLAG_HAS_PAYLOAD_EXTENSION</td></tr>
+<tr><td><code>0x200</code></td><td>INSTANCE_SCENE_DATA_FLAG_HAS_EDITOR_DATA</td></tr>
+<tr><td><code>0x400</code></td><td>INSTANCE_SCENE_DATA_FLAG_HIDDEN</td></tr>
+</tbody>
+</table>
+<p>共 11 个，正好落在 <code>INSTANCE_SCENE_DATA_FLAGS_NUM_BITS = 12u</code> 的容量内 <span class="ref">SceneDefinitions.h:15</span>。另有 <code>INSTANCE_SCENE_DATA_FLAG_PAYLOAD_MASK</code> 把其中 9 个归为「payload 类」<span class="ref">SceneDefinitions.h:108-118</span>。</p>
+
+<h4>Primitive Scene Data Flags — <span class="ref">SceneDefinitions.h:29-59</span>（31 个，仅列代表性项）</h4>
+<table class="kv">
+<tbody>
+<tr><td><code>0x1</code></td><td>PRIMITIVE_SCENE_DATA_FLAG_CAST_SHADOWS</td></tr>
+<tr><td><code>0x80</code></td><td>PRIMITIVE_SCENE_DATA_FLAG_HAS_DISTANCE_FIELD_REPRESENTATION</td></tr>
+<tr><td><code>0x400</code></td><td>PRIMITIVE_SCENE_DATA_FLAG_HAS_PRIMITIVE_CUSTOM_DATA</td></tr>
+<tr><td><code>0x4000</code></td><td>PRIMITIVE_SCENE_DATA_FLAG_HAS_INSTANCE_LOCAL_BOUNDS</td></tr>
+<tr><td><code>0x20000</code></td><td>PRIMITIVE_SCENE_DATA_FLAG_INSTANCE_DRAW_DISTANCE_CULL</td></tr>
+<tr><td><code>0x2000000</code></td><td>PRIMITIVE_SCENE_DATA_FLAG_INSTANCE_CULLING_OCCLUSION_QUERIES<br><span style="font-size:12px;color:#7a828a">是否允许对该实例做逐实例遮挡查询（注释原文照录）</span></td></tr>
+<tr><td><code>0x20000000</code></td><td>PRIMITIVE_SCENE_DATA_FLAG_PER_CLUSTER_DISPLACEMENT_FALLBACK_RASTER</td></tr>
+<tr><td><code>0x40000000</code></td><td>PRIMITIVE_SCENE_DATA_FLAG_IS_FIRST_PERSON_PRIMITIVE</td></tr>
+</tbody>
+</table>
+<div class="callout note">
+  <div class="h">一个能说明「位已经用满」的细节</div>
+  源码里留着这样一段 <span class="ref">SceneDefinitions.h:84-88</span>：
+  <pre style="margin:8px 0"><span class="k">#define</span> SUPPORT_REVERSE_CULLING_IN_NANITE 0
+<span class="k">#if</span> SUPPORT_REVERSE_CULLING_IN_NANITE
+<span class="k">#define</span> PRIMITIVE_SCENE_DATA_FLAG_REVERSE_CULLING   NOTE: Out of flags
+<span class="k">#endif</span></pre>
+  最后一个 flag 是 <code>0x40000000</code>，第 31 位已被占用，再要新 flag 只能动到符号位——所以作者干脆写了句「NOTE: Out of flags」。这是理解<b>为什么 GR 分叉的可见性 flag 另起一套</b>的关键：primitive 数据 flag 已无余量。
+</div>
+
+<h4>Primitive Visibility Flags（本分叉已扩到 16 位）— <span class="ref">SceneDefinitions.h:61-82</span></h4>
+<pre><span class="c">// SceneDefinitions.h:61-82（从源文件直接生成，逐字含制表符与行尾注释）</span>
+<span class="c">// Primitive visibility flags</span>
+<span class="c">// shiyu: Visibility Flags Are Using 13bits</span>
+#define PRIMITIVE_VISIBILITY_FLAG_FORCE_HIDDEN							0x1
+#define PRIMITIVE_VISIBILITY_FLAG_CAST_HIDDEN_SHADOW					0x2
+#define PRIMITIVE_VISIBILITY_FLAG_VISIBLE_IN_GAME						0x4
+#define PRIMITIVE_VISIBILITY_FLAG_VISIBLE_IN_EDITOR						0x8
+#define PRIMITIVE_VISIBILITY_FLAG_VISIBLE_IN_REFLECTION_CAPTURES		0x10
+#define PRIMITIVE_VISIBILITY_FLAG_VISIBLE_IN_REAL_TIME_SKY_CAPTURES		0x20
+#define PRIMITIVE_VISIBILITY_FLAG_VISIBLE_IN_RAY_TRACING				0x40
+#define PRIMITIVE_VISIBILITY_FLAG_VISIBLE_IN_SCENE_CAPTURE_ONLY			0x80
+#define PRIMITIVE_VISIBILITY_FLAG_HIDDEN_IN_SCENE_CAPTURE				0x100
+#define PRIMITIVE_VISIBILITY_FLAG_VISIBLE_IN_LUMEN_SCENE				0x200
+
+<span class="c">// shiyu: In UE5.5 Visibility Flag Use 16bit</span>
+<span class="c">// Custom Flag Define -- ADD BEGIN</span>
+#define PRIMITIVE_VISIBILITY_FLAG_CAST_SHADOWS_DISABLE_WPO				0x400 <span class="c">// @Beiyu</span>
+#define PRIMITIVE_VISIBILITY_FLAG_FORCE_HIDDEN_IN_PVS_SCENE_CAPTURE		0x800<span class="c">//@Gongruhe Add for pvs</span>
+#define PRIMITIVE_VISIBILITY_FLAG_AXIS_Z_CONE_CULLING					0x1000 <span class="c">// @Beiyu @CYH</span>
+#define PRIMITIVE_VISIBILITY_FLAG_BLUECIRCLE_CULLING					0x2000 <span class="c">// @wanmuxin</span>
+#define PRIMITIVE_VISIBILITY_FLAG_IS_LANDSCAPE							0x4000 <span class="c">// Add by @CYH</span>
+#define PRIMITIVE_VISIBILITY_FLAG_PROBABILISTIC_INSTANCE_CULLING        0x8000 <span class="c">// @yinnhaowang</span>
+<span class="c">// Cusom Flag Define -- ADD END</span></pre>
+<p>官方 10 个（<code>0x1</code> ~ <code>0x200</code>），本分叉追加 6 个（<code>0x400</code> ~ <code>0x8000</code>），恰好用满 16 位。六个自加 flag 全是**剔除相关**——这解释了为什么本项目有大量自定义剔除逻辑。</p>
+
+<!-- ============================================================ -->
+<h2 id="s5"><span class="num">05</span>SOA 布局：SSBO 路径的地址算术</h2>
+
+<h3>5.1 一句话公式</h3>
+<div class="callout">
+  <div class="h">核心公式（<span class="tag t-pc">PC</span> SSBO 路径）</div>
+  <code>元素下标 = 槽位号 × SOAStride + InstanceId</code>
+</div>
+<p>读侧逐字符照录 <span class="ref">SceneData.ush:1211</span>、<span class="ref">SceneData.ush:1220-1221</span>、<span class="ref">SceneData.ush:1243-1245</span>：</p>
+<pre><span class="c">// SceneData.ush:1211-1247（节选；「...」处为原文中未展示的其他行）</span>
+		InstanceData.LastUpdateSceneFrameNumber	= asuint(LoadInstanceSceneDataElement(0 * SOAStride + InstanceId).z);
+		InstanceData.RandomID					= LoadInstanceSceneDataElement(0 * SOAStride + InstanceId).w;
+<span class="c">...</span>
+		float4 LoadTranslation									= LoadInstanceSceneDataElement(1 * SOAStride + InstanceId);
+		float4 LoadScale										= LoadInstanceSceneDataElement(2 * SOAStride + InstanceId);
+<span class="c">...</span>
+		float4x4 LocalToRelativeWorld			= transpose(
+													float4x4(
+														LoadInstanceSceneDataElement(1 * SOAStride + InstanceId),
+														LoadInstanceSceneDataElement(2 * SOAStride + InstanceId),
+														LoadInstanceSceneDataElement(3 * SOAStride + InstanceId),
+														float4(0.0f, 0.0f, 0.0f, 1.0f)
+													));</pre>
+<p>写侧（动态图元在 GPU 上回写）逐字符照录 <span class="ref">GPUSceneWriter.ush:25</span>：</p>
+<pre><span class="c">// GPUSceneWriter.ush:25</span>
+	GPUSceneInstanceSceneDataRW[ElementIndex * GPUSceneInstanceSceneDataSOAStride + InstanceId] = DataElement;</pre>
+
+<h3>5.2 为什么要 SOA：不是炫技，是剔除带宽</h3>
+<p>把实例数据「按槽位拆成多条数组」而不是「每个实例一整块」，换来的收益是：</p>
+<ul>
+  <li><b>剔除阶段只读 slot 0</b>。视锥/遮挡剔除只需要 PrimitiveId + Flags，而这两样都在 slot 0 里 <span class="ref">SceneData.ush:1026-1030</span>。SOA 让「读 100 万个实例的 slot 0」变成一次连续读，而不是跳着读 100 万条 64 字节记录。这是 SOA 最直接的设计意图。</li>
+  <li><b>压缩路径可跳过无用槽位</b>。压缩时变换只占 2 个 slot，非压缩占 3 个；SOA 下两者只是数组条数不同，寻址公式不变。</li>
+</ul>
+<p>代价是<b>同一个实例的数据被拆散在三处</b>，「一个实例 = 连续 64 字节」这个直觉不再成立——这是读这份代码最容易犯的错。</p>
+
+<h3>5.3 SOAStride 到底是什么：实例容量，取 2 的幂</h3>
+<pre><span class="c">// GPUScene.cpp:1047-1054（节选）</span>
+<span class="k">const</span> uint32 InstanceSceneDataSizeReserve = FMath::Min(MAX_INSTANCE_ID, FMath::RoundUpToPowerOfTwo(FMath::Max(InstanceSceneDataAllocator.GetMaxSize(), InitialBufferSize)));
+...
+InstanceSceneDataSOAStride = InstanceSceneDataSizeReserve;</pre>
+<ul>
+  <li>来源 = <b>实例分配器的当前容量</b>，向上取整到 2 的幂，再对 <code>MAX_INSTANCE_ID</code> 取小。</li>
+  <li><code>InitialBufferSize = 16 * 1024</code> <span class="ref">GPUScene.h:366</span> —— 首次分配就有 16384 个实例的容量。</li>
+  <li><code>MAX_INSTANCE_ID = (1U &lt;&lt; 24)</code> = 16,777,216 <span class="ref">SceneDefinitions.h:14</span>、<span class="ref">SceneDefinitions.h:20</span>。</li>
+  <li>声明处的注释写得很清楚：<code>InstanceSceneDataSOAStride;  // Distance between arrays in float4s</code> <span class="ref">GPUScene.h:343</span> —— <b>单位是 float4 个数</b>，即两条槽位数组之间隔多少个 float4。</li>
+</ul>
+
+<div class="callout note">
+  <div class="h">代入具体数字</div>
+  设 <code>SOAStride = 8</code>（容量 8 个实例的极小场景），压缩变换路径（每实例 3 个 float4）：
+  <ul style="margin:6px 0">
+    <li>实例 5 的头信息：<code>0 × 8 + 5 = 5</code> → 第 5 个 float4</li>
+    <li>实例 5 的 Translation：<code>1 × 8 + 5 = 13</code> → 第 13 个 float4</li>
+    <li>实例 5 的 Scale：<code>2 × 8 + 5 = 18</code> → 第 18 个 float4</li>
+    <li>实例 6 的 Translation：<code>1 × 8 + 6 = 14</code> —— 与实例 5 的 Translation 相邻，验证了「同一槽位内实例连续」。</li>
+  </ul>
+  若误把 <code>SOAStride</code> 当成「每实例 float4 数」（3 或 4），实例 5 的 Translation 会被算成 <code>1×3+5 = 8</code>——错得离谱。
+</div>
+
+<div class="fig">
+<svg viewBox="0 0 1080 430" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <text x="20" y="26" font-size="13.5" font-weight="700" fill="#1a1d21">SOA 布局对比（示意：容量 8 个实例，压缩变换）</text>
+
+  <!-- SOA -->
+  <text x="40" y="62" font-size="12.5" font-weight="600" fill="#2f6feb">SSBO / SOA（PC）</text>
+  <text x="40" y="82" font-size="11" fill="#7a828a">一条大数组，按槽位切段</text>
+
+  <rect x="40" y="96" width="480" height="46" fill="#dbe8fb" stroke="#7ba4dd"/>
+  <text x="280" y="124" font-size="12" fill="#1f3a63" text-anchor="middle">slot0：实例 0..7（头信息：Id / Flags / Frame / Random）</text>
+  <rect x="40" y="146" width="480" height="46" fill="#e8f1ff" stroke="#9db8dd"/>
+  <text x="280" y="174" font-size="12" fill="#2f6feb" text-anchor="middle">slot1：实例 0..7（Translation + Rot01）</text>
+  <rect x="40" y="196" width="480" height="46" fill="#f2f7ff" stroke="#b9cce6"/>
+  <text x="280" y="224" font-size="12" fill="#4a7fc4" text-anchor="middle">slot2：实例 0..7（Scale + Rot23）</text>
+
+  <text x="40" y="268" font-size="11.5" fill="#2f6feb">寻址：slot × SOAStride + InstanceId</text>
+  <text x="40" y="288" font-size="11.5" fill="#1f9254">剔除只读 slot0 → 一次连续读，带宽最优</text>
+  <text x="40" y="308" font-size="11.5" fill="#c0392b">代价：同一实例的 3 段被拆散，不连续</text>
+
+  <!-- divisor -->
+  <line x1="545" y1="60" x2="545" y2="320" stroke="#e2e6ea" stroke-width="2" stroke-dasharray="6 5"/>
+
+  <!-- AOS -->
+  <text x="580" y="62" font-size="12.5" font-weight="600" fill="#d9741a">Uniform Buffer / AOS（Mobile）</text>
+  <text x="580" y="82" font-size="11" fill="#7a828a">每个 Draw 一段连续数据</text>
+
+  <rect x="580" y="96" width="460" height="46" fill="#fdf0e4" stroke="#e2a15c"/>
+  <text x="810" y="118" font-size="11.5" fill="#8a4b12" text-anchor="middle">Draw 0：完整 Primitive 数据（512 B 起）</text>
+  <text x="810" y="134" font-size="11" fill="#a06a2c" text-anchor="middle">或完整 Instance 数据（256 B 起）</text>
+  <rect x="580" y="146" width="460" height="46" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="810" y="174" font-size="11.5" fill="#8a4b12" text-anchor="middle">Draw 1：完整数据，紧接在 Draw 0 之后</text>
+  <rect x="580" y="196" width="460" height="46" fill="#fffdf9" stroke="#eec9a3"/>
+  <text x="810" y="224" font-size="11.5" fill="#a06a2c" text-anchor="middle">Draw 2：……</text>
+
+  <text x="580" y="268" font-size="11.5" fill="#d9741a">寻址：DrawInstanceId × stride + DataIdx</text>
+  <text x="580" y="288" font-size="11.5" fill="#1f9254">优点：单 Draw 数据全连续，UBO 硬件路径友好</text>
+  <text x="580" y="308" font-size="11.5" fill="#c0392b">代价：容量被 16 KB UBO 上限锁死 → 必须切批</text>
+
+  <rect x="40" y="336" width="1000" height="72" rx="8" fill="#f7f9fc" stroke="#c9d8ee"/>
+  <text x="60" y="360" font-size="12" font-weight="600" fill="#1f3a63">切换开关</text>
+  <text x="60" y="382" font-size="11.5" fill="#4a5158">PlatformGPUSceneUsesUniformBufferView(Platform) = IsMobilePlatform(Platform) &amp;&amp; GetSupportsUniformBufferObjects(Platform)</text>
+  <text x="60" y="400" font-size="11" fill="#7a828a">RenderUtils.cpp:488-491 —— PC 恒为 false，Android 恒为 true</text>
+</svg>
+<div class="cap">图 3 · SOA（PC/SSBO）与 AOS（Mobile/Uniform Buffer）的布局与取舍</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s6"><span class="num">06</span>上传链路：CPU → GPU</h2>
+
+<h3>6.1 三个关键设计问题</h3>
+<ol>
+  <li><b>不是每帧全量传</b>。只有「这帧变了的」才传，否则带宽立刻爆炸。</li>
+  <li><b>数据不是顺序追加的</b>。实例分配器会释放和复用空槽，所以目标位置是散乱的。</li>
+  <li><b>缓冲会中途扩容</b>。扩容后 render pass 必须拿到正确的版本——这是整个链路最棘手的地方。</li>
+</ol>
+
+<h3>6.2 脏标记：只传变化的</h3>
+<pre><span class="c">// PrimitiveDirtyState.h:8-22（逐字符照录）</span>
+<span class="k">enum class</span> EPrimitiveDirtyState : uint8
+{
+	None = 0U,
+	ChangedTransform = (1U &lt;&lt; 1U),
+	ChangedStaticLighting = (1U &lt;&lt; 2U),
+	ChangedOther = (1U &lt;&lt; 3U),
+	<span class="c">/** The Added flag is a bit special, as it is used to skip invalidations in the VSM, and thus must only be set if the primitive is in fact added
+	 * (a previous remove must have been processed by GPU scene, or it is new). If in doubt, don't set this. */</span>
+	 Added = (1U &lt;&lt; 4U),
+	 Removed = (1U &lt;&lt; 5U), <span class="c">// Only used to make sure we don't process something that has been marked as Removed (more a debug feature, can be trimmed if need be)</span>
+	 ChangedAll = ChangedTransform | ChangedStaticLighting | ChangedOther,
+	 <span class="c">/** Mark all data as changed and set Added flag. Must ONLY be used when a primitive is added, c.f. Added, above. */</span>
+	 AddedMask = ChangedAll | Added,
+};</pre>
+<p>CPU 侧的两个容器 <span class="ref">GPUScene.h:406</span>、<span class="ref">GPUScene.h:410</span>：</p>
+<pre><span class="c">// GPUScene.h:406</span>
+TArray&lt;FPersistentPrimitiveIndex&gt; PrimitivesToUpdate;
+
+<span class="c">// GPUScene.h:410 —— 与上一行并不相邻，中间还隔着 FRegisteredBuffers 等成员</span>
+TArray&lt;EPrimitiveDirtyState&gt; PrimitiveDirtyState;</pre>
+<p>外部通过 <code>AddPrimitiveToUpdate()</code> 入队，注释写明「可以多次调用，脏位是累积的」<span class="ref">GPUScene.h:259-263</span>。脏位数组会随 Primitive 数量增长，且按 64 对齐扩容 <span class="ref">GPUScene.h:395-403</span>。</p>
+
+<h3>6.3 实例槽位分配：Span 分配器</h3>
+<p>实例数据不是「一个实例一个槽」，而是<b>一段连续区间</b>（一个 Primitive 的所有实例必须连续，这样 <code>InstanceSceneDataOffset + RelativeId</code> 才能定位）。因此用 <code>FSpanAllocator</code> 而不是普通 free list：</p>
+<pre><span class="c">// GPUScene.h:234-242（签名照录）</span>
+int32 AllocateInstanceSceneDataSlots(FPersistentPrimitiveIndex PersistentPrimitiveIndex, int32 NumInstanceSceneDataEntries);
+void  FreeInstanceSceneDataSlots(int32 InstanceSceneDataOffset, int32 NumInstanceSceneDataEntries);
+
+int32 AllocateInstancePayloadDataSlots(int32 NumInstancePayloadFloat4Entries);
+void  FreeInstancePayloadDataSlots(int32 InstancePayloadDataOffset, int32 NumInstancePayloadFloat4Entries);</pre>
+<ul>
+  <li>分配后会自动「标记为需要更新」，真正的数据填充推迟到 <code>Update</code> <span class="ref">GPUScene.h:229-234</span>。</li>
+  <li>容量上限受 <code>MAX_INSTANCE_ID</code> 约束，对外暴露为 <code>GetInstanceIdUpperBoundGPU()</code>：<code>FMath::Min(InstanceSceneDataAllocator.GetMaxSize(), MAX_INSTANCE_ID)</code> <span class="ref">GPUScene.cpp:2096-2098</span>。</li>
+</ul>
+
+<h3>6.4 Scatter Upload：散乱写目标</h3>
+<p>因为目标位置散乱，用的是 <b>scatter（散射）上传</b>而非线性拷贝：把数据先写进一个暂存缓冲，再让 GPU 按「目标下标」搬到最终位置。</p>
+<pre><span class="c">// UnifiedBuffer.h:387-393</span>
+<span class="k">class</span> FRDGAsyncScatterUploadBuffer
+{
+<span class="k">public</span>:
+    RENDERCORE_API FRDGScatterUploader* Begin(FRDGBuilder&amp; GraphBuilder, FRDGViewableResource* DstResource, uint32 NumElements, uint32 NumBytesPerElement, <span class="k">const</span> TCHAR* Name);
+    ...
+};</pre>
+<p>写入时 <code>Set_GetRef</code> 收<b>两个</b>下标——源下标与目标下标。以下是本仓库最直接的证据，注意第二参数就是 §5.1 那条 SOA 公式：</p>
+<pre><span class="c">// GPUScene.cpp:1448-1455（逐字符照录，含原注释）</span>
+<span class="c">// RefIndex* BufferState.InstanceSceneDataSOAStride + UploadInfo.InstanceSceneDataOffset + InstanceIndex</span>
+<span class="k">const</span> uint32 UploadInstanceItemOffset = (PrimitiveItemInfo.InstanceSceneDataUploadOffset + InstanceIndex) * InstanceDataStrideInFloat4s;
+
+<span class="k">for</span> (uint32 RefIndex = 0; RefIndex &lt; InstanceDataStrideInFloat4s; ++RefIndex)
+{
+    FVector4f* DstVector = <span class="k">static_cast</span>&lt;FVector4f*&gt;(TaskContext.InstanceSceneUploader-&gt;Set_GetRef(UploadInstanceItemOffset + RefIndex, RefIndex * TaskContext.InstanceSceneDataSOAStride + UploadInfo.InstanceSceneDataOffset + InstanceIndex));
+    *DstVector = InstanceSceneData.Data[RefIndex];
+}</pre>
+<div class="callout">
+  <div class="h">这条代码同时证明了三件事</div>
+  <ol style="margin:6px 0">
+    <li><b>CPU 与 GPU 用的是同一个 SOA 公式</b>：<code>RefIndex × SOAStride + InstanceSceneDataOffset + InstanceIndex</code>，与着色器 <span class="ref">SceneData.ush:1211</span> 完全同构。CPU 写在哪，GPU 就读在哪——不会错位。</li>
+    <li><b><code>RefIndex</code> 就是槽位号</b>，循环 <code>4</code> 或 <code>3</code> 次（<code>InstanceDataStrideInFloat4s</code>），每次写一个 float4 到对应槽位数组。</li>
+    <li><b>源下标是紧凑的、目标下标是散乱的</b>：<code>UploadInstanceItemOffset + RefIndex</code> 连续递增，目标则是 SOA 散点。这正是 scatter 上传存在的理由。</li>
+  </ol>
+</div>
+<p>Payload 走同样的机制，只是 stride 可变 <span class="ref">GPUScene.cpp:1457-1463</span>。</p>
+
+<h3>6.5 缓冲扩容：为什么要有 RegisteredBuffers</h3>
+<p>上传过程中缓冲可能扩容（本帧新出现大量动态图元）。扩容意味着「换了一条 RDG buffer」，而之前已经记录下的 buffer 引用就失效了。源码对此有明确注释：</p>
+<pre><span class="c">// GPUScene.h:370-373（逐字符照录）</span>
+<span class="c">// Buffers used by GPU-Scene, since they can be resized during updates AND the render passes must retain the </span>
+<span class="c">// right copy (this is chiefly because the init of shadow views after pre-pass means we need to be able to set</span>
+<span class="c">// up GPU-Scene before pre-pass, but then may discover new primitives etc. As there is no way to know how many</span>
+<span class="c">// dynamic primitives will turn up after Pre-pass, we can't guarantee a resize won't happen).</span></pre>
+<p>解法是把「本帧注册过的 buffer 引用」缓存起来：</p>
+<pre><span class="c">// GPUScene.h:374-388（逐字符照录）</span>
+	<span class="k">struct</span> FRegisteredBuffers
+	{
+<span class="k">#if</span> PRIMITIVE_DATA_USE_TEXTURE <span class="c">// [Fix GPU Crash: GPUScene Pagefault] -- ADD @Beiyu</span>
+		<span class="k">bool</span> IsValid() <span class="k">const</span> { <span class="k">return</span> PrimitiveTexture != nullptr; }
+		FRDGTextureRef PrimitiveTexture = nullptr;
+		FRDGTextureRef InstancePayloadDataTexture = nullptr;
+<span class="k">#else</span>
+		<span class="k">bool</span> IsValid() <span class="k">const</span> { <span class="k">return</span> PrimitiveBuffer != nullptr; }
+		FRDGBuffer* PrimitiveBuffer = nullptr;
+		FRDGBuffer* InstancePayloadDataBuffer = nullptr;
+<span class="k">#endif</span>
+		FRDGBuffer* InstanceSceneDataBuffer = nullptr;
+		FRDGBuffer* LightmapDataBuffer = nullptr;
+		FRDGBuffer* LightDataBuffer = nullptr;
+	};</pre>
+<p>配合 <code>RegisterBuffers()</code> / <code>UpdateBufferAllocations()</code> 两个函数 <span class="ref">GPUScene.h:448-454</span>，以及成员 <code>CachedRegisteredBuffers</code> <span class="ref">GPUScene.h:408</span>。</p>
+
+<h3>6.6 动态图元：Collector 模式</h3>
+<p>动态图元（每帧临时生成、不属于 FScene 的 MeshBatch）走一条独立通道，设计成「两阶段」以适应并行收集：</p>
+<table class="kv">
+<thead><tr><th>类型</th><th>职责</th><th>位置</th></tr></thead>
+<tbody>
+<tr><td><code>FGPUScenePrimitiveCollector</code></td><td>收集阶段：<code>Add()</code> 攒数据（可在 Begin/End 块之外调用）</td><td><span class="ref">GPUScene.h:70-95</span></td></tr>
+<tr><td>同上</td><td>提交阶段：<code>Commit()</code> 一次性申请 GPU 区间（<b>只能</b>在 Begin/End 块内）</td><td><span class="ref">GPUScene.h:89-94</span></td></tr>
+<tr><td><code>FGPUSceneDynamicContext</code></td><td>持有所有 collector 的上传数据，生命周期随 SceneRenderer</td><td><span class="ref">GPUScene.h:176-192</span></td></tr>
+<tr><td><code>FGPUSceneScopeBeginEndHelper</code></td><td>RAII 助手，构造时 <code>BeginRender</code>、析构时 <code>EndRender</code></td><td><span class="ref">GPUScene.h:487-505</span></td></tr>
+</tbody>
+</table>
+<pre><span class="c">// GPUScene.h:89-94（注释照录）</span>
+<span class="c">/**</span>
+ <span class="c">* Allocates the range in GPUScene and queues the data for upload. </span>
+ <span class="c">* After this is called no more calls to Add are allowed.</span>
+ <span class="c">* Only allowed inside a FGPUScene::Begin/EndRender block.</span>
+ <span class="c">*/</span>
+RENDERER_API <span class="k">void</span> Commit();</pre>
+<p>按 View 粒度提交的入口是 <code>UploadDynamicPrimitiveShaderDataForView()</code> <span class="ref">GPUScene.h:247</span>。注意其中 <code>FUploadData</code> 用 <code>TInlineAllocator&lt;8&gt;</code> 存放一组 PrimitiveData <span class="ref">GPUScene.h:146-156</span>——即大部分 View 的动态图元数不超过 8，属于热路径优化。</p>
+
+<h3>6.7 GPU 反向写回：Deferred GPU Write</h3>
+<p>有些数据（如骨骼动画、动态变形的变换）是 GPU 自己算出来的，需要回写进 GPUScene。这通过一个「延迟写回 pass」实现：</p>
+<pre><span class="c">// GPUSceneWriter.h:43-52（全文照录 —— 注意本仓库只有两个成员）</span>
+<span class="k">enum class</span> EGPUSceneGPUWritePass : int8
+{
+    <span class="c">/** Invalid GPU write pass. Also used to signify writes that occur during upload. */</span>
+    None = -1,
+
+    <span class="c">/** Writes to the GPU Scene will happen after rendering opaques (as well has after FXSystem post-opaque updates). */</span>
+    PostOpaqueRendering,
+
+    Num
+};</pre>
+<div class="callout warn">
+  <div class="h">可穷举内容必须整段核对</div>
+  本仓库该枚举<b>只有 <code>None = -1</code> 与 <code>PostOpaqueRendering</code> 两个成员</b>（外加 <code>Num</code> 计数器）。在一些资料里会看到 <code>PostInitViews</code> / <code>PostPrepass</code> 之类的成员——它们<b>不属于这个枚举</b>；本仓库全文检索确实能命中同名标识符，但那是 <code>FXSystem</code> 的 GPU 粒子模拟入口函数，与 GPU Scene 写回无关。<b>行号对 ≠ 内容对</b>，枚举清单必须整段 <code>sed</code> 出来逐字比。
+</div>
+<p>消费侧：<code>ExecuteDeferredGPUWritePass(GraphBuilder, Views, Pass)</code> <span class="ref">GPUScene.h:311</span>，队列存放在 <code>DeferredGPUWritePassDelegates[NumDeferredGPUWritePasses]</code> <span class="ref">GPUScene.h:424-426</span>。</p>
+
+<h3>6.8 上传流程小结</h3>
+<div class="fig">
+<svg viewBox="0 0 1080 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="a3" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/>
+    </marker>
+  </defs>
+  <text x="20" y="26" font-size="13.5" font-weight="700" fill="#1a1d21">FGPUScene 上传链路</text>
+
+  <rect x="30" y="52" width="215" height="60" rx="7" fill="#fff" stroke="#9db8dd"/>
+  <text x="137" y="74" font-size="11.5" fill="#1a1d21" text-anchor="middle">① 脏标记入队</text>
+  <text x="137" y="92" font-size="10.5" fill="#7a828a" text-anchor="middle">AddPrimitiveToUpdate</text>
+  <text x="137" y="106" font-size="10.5" fill="#7a828a" text-anchor="middle">← 变换/材质/增删触发</text>
+
+  <rect x="280" y="52" width="215" height="60" rx="7" fill="#fff" stroke="#9db8dd"/>
+  <text x="387" y="74" font-size="11.5" fill="#1a1d21" text-anchor="middle">② 分配区间</text>
+  <text x="387" y="92" font-size="10.5" fill="#7a828a" text-anchor="middle">FSpanAllocator</text>
+  <text x="387" y="106" font-size="10.5" fill="#7a828a" text-anchor="middle">AllocateInstanceSceneDataSlots</text>
+
+  <rect x="530" y="52" width="215" height="60" rx="7" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="637" y="74" font-size="11.5" fill="#1a1d21" text-anchor="middle">③ 并行构建数据</text>
+  <text x="637" y="92" font-size="10.5" fill="#a06a2c" text-anchor="middle">Build() 打包位域</text>
+  <text x="637" y="106" font-size="10.5" fill="#a06a2c" text-anchor="middle">FUploadDataSourceAdapter</text>
+
+  <rect x="780" y="52" width="215" height="60" rx="7" fill="#eaf1fe" stroke="#7ba4dd"/>
+  <text x="887" y="74" font-size="11.5" fill="#1a1d21" text-anchor="middle">④ Scatter 写入暂存</text>
+  <text x="887" y="92" font-size="10.5" fill="#2f6feb" text-anchor="middle">Set_GetRef(源, 目标)</text>
+  <text x="887" y="106" font-size="10.5" fill="#2f6feb" text-anchor="middle">目标 = SOA 散点</text>
+
+  <rect x="280" y="170" width="465" height="60" rx="7" fill="#eef7f1" stroke="#8fc9a8"/>
+  <text x="512" y="192" font-size="11.5" fill="#1a1d21" text-anchor="middle">⑤ GPU 端散射搬运 → 落进最终缓冲</text>
+  <text x="512" y="210" font-size="10.5" fill="#5f7a68" text-anchor="middle">FRDGAsyncScatterUploadBuffer::End()</text>
+  <text x="512" y="224" font-size="10.5" fill="#5f7a68" text-anchor="middle">（若本帧扩容，改用 CachedRegisteredBuffers 里的新引用）</text>
+
+  <rect x="780" y="170" width="215" height="60" rx="7" fill="#fdf0e4" stroke="#e2a15c"/>
+  <text x="887" y="192" font-size="11.5" fill="#1a1d21" text-anchor="middle">⑥ GPU 反向写回</text>
+  <text x="887" y="210" font-size="10.5" fill="#a06a2c" text-anchor="middle">ExecuteDeferredGPUWritePass</text>
+  <text x="887" y="224" font-size="10.5" fill="#a06a2c" text-anchor="middle">PostOpaqueRendering</text>
+
+  <line x1="245" y1="82" x2="278" y2="82" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a3)"/>
+  <line x1="495" y1="82" x2="528" y2="82" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a3)"/>
+  <line x1="745" y1="82" x2="778" y2="82" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a3)"/>
+  <line x1="887" y1="112" x2="600" y2="168" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a3)"/>
+  <line x1="745" y1="200" x2="778" y2="200" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a3)"/>
+
+  <text x="40" y="272" font-size="11" fill="#7a828a">要点：①②③ 是 CPU 并行阶段；④⑤ 是散乱地址的写入；⑥ 是 GPU 自产数据的回灌，走独立延迟 pass。</text>
+  <text x="40" y="292" font-size="11" fill="#7a828a">全链路只有「脏的」Primitive 参与，未变更的复用上一帧缓冲内容。</text>
+</svg>
+<div class="cap">图 5 · GPUScene 上传链路（数据源 <span class="ref">GPUScene.h:222-263</span>、<span class="ref">GPUScene.cpp:1448-1455</span>）</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s7"><span class="num">07</span>合批原理：从 StateBucket 到 Indirect Draw</h2>
+
+<div class="callout warn">
+  <div class="h">先分清「两种合批」——混读必然出错</div>
+  <table style="margin:8px 0">
+  <thead><tr><th>层次</th><th>做什么</th><th>关键判据</th></tr></thead>
+  <tbody>
+  <tr><td><b>① Draw 合并</b></td><td>把状态完全相同、排序后相邻的多条 MeshDrawCommand 折叠成一条</td><td>由 :1660 的 <code>if</code> 判定：<code>bCompactIdenticalCommands</code> + StateBucketId 相同 + CullingPayloadFlags 相同 + <code>bUseISMDitheredLOD</code> 相同 <span class="ref">InstanceCullingContext.cpp:1660</span></td></tr>
+  <tr><td><b>② 批大小拆分</b></td><td>把一条 draw 的实例按 UBO 容量切成多批，重发 draw</td><td><code>PLATFORM_MAX_UNIFORM_BUFFER_RANGE / stride</code> <span class="ref">InstanceCullingContext.cpp:1631-1632</span></td></tr>
+  </tbody>
+  </table>
+  ① 是「让 draw 变少」，② 是「让 draw 变多」。同名「合批」，方向相反。
+</div>
+
+<h3>7.1 第一层：StateBucket —— 相同状态的去重</h3>
+<p>每条 draw 命令有一个 32 位 <code>StateBucketId</code>，代表「管线状态 + 材质 + 顶点工厂 + …」的组合哈希。相同 ID 的命令可以安全合并，因为它们绑定的 GPU 状态完全一致。</p>
+<p>排序之后，<code>SetupDrawCommands</code> 单趟扫描，把相邻且判据全等的命令折叠：</p>
+<pre><span class="c">// InstanceCullingContext.cpp:1658-1660（逐字符照录）</span>
+		<span class="k">const bool</span> bCanCompactCurrentCommand = bCompactIdenticalCommands &amp;&amp; CurrentStateBucketId != -1 &amp;&amp; VisibleMeshDrawCommand.StateBucketId == CurrentStateBucketId &amp;&amp; (bISMDynamicInstancing ? <span class="k">true</span> : VisibleMeshDrawCommand.CullingPayloadFlags == CurrentCullingPayloadFlags);
+		<span class="c">//if (bCanCompactCurrentCommand)</span>
+		<span class="k">if</span> (bCompactIdenticalCommands &amp;&amp; CurrentStateBucketId != -1 &amp;&amp; VisibleMeshDrawCommand.StateBucketId == CurrentStateBucketId &amp;&amp; VisibleMeshDrawCommand.CullingPayloadFlags == CurrentCullingPayloadFlags &amp;&amp; VisibleMeshDrawCommand.bUseISMDitheredLOD == CurrentISMDitheredLOD)</pre>
+<div class="callout warn">
+  <div class="h">源码现状：这里有一处 dead code</div>
+  <code>bCanCompactCurrentCommand</code> 被算出后，紧接着那行 <code>//if (bCanCompactCurrentCommand)</code> 是<b>被注释掉的</b> <span class="ref">InstanceCullingContext.cpp:1659</span>。也就是说 <code>r.InstancedStaticMeshes.DynamicInstancing</code> 这个 CVar 目前<b>读到了但不生效</b>。这不是我的推断，是源码字面状态——记录在此，供后续排查「为什么 ISM 合批率没提升」时直接查阅。
+</div>
+<p>命中合并时，整条命令被丢弃，只把前一条的实例数加一；输出数组末尾用 <code>SetNum(NumDrawCommandsOut, EAllowShrinking::No)</code> 截断 <span class="ref">InstanceCullingContext.cpp:1837</span>。</p>
+
+<h3>7.2 第二层：批大小上限 —— 16 KB 的硬约束</h3>
+<pre><span class="c">// InstanceCullingContext.cpp:1631-1632（逐字符照录）</span>
+<span class="k">const</span> uint32 MaxGenericBatchSize   = bUsesUniformBufferView ? PLATFORM_MAX_UNIFORM_BUFFER_RANGE / UniformViewInstanceStride[0] : MAX_uint32;
+<span class="k">const</span> uint32 MaxPrimitiveBatchSize = bUsesUniformBufferView ? PLATFORM_MAX_UNIFORM_BUFFER_RANGE / UniformViewInstanceStride[1] : MAX_uint32;</pre>
+<pre><span class="c">// InstanceCullingContext.h:86-90（逐字符照录）</span>
+	<span class="k">static constexpr</span> uint32 UniformViewInstanceStride[2] = 
+	{	<span class="c">// One for each BatchProcessingMode</span>
+		BATCHED_INSTANCE_DATA_STRIDE, 
+		BATCHED_PRIMITIVE_DATA_STRIDE 
+	};</pre>
+<pre><span class="c">// SceneDefinitions.h:121-124（逐字符照录）</span>
+<span class="k">#define</span> BATCHED_PRIMITIVE_DATA_STRIDE 512u
+<span class="k">#define</span> BATCHED_INSTANCE_DATA_STRIDE 256u
+<span class="k">#define</span> BATCHED_PRIMITIVE_DATA_STRIDE_FLOAT4 (BATCHED_PRIMITIVE_DATA_STRIDE/16u)
+<span class="k">#define</span> BATCHED_INSTANCE_DATA_STRIDE_FLOAT4 (BATCHED_INSTANCE_DATA_STRIDE/16u)</pre>
+
+<table>
+<thead><tr><th>模式</th><th>stride</th><th>批上限</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>Generic</code>（做剔除）</td><td>256 B</td><td><b>16384 / 256 = 64</b></td><td>一批最多 64 个实例的剔除工作</td></tr>
+<tr><td><code>UnCulled</code>（单实例快路径）</td><td>512 B</td><td><b>16384 / 512 = 32</b></td><td>一批最多 32 个图元（每个一份完整 Primitive 数据）</td></tr>
+<tr><td><span class="tag t-pc">PC</span> 任意模式</td><td>—</td><td><code>MAX_uint32</code></td><td>不拆分</td></tr>
+</tbody>
+</table>
+<p>两套上限都指向同一个硬件事实：<b>一个 uniform buffer 视图最多 16 KB</b>。PC 侧不拆分，正说明这个限制<b>纯粹来自 UBO，而不是算法</b>——这是判读该设计意图最有力的一条证据。</p>
+
+<h3>7.3 拆分与重发</h3>
+<p>拆分发生在 <code>AddInstancesToDrawCommand</code> 的重载版：</p>
+<ul>
+  <li>快路径：<code>MaxBatchSize == MAX_uint32 || (NumInstances &lt;= MaxBatchSize &amp;&amp; RunOffset == 0)</code> 直接透传 <span class="ref">InstanceCullingContext.cpp:352</span>。</li>
+  <li>否则先用 <code>RunOffset % MaxBatchSize</code> 把上一批填满 <span class="ref">InstanceCullingContext.cpp:363-373</span>，再按 <code>DivideAndRoundUp(NumInstances, MaxBatchSize)</code> 切 <span class="ref">InstanceCullingContext.cpp:379</span>。</li>
+  <li>每个额外批复制上一条的 <code>DrawCommandDescs</code> / <code>IndirectArgs</code>，并 <code>DrawCmd.NumBatches++</code> <span class="ref">InstanceCullingContext.cpp:391-394</span>。</li>
+</ul>
+<p>提交侧不重设状态、只改偏移重发：</p>
+<pre><span class="c">// InstanceCullingContext.cpp:1913-1917（逐字符照录）</span>
+			<span class="c">// If MDC was split to a more than one batch, submit them without changing state</span>
+			<span class="k">for</span> (uint32 BatchIdx = 1; BatchIdx &lt; DrawCommandInfo.NumBatches; ++BatchIdx)
+			{
+				SceneArgs.PrimitiveIdOffset += DrawCommandInfo.BatchDataStride;
+				SceneArgs.IndirectArgsByteOffset += <span class="k">sizeof</span>(FRHIDrawIndexedIndirectParameters);
+				FMeshDrawCommand::SubmitDrawEnd(*VisibleMeshDrawCommand.MeshDrawCommand, SceneArgs, InstanceFactor, RHICmdList);
+			}</pre>
+<p><code>BatchDataStride</code> 在 <span class="ref">InstanceCullingContext.cpp:1696</span> 被初始化为 <code>PLATFORM_MAX_UNIFORM_BUFFER_RANGE</code>——即<b>每一批在 UBO 里恰好占满 16 KB</b>，用偏移滑动来切换批次。这解释了为什么之前抓帧会看到 <code>BatchedPrimitive</code> 常量缓冲区是 16384 字节、且 dynamic offset 为 0：直观看是「一个 16 KB 的 CB」，实际是「一批 16 KB，靠偏移滑动复用同一个 CB」。</p>
+
+<h3>7.4 移动端专属：UniformView 绑定</h3>
+<pre><span class="c">// InstanceCullingContext.cpp:75（逐字符照录）</span>
+IMPLEMENT_STATIC_AND_SHADER_UNIFORM_BUFFER_STRUCT_EX(FBatchedPrimitiveParameters, "BatchedPrimitive", BatchedPrimitive, FShaderParametersMetadata::EUsageFlags::UniformView);</pre>
+<pre><span class="c">// InstanceCullingContext.h:30-32</span>
+BEGIN_GLOBAL_SHADER_PARAMETER_STRUCT(FBatchedPrimitiveParameters,RENDERER_API)
+    SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer&lt;float4&gt;, Data)
+END_GLOBAL_SHADER_PARAMETER_STRUCT()</pre>
+<p>注意这里的结构：<code>BatchedPrimitive</code> 本身是一个<b>全局 uniform buffer</b>，里面装的是一个 <code>Buffer&lt;float4&gt;</code>。着色器侧 <code>BatchedPrimitive.Data[i]</code> 的写法 <span class="ref">SceneDataMobileLoader.ush:16</span> 看起来像数组下标，实际是「从绑定的 buffer 里取第 i 个 float4」。</p>
+<p>PC 上该结构仍会创建，但因为没有 UBO 上限压力，走的不是这条切批路径。</p>
+
+<!-- ============================================================ -->
+<h2 id="s8"><span class="num">08</span>InstanceCulling 原理</h2>
+
+<h3>8.1 它解决的问题</h3>
+<p>InitViews 阶段 CPU 已经做过一次剔除（视锥 / 距离 / 遮挡），但那只针对「整个 Primitive」。一旦一个 Primitive 带几千个实例（HISM 植被），<b>Primitive 级剔除的粒度就不够了</b>——框住整片森林的包围盒一定与视锥相交，全部实例都会被提交，白白绘制。</p>
+<p>InstanceCulling 把剔除粒度下沉到<b>实例级</b>，并且整个计算在 GPU 上并行完成，CPU 不参与逐实例判断。</p>
+
+<h3>8.2 一次剔除包含哪几个 dispatch</h3>
+<table>
+<thead><tr><th>#</th><th>Dispatch</th><th>作用</th><th>证据</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>清 CompactionBlockCounts</td><td>仅在「保持实例顺序」开启时</td><td><span class="ref">InstanceCullingContext.cpp:829</span></td></tr>
+<tr><td>2</td><td>ClearIndirectArgInstanceCount</td><td>把 indirect args 的 InstanceCount 清零（规避某些主机 replay 问题）</td><td><span class="ref">InstanceCullingContext.cpp:882</span></td></tr>
+<tr><td>3</td><td><b>主剔除 CS</b>（每个非空 LoadBalancer 一个）</td><td>逐实例可见性判断 + 原子累加 + 写实例 ID</td><td><span class="ref">InstanceCullingContext.cpp:952-986</span></td></tr>
+<tr><td>4</td><td>Compaction Phase 1</td><td>block 级前缀和</td><td><span class="ref">InstanceCullingContext.cpp:1002-1008</span></td></tr>
+<tr><td>5</td><td>Compaction Phase 2</td><td>按原始顺序紧凑写回</td><td><span class="ref">InstanceCullingContext.cpp:1025-1031</span></td></tr>
+</tbody>
+</table>
+
+<h3>8.3 主剔除 CS 的完整流程</h3>
+<div class="fig">
+<svg viewBox="0 0 1080 520" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="a2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/>
+    </marker>
+  </defs>
+  <text x="20" y="26" font-size="13.5" font-weight="700" fill="#1a1d21">InstanceCullBuildInstanceIdBufferCS 主流程</text>
+  <text x="20" y="46" font-size="11.5" fill="#7a828a">BuildInstanceDrawCommands.usf:336 起</text>
+
+  <rect x="40" y="62" width="300" height="44" rx="7" fill="#fff" stroke="#9db8dd"/>
+  <text x="190" y="82" font-size="12" fill="#1a1d21" text-anchor="middle">① 定位本 group 的工作</text>
+  <text x="190" y="98" font-size="10.5" fill="#7a828a" text-anchor="middle">LoadBatchInfo / 越界提前退出</text>
+
+  <rect x="40" y="122" width="300" height="52" rx="7" fill="#fff" stroke="#9db8dd"/>
+  <text x="190" y="142" font-size="12" fill="#1a1d21" text-anchor="middle">② 解出 Item 与 InstanceId</text>
+  <text x="190" y="158" font-size="10.5" fill="#7a828a" text-anchor="middle">Item.InstanceDataOffset + LocalItemIndex</text>
+  <text x="190" y="170" font-size="10.5" fill="#7a828a" text-anchor="middle">（+ 动态实例偏移）</text>
+
+  <rect x="40" y="190" width="300" height="44" rx="7" fill="#fff" stroke="#9db8dd"/>
+  <text x="190" y="210" font-size="12" fill="#1a1d21" text-anchor="middle">③ 解 Payload → IndirectArgIndex</text>
+  <text x="190" y="226" font-size="10.5" fill="#7a828a" text-anchor="middle">定位「这是第几条 draw 的工作」</text>
+
+  <rect x="40" y="250" width="300" height="44" rx="7" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="190" y="270" font-size="12" fill="#1a1d21" text-anchor="middle">④ 读 InstanceIdOffsetBuffer</text>
+  <text x="190" y="286" font-size="10.5" fill="#a06a2c" text-anchor="middle">[Payload.IndirectArgIndex]</text>
+
+  <rect x="40" y="310" width="300" height="52" rx="7" fill="#fff" stroke="#9db8dd"/>
+  <text x="190" y="330" font-size="12" fill="#1a1d21" text-anchor="middle">⑤ 取场景数据</text>
+  <text x="190" y="346" font-size="10.5" fill="#7a828a" text-anchor="middle">GetInstanceSceneData(InstanceId, SOAStride)</text>
+  <text x="190" y="358" font-size="10.5" fill="#7a828a" text-anchor="middle">GetPrimitiveData(PrimitiveId)</text>
+
+  <rect x="400" y="62" width="320" height="300" rx="7" fill="#eef7f1" stroke="#8fc9a8"/>
+  <text x="560" y="86" font-size="12.5" font-weight="600" fill="#1f6b41" text-anchor="middle">⑥ IsInstanceVisible 判定链</text>
+  <text x="420" y="112" font-size="11" fill="#3d6b52">ValidInstance（Id 有效 且 未 HIDDEN）</text>
+  <text x="420" y="134" font-size="11" fill="#3d6b52">↓ 零 bounds 兜底</text>
+  <text x="420" y="156" font-size="11" fill="#3d6b52">↓ 距离（Min/Max DrawDistance）</text>
+  <text x="420" y="178" font-size="11" fill="#3d6b52">↓ 屏幕尺寸（Min/MaxScreenSize）</text>
+  <text x="420" y="200" font-size="11" fill="#3d6b52">↓ GlobalClipPlane</text>
+  <text x="420" y="222" font-size="11" fill="#c0392b">↓ BlueCircleCulling　【GR 自研】</text>
+  <text x="420" y="244" font-size="11" fill="#c0392b">↓ ProbabilisticInstanceCulling　【GR 自研】</text>
+  <text x="420" y="266" font-size="11" fill="#3d6b52">↓ 视锥 BoxCullFrustum</text>
+  <text x="420" y="288" font-size="11" fill="#3d6b52">↓ HZB 遮挡 IsVisibleHZB</text>
+  <text x="420" y="310" font-size="11" fill="#3d6b52">↓ 逐实例 OcclusionQuery 位掩码</text>
+  <text x="420" y="336" font-size="10.5" fill="#7a828a">任一步失败即跳出，不写任何输出</text>
+
+  <rect x="765" y="62" width="285" height="140" rx="7" fill="#dbe8fb" stroke="#7ba4dd"/>
+  <text x="907" y="86" font-size="12.5" font-weight="600" fill="#1f3a63" text-anchor="middle">⑦ 可见 → 写 indirect args</text>
+  <text x="907" y="112" font-size="10.5" fill="#2f6feb" text-anchor="middle">InterlockedAdd(</text>
+  <text x="907" y="128" font-size="10.5" fill="#2f6feb" text-anchor="middle">DrawIndirectArgsBufferOut[</text>
+  <text x="907" y="144" font-size="10.5" fill="#2f6feb" text-anchor="middle">ArgIndex * 5 + 1], 1U, OutputOffset)</text>
+  <text x="907" y="170" font-size="10.5" fill="#1f6b41" text-anchor="middle">原子递增 InstanceCount，</text>
+  <text x="907" y="186" font-size="10.5" fill="#1f6b41" text-anchor="middle">同时拿到本次写入槽位</text>
+
+  <rect x="765" y="216" width="285" height="146" rx="7" fill="#dbe8fb" stroke="#7ba4dd"/>
+  <text x="907" y="240" font-size="12.5" font-weight="600" fill="#1f3a63" text-anchor="middle">⑧ 写实例 ID</text>
+  <text x="907" y="266" font-size="10.5" fill="#2f6feb" text-anchor="middle">WriteInstance(</text>
+  <text x="907" y="282" font-size="10.5" fill="#2f6feb" text-anchor="middle">InstanceDataOutputOffset</text>
+  <text x="907" y="298" font-size="10.5" fill="#2f6feb" text-anchor="middle">+ OutputOffset * STRIDE, …)</text>
+  <text x="907" y="326" font-size="10.5" fill="#1f6b41" text-anchor="middle">打包 InstanceId / CullingFlags /</text>
+  <text x="907" y="342" font-size="10.5" fill="#1f6b41" text-anchor="middle">ViewIndex 成一个 uint</text>
+
+  <line x1="190" y1="106" x2="190" y2="120" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
+  <line x1="190" y1="174" x2="190" y2="188" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
+  <line x1="190" y1="234" x2="190" y2="248" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
+  <line x1="190" y1="294" x2="190" y2="308" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
+  <line x1="340" y1="336" x2="398" y2="240" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
+  <line x1="720" y1="180" x2="763" y2="140" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
+  <line x1="720" y1="230" x2="763" y2="270" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
+
+  <rect x="40" y="392" width="1010" height="106" rx="8" fill="#fdf8e8" stroke="#e0cf9a"/>
+  <text x="60" y="416" font-size="12" font-weight="600" fill="#8a6d1f">为什么用 InterlockedAdd 而不是前缀和？</text>
+  <text x="60" y="440" font-size="11.5" fill="#4a5158">剔除是逐实例并行、结果数量未知的——「第 k 个可见实例写到哪个槽位」事先无法知道。</text>
+  <text x="60" y="460" font-size="11.5" fill="#4a5158">原子加把「计数」和「占位」合并成一次操作，避免了先数一遍再写一遍的两趟开销。</text>
+  <text x="60" y="482" font-size="11.5" fill="#4a5158">代价是写入顺序不确定；若必须保持实例原序，才需要 §8.4 的两阶段紧凑化。</text>
+</svg>
+<div class="cap">图 4 · 主剔除 CS 的执行流程（数据源 <span class="ref">BuildInstanceDrawCommands.usf:336-481</span>）</div>
+</div>
+
+<h3>8.4 紧凑化（Compaction）：为什么需要、为什么移动端没有</h3>
+<p>原子加导致可见实例在输出缓冲里是<b>乱序</b>的。对绝大多数渲染没有影响，但对<b>需要保持实例绘制顺序</b>的材质（半透明叠加顺序等）就不行。此时启用两阶段紧凑化：Phase 1 算 block 前缀和，Phase 2 按原序写回 <span class="ref">InstanceCullingContext.cpp:1002-1031</span>。</p>
+<div class="callout warn">
+  <div class="h">移动端被硬性排除</div>
+  <pre style="margin:8px 0"><span class="c">// InstanceCullingContext.cpp:88-92 语义</span>
+IsInstanceOrderPreservationAllowed(ShaderPlatform) → CVar 开启 &amp;&amp; !IsMobilePlatform(ShaderPlatform)</pre>
+  CVar <code>r.InstanceCulling.AllowInstanceOrderPreservation</code> 默认 <code>1</code> <span class="ref">InstanceCullingContext.cpp:56-61</span>，但移动端无论怎么设都不生效。原因是紧凑化需要额外两趟 dispatch + 额外缓冲，对移动端带宽/功耗不划算。
+</div>
+
+<h3>8.5 InstanceIdOffsetBuffer：一个 buffer 的三重身份</h3>
+<p>这是整个 InstanceCulling 里最容易读错的一处。它的三个身份：</p>
+<table>
+<thead><tr><th>身份</th><th>形态</th><th>在哪</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>① CPU 算好上传的数据</b></td>
+  <td><code>TArray&lt;uint32&gt;</code> → <code>QueueBufferUpload</code></td>
+  <td><span class="ref">InstanceCullingContext.cpp:885-886</span></td>
+</tr>
+<tr>
+  <td><b>② 被剔除 CS 读</b></td>
+  <td><code>Buffer&lt;uint&gt;</code>（<b>只读</b>）</td>
+  <td><span class="ref">BuildInstanceDrawCommands.usf:59</span>、<span class="ref">BuildInstanceDrawCommands.usf:395</span></td>
+</tr>
+<tr>
+  <td><b>③ 被绑成 PrimitiveId 顶点流</b></td>
+  <td><code>ERHIAccess::VertexOrIndexBuffer</code></td>
+  <td><span class="ref">InstanceCullingContext.h:36</span>、<span class="ref">InstanceCullingContext.cpp:114</span></td>
+</tr>
+</tbody>
+</table>
+<pre><span class="c">// InstanceCullingContext.cpp:884-886（逐字符照录）</span>
+<span class="c">// not using structured buffer as we have to get at it as a vertex buffer</span>
+FRDGBufferRef InstanceIdOffsetBufferRDG = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateBufferDesc(<span class="k">sizeof</span>(uint32), InstanceIdOffsets.Num()), TEXT("InstanceCulling.InstanceIdOffsetBuffer"));
+GraphBuilder.QueueBufferUpload(InstanceIdOffsetBufferRDG, InstanceIdOffsets.GetData(), InstanceIdOffsets.GetTypeSize() * InstanceIdOffsets.Num());</pre>
+<p>那句注释 <code>// not using structured buffer as we have to get at it as a vertex buffer</code> 是理解它为何不用 <code>StructuredBuffer</code> 的唯一原因——<b>它同时要当顶点流用</b>。</p>
+
+<h4>值是怎么算出来的（三段证据）</h4>
+<ol>
+  <li><b>算法与累加点</b>：<code>SetupDrawCommands</code> 主循环里，每保留一条 draw 就 <code>InstanceIdOffsets.Emplace(GetInstanceIdNumElements())</code> <span class="ref">InstanceCullingContext.cpp:1728</span>；每个拆分出的额外批也 <code>Add</code> 一次 <span class="ref">InstanceCullingContext.cpp:393</span>。</li>
+  <li><b>关键顺序</b>：该 Emplace 位于 <code>const uint32 InstanceOffset = TotalInstances;</code> <span class="ref">InstanceCullingContext.cpp:1761</span> <b>之前</b>，而本 draw 的实例是在 <span class="ref">InstanceCullingContext.cpp:1777</span> / <span class="ref">InstanceCullingContext.cpp:1787</span> 才通过 <code>AddInstanceRunsToDrawCommand</code> / <code>AddInstancesToDrawCommand</code> 加进 <code>TotalInstances</code> 的。<br>因此 <code>InstanceIdOffsets[k]</code> = <b>前 k 条 draw 的累计元素数</b> = 第 k 条 draw 输出区域的<b>起始偏移</b>。这是一个运行前缀和。</li>
+  <li><b>两个消费点</b>：
+    <ul>
+      <li>CS 读：<code>const uint InstanceDataOutputOffset = InstanceIdOffsetBuffer[Payload.IndirectArgIndex];</code> <span class="ref">BuildInstanceDrawCommands.usf:395</span>，随后作为写入基址 <span class="ref">BuildInstanceDrawCommands.usf:454</span>。</li>
+      <li>顶点流：<code>GetMeshDrawCommandOverrideArgs</code> 取成 <code>Result.InstanceBuffer</code> <span class="ref">InstanceCullingContext.cpp:114</span>。</li>
+    </ul>
+  </li>
+</ol>
+
+<div class="callout warn">
+  <div class="h">勘误：本文件不是「剔除 CS 写入方」</div>
+  流传的一种说法是「<code>BuildInstanceDrawCommands.usf:395</code> 是剔除 CS 写 <code>InstanceIdOffsetBuffer</code> 的位置」。<b>实际相反</b>：该行是<b>读</b>，且声明处是只读 <code>Buffer&lt;uint&gt;</code> <span class="ref">BuildInstanceDrawCommands.usf:59</span>（可写应为 <code>RWBuffer</code>）。<br>
+  常规路径下它是 CPU 上传的 <span class="ref">InstanceCullingContext.cpp:885-886</span>；只有 VSM / 自研 MMH 路径才在 GPU 上写它（<code>InstanceIdOffsetBufferOut</code> 见于 <span class="ref">VirtualShadowMapArray.cpp:3190</span>、<span class="ref">MMHShadowDepthRendering.cpp:112</span>）。判据很简单：<b>看声明是 <code>Buffer</code> 还是 <code>RWBuffer</code></b>。
+</div>
+
+<h3>8.6 LoadBalancer：把变长工作装进定长线程组</h3>
+<p>问题：一条 draw 可能只有 1 个实例，另一条有 10000 个。若「一条 draw 一个 thread group」，前者浪费 63 个线程，后者装不下。</p>
+<p>LoadBalancer 的解法：把实例切成<b>恰好填满一个 64 线程 group 的工作单元</b>。</p>
+<ul>
+  <li><code>ThreadGroupSize = 64U</code> <span class="ref">InstanceCullingLoadBalancer.h:34</span>，<code>PrefixBits = 6</code>（= log2(64)，有 <code>static_assert</code> 守着）<span class="ref">InstanceCullingLoadBalancer.h:37-38</span>。</li>
+  <li><code>MaxInstancesThisBatch = ThreadGroupSize - CurrentBatchPrefixSum</code>，每次只取剩余容量与剩余实例数的较小者打成一个 <code>FPackedItem</code> <span class="ref">InstanceCullingLoadBalancer.h:143-147</span>。</li>
+  <li>攒满 64 就 flush 出一个 <code>FPackedBatch</code> <span class="ref">InstanceCullingLoadBalancer.h:161-168</span>。</li>
+  <li><code>NumInstancesItemBits = PrefixBits + 1 = 7</code>，多出的那一位专门为「单个 item 独占整组 64 个实例」这个边界准备 <span class="ref">InstanceCullingLoadBalancer.h:41</span>、<span class="ref">InstanceCullingLoadBalancer.h:60</span>。</li>
+</ul>
+<pre><span class="c">// InstanceCullingLoadBalancer.h:45-69（逐字符照录）</span>
+<span class="k">struct</span> FPackedBatch
+{
+    uint32 FirstItem_NumItems;
+};
+
+<span class="k">struct</span> FPackedItem
+{
+    <span class="c">// packed 32-NumInstancesItemBits:NumInstancesItemBits - need one more bit for the case where one item has ThreadGroupSize work to do</span>
+    uint32 InstanceDataOffset_NumInstances;
+    <span class="c">// packed 32-PrefixBits:PrefixBits</span>
+    uint32 Payload_BatchPrefixOffset;
+    <span class="c">// ImposterProxy System:[yinnhaowang]:[ADD]:[BEGIN]</span>
+    <span class="c">// Added one 32bits int field for custom usage.</span>
+    uint32 AdditionalCustomCullingFlags;
+    <span class="c">// ImposterProxy System:[yinnhaowang]:[ADD]:[END]</span>
+};</pre>
+<div class="callout warn">
+  <div class="h"><span class="tag t-fork">GR</span> 改动带来的代价</div>
+  第三個字段 <code>AdditionalCustomCullingFlags</code> 是本分叉新增的 <span class="ref">InstanceCullingLoadBalancer.h:64-68</span>，它把 <code>FPackedItem</code> 从 8 字节撑到 <b>12 字节</b>。这是内存/带宽上的实打实成本，且与 C++ 侧强耦合（改一处必须改两处）。
+</div>
+
+<h3>8.7 两条剔除管线：Generic 与 UnCulled</h3>
+<table>
+<thead><tr><th>模式</th><th>何时用</th><th>做什么</th></tr></thead>
+<tbody>
+<tr><td><code>Generic</code></td><td>实例数 &gt; 1，或被强制</td><td>完整剔除链 + 原子写</td></tr>
+<tr><td><code>UnCulled</code></td><td>实例数 == 1 且未强制剔除 <span class="ref">InstanceCullingContext.cpp:342</span></td><td>跳过剔除（CPU 已剔过），直通</td></tr>
+</tbody>
+</table>
+<p>多视图（cubemap 等）时强制退化为 Generic <span class="ref">InstanceCullingContext.cpp:1589-1594</span>。UnCulled 桶有强校验 <code>HasSingleInstanceItemsOnly()</code> <span class="ref">InstanceCullingContext.cpp:965</span>。</p>
+
+<div class="callout note">
+  <div class="h"><span class="tag t-fork">GR</span> 自研：强制 Generic</div>
+  <span class="ref">InstanceCullingContext.cpp:1582-1588</span> 的 <code>#if 1 // GR ADD</code> 包裹了一段改写：当 <code>r.HZBOcclusion != 0 &amp;&amp; r.HZB.IndirectDraw != 0</code> 时把单实例图元也赶进 Generic 管线。上游原版此处硬编码 <code>false</code>（保留在同处的 <code>#else</code> 分支）。这解释了为什么本项目的 HZB 相关行为与上游不同。
+</div>
+
+<h3>8.8 两套遮挡剔除：别混淆</h3>
+<table>
+<thead><tr><th></th><th>HZB 直接采样</th><th>逐实例软件 Occlusion Query</th></tr></thead>
+<tbody>
+<tr><td>位置</td><td>主剔除 CS 内</td><td>独立 pass（先于主剔除）</td></tr>
+<tr><td>开关</td><td><code>PrevHZB.IsValid() &amp;&amp; IsOcclusionCullingEnabled()</code> <span class="ref">InstanceCullingContext.cpp:932</span></td><td><code>r.InstanceCulling.OcclusionQueries</code>（源码默认 <code>0</code>，标注 EXPERIMENTAL）<span class="ref">InstanceCullingOcclusionQuery.cpp:27-31</span></td></tr>
+<tr><td>原理</td><td>取实例屏幕矩形，查上一帧 HZB 的最小/最大深度</td><td>对候选实例光栅化包围盒，逐像素深度测试</td></tr>
+<tr><td>精度</td><td>保守（偏可见）</td><td>更精确（偏不可见）</td></tr>
+<tr><td>结果</td><td>布尔</td><td>每实例一位的 <code>RWVisibilityMask</code>，回灌给主 CS <span class="ref">InstanceCullingContext.cpp:940-945</span></td></tr>
+</tbody>
+</table>
+<p>注意 <code>r.InstanceCulling.OcclusionCull</code> 的<b>源码默认值是 <code>0</code></b> <span class="ref">InstanceCullingContext.cpp:43-47</span>，但引擎 ini 把它设成了 1 <span class="ref">BaseEngine.ini:3793</span>。查 CVar 默认值时要看 ini 的实际生效值，不能只看源码。</p>
+
+<h3>8.9 SceneCulling：下一代，但移动端用不到</h3>
+<pre><span class="c">// SceneCulling.cpp:272-275（逐字符照录）</span>
+<span class="k">static bool</span> UseSceneCulling(EShaderPlatform ShaderPlatform)
+{
+    <span class="k">return</span> CVarSceneCulling.GetValueOnAnyThread() != 0 &amp;&amp; UseNanite(ShaderPlatform);
+}</pre>
+<p>SceneCulling 是比 InstanceCulling 更上层的<b>层级化 cell 剔除</b>（把空间切成 cell，先剔 cell 再剔实例），数据结构见 <code>FPackedCellHeader</code> / <code>FCellDraw</code> / <code>FViewDrawGroup</code> <span class="ref">SceneCullingDefinitions.h:24-92</span>。但它<b>硬依赖 Nanite</b>，而 Nanite 在 ES3.1 移动端不可用，所以本项目移动端走的仍然是 §8.1-8.8 的经典 InstanceCulling。看到「GPU 场景剔除」这个词时务必先分清是哪一层。</p>
+
+
+<h3>8.10 移动端与 PC 的剔除输出形态完全不同</h3>
+<p>这是本轮核实中最容易被忽略的一条差异：<b>剔除 CS 在 PC 上写的是「打包后的 ID」，在移动端写的是「完整的 primitive/instance 数据」。</b></p>
+<pre><span class="c">// BuildInstanceDrawCommands.usf:109-121（逐字符照录）</span>
+void WriteInstance(uint Offset, uint InstanceId, FPrimitiveSceneData PrimitiveData, FInstanceSceneData InstanceData, uint ViewIdIndex, uint CullingFlags, uint MeshLODIndex)
+{
+	checkSlow(InstanceId &lt; GPUSceneNumInstances);
+
+#if PLATFORM_USES_PRIMITIVE_UBO
+	WriteDataUBO(InstanceIdsBufferOutMobile, Offset, InstanceId, PrimitiveData, InstanceData, MeshLODIndex);
+#else
+	uint PackedId = PackInstanceCullingOutput(InstanceId, ViewIdIndex, CullingFlags);
+	checkStructuredBufferAccessSlow(InstanceIdsBufferOut, Offset);
+	InstanceIdsBufferOut[Offset] = PackedId;
+	InstanceLODsBufferOut[Offset] = MeshLODIndex; <span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[ADD]</span>
+#endif
+}</pre>
+<p>两条分支对应的输出缓冲声明也不同：</p>
+<pre><span class="c">// BuildInstanceDrawCommands.usf:70-71（逐字符照录）</span>
+RWStructuredBuffer&lt;uint&gt; InstanceIdsBufferOut;
+RWStructuredBuffer&lt;float4&gt; InstanceIdsBufferOutMobile;</pre>
+<p>移动端那条分支最终落到 <code>WriteDataUBO</code>：</p>
+<pre><span class="c">// BuildInstanceDrawCommands.usf:96-107（逐字符照录）</span>
+#if PLATFORM_USES_PRIMITIVE_UBO
+#include "../SceneDataMobileWriter.ush" 
+
+void WriteDataUBO(RWStructuredBuffer&lt;float4&gt; Output, uint Offset, uint InstanceId, FPrimitiveSceneData PrimitiveData, FInstanceSceneData InstanceData, uint MeshLODIndex)
+{
+#if SINGLE_INSTANCE_MODE
+	WritePrimitiveDataUBO(Output, Offset, PrimitiveData, MeshLODIndex);
+#else
+	WriteInstanceDataUBO(Output, Offset, InstanceId, InstanceData, InstanceSceneDataSOAStride);
+#endif
+}
+#endif <span class="c">//PLATFORM_USES_PRIMITIVE_UBO</span></pre>
+
+<table>
+<thead><tr><th></th><th><span class="tag t-pc">PC</span></th><th><span class="tag t-mob">Mobile</span></th></tr></thead>
+<tbody>
+<tr><td>输出缓冲</td><td><code>RWStructuredBuffer&lt;uint&gt; InstanceIdsBufferOut</code> <span class="ref">BuildInstanceDrawCommands.usf:70</span></td><td><code>RWStructuredBuffer&lt;float4&gt; InstanceIdsBufferOutMobile</code> <span class="ref">BuildInstanceDrawCommands.usf:71</span></td></tr>
+<tr><td>每个可见实例写多少</td><td>1 个 <code>uint</code>（4 字节），内容是打包的 InstanceId + CullingFlags + ViewIndex <span class="ref">BuildInstanceDrawCommands.usf:118</span></td><td>一整份数据：沿用 UBO 的 stride（instance 256 B / primitive 512 B）<span class="ref">BuildInstanceDrawCommands.usf:114</span></td></tr>
+<tr><td>VS 怎么拿数据</td><td>读 ID → 再查 GPUScene SSBO（SOA 取值）</td><td>直接读 UBO：<code>LoadInstanceDataUBO(DrawInstanceId)</code> <span class="ref">SceneDataMobileLoader.ush:190</span></td></tr>
+</tbody>
+</table>
+
+<div class="callout">
+  <div class="h">为什么移动端要这么设计</div>
+  移动端的 VS/PS 走的是 <code>PLATFORM_USES_PRIMITIVE_UBO</code> 路径（<span class="ref">SceneData.ush:40</span>），数据来源本身就是 UBO 而非 SSBO。
+  既然 VS 不打算做「ID → SSBO 二次寻址」，剔除阶段就<b>顺手把实例数据搬到输出缓冲里</b>，让 VS 一次读取即可。<br>
+  这条设计正是 §7.2 那两套 stride（256 B / 512 B）与批上限 <b>64 / 32</b> 的来源——输出缓冲要装的是数据本身，不是 ID，容量自然被 16 KB UBO 上限直接决定。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s9"><span class="num">09</span>PC vs Mobile 差异总表</h2>
+
+<h3>9.1 平台判定的两级闸门</h3>
+<p>引擎对「能不能用 GPUScene」有<b>两道独立的判定</b>，先后关系必须看清：</p>
+<pre><span class="c">// RenderUtils.cpp:1751-1765（逐字符照录；行内不含任何本文附加注释）</span>
+<span class="k">bool</span> UseGPUScene(<span class="k">const</span> FStaticShaderPlatform Platform, <span class="k">const</span> FStaticFeatureLevel FeatureLevel)
+{
+	<span class="k">if</span> (FeatureLevel == ERHIFeatureLevel::ES3_1)
+	{
+		<span class="k">return</span> MobileSupportsGPUScene();
+	}
+
+	<span class="c">// GPU Scene management uses compute shaders</span>
+	<span class="k">return</span> FeatureLevel &gt;= ERHIFeatureLevel::SM5
+		<span class="c">//@todo - support GPU Scene management compute shaders on these platforms to get dynamic instancing speedups on the Rendering Thread and RHI Thread</span>
+		&amp;&amp; !IsOpenGLPlatform(Platform)
+		&amp;&amp; !IsMetalMobileSM5Platform(Platform)
+		<span class="c">// we only check DDSPI for platforms that have been read in - IsValid() can go away once ALL platforms are converted over to this system</span>
+		&amp;&amp; (!FDataDrivenShaderPlatformInfo::IsValid(Platform) || FDataDrivenShaderPlatformInfo::GetSupportsGPUScene(Platform));
+}</pre>
+<div class="callout">
+  <div class="h">关键判读</div>
+  移动端（ES3.1）<b>直接短路</b>，不检查任何 feature level / 平台黑名单，<b>只返回一个 CVar</b>。注释里那句 <code>GPU Scene management uses compute shaders</code> 解释了为什么 PC 侧要排除 OpenGL 和 MetalMobileSM5——它们缺 GPUScene 管理所需的 compute shader 能力；而 ES3.1 分支的判定权被完全交给了配置。
+</div>
+
+<pre><span class="c">// RenderUtils.h:317-320</span>
+<span class="k">inline bool</span> MobileSupportsGPUScene()
+{
+    <span class="k">return</span> FReadOnlyCVARCache::MobileSupportsGPUScene();
+}</pre>
+<pre><span class="c">// ReadOnlyCVARCache.cpp:91 / :111（节选）</span>
+<span class="k">const auto</span> CVarMobileSupportGPUScene = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.Mobile.SupportGPUScene"));
+...
+bMobileSupportsGPUScene = CVarMobileSupportGPUScene-&gt;GetValueOnAnyThread() != 0;</pre>
+
+<table class="kv">
+<thead><tr><th>环节</th><th>位置</th></tr></thead>
+<tbody>
+<tr><td>CVar 默认值</td><td><code>r.Mobile.SupportGPUScene=1</code> <span class="ref">BaseEngine.ini:3798</span></td></tr>
+<tr><td>CVar 注册</td><td><span class="ref">ConsoleManager.cpp:3805</span></td></tr>
+<tr><td>项目设置入口</td><td>"Enable GPUScene on Mobile" <span class="ref">RendererSettings.h:323</span></td></tr>
+<tr><td>缓存与读取</td><td><span class="ref">ReadOnlyCVARCache.cpp:91</span>、<span class="ref">ReadOnlyCVARCache.cpp:111</span>、<span class="ref">ReadOnlyCVARCache.h:66-72</span></td></tr>
+<tr><td>Android 平台能力</td><td><code>bSupportsGPUScene=true</code> <span class="ref">Android/DataDrivenPlatformInfo.ini:127</span></td></tr>
+<tr><td>本项目覆盖</td><td><span class="tag t-ok">无</span> <code>S1Game/Config/</code> 下未搜到任何字面含 <code>GPUScene</code> 的项。但本项目<b>确实覆盖了相关的剔除 CVar</b>，见 §12.2 的 <code>r.InstanceCulling.OcclusionCull</code></td></tr>
+</tbody>
+</table>
+
+<h3>9.2 总对比表</h3>
+<table>
+<thead><tr><th style="width:16%">维度</th><th style="width:34%"><span class="tag t-pc">PC</span> SM5+</th><th style="width:34%"><span class="tag t-mob">Mobile</span> ES3.1 (Android Vulkan)</th><th style="width:16%">证据</th></tr></thead>
+<tbody>
+<tr>
+  <td>是否启用 GPUScene</td>
+  <td>是（需 SM5+ 且非 OpenGL/MetalMobileSM5，且 DDSPI 允许）</td>
+  <td>是（只看 <code>r.Mobile.SupportGPUScene</code>，默认 1）</td>
+  <td><span class="ref">RenderUtils.cpp:1751-1765</span></td>
+</tr>
+<tr>
+  <td>数据承载方式</td>
+  <td><b>SSBO</b>：<code>StructuredBuffer&lt;float4&gt;</code></td>
+  <td><b>Uniform Buffer View</b>：全局 UBO 内嵌 <code>Buffer&lt;float4&gt;</code></td>
+  <td><span class="ref">GPUScene.h:51-61</span><br><span class="ref">InstanceCullingContext.cpp:75</span></td>
+</tr>
+<tr>
+  <td>切换开关</td>
+  <td colspan="2" style="text-align:center"><code>PlatformGPUSceneUsesUniformBufferView = IsMobilePlatform &amp;&amp; GetSupportsUniformBufferObjects</code></td>
+  <td><span class="ref">RenderUtils.cpp:488-491</span></td>
+</tr>
+<tr>
+  <td>Instance 布局</td>
+  <td><b>SOA</b>：<code>slot × SOAStride + InstanceId</code></td>
+  <td><b>AOS</b>：<code>DrawInstanceId × stride + DataIdx</code></td>
+  <td><span class="ref">SceneData.ush:1028</span><br><span class="ref">SceneDataMobileLoader.ush:15-16</span></td>
+</tr>
+<tr>
+  <td>Primitive 布局</td>
+  <td>AOS（本仓库就是）：<code>PrimitiveId × 46 + ItemIndex</code></td>
+  <td>AOS：同一公式，但读的是 UBO</td>
+  <td><span class="ref">SceneData.ush:446</span><br><span class="ref">SceneDataMobileLoader.ush:15</span></td>
+</tr>
+<tr>
+  <td>单实例数据量</td>
+  <td><b>3 个 float4</b>（压缩变换开启）</td>
+  <td><b>4 个 float4</b>（压缩变换<b>未</b>开启）</td>
+  <td><span class="ref">InstanceUniformShaderParameters.h:74-75</span><br><span class="ref">SceneData.ush:115-119</span><br><span class="ref">DataDrivenShaderPlatformInfo.cpp:336</span></td>
+</tr>
+<tr>
+  <td>压缩变换开关<br><code>bSupportsSceneDataCompressedTransforms</code></td>
+  <td>ini 显式声明 <code>=true</code>（Windows <span class="ref">Windows/DataDrivenPlatformInfo.ini:44</span>、VulkanPC <span class="ref">VulkanPC/DataDrivenPlatformInfo.ini:66</span>）</td>
+  <td><b>Android 的全部 ShaderPlatform section 均未声明</b>（<span class="ref">Android/DataDrivenPlatformInfo.ini:61</span>、<span class="ref">Android/DataDrivenPlatformInfo.ini:81</span>、<span class="ref">Android/DataDrivenPlatformInfo.ini:105</span> 三节都没有该键，也无 <code>BaseProfileName</code> 继承）→ 取默认 <b>false</b></td>
+  <td><span class="ref">DataDrivenShaderPlatformInfo.cpp:21</span><br><span class="ref">DataDrivenShaderPlatformInfo.cpp:172-189</span><br><span class="ref">DataDrivenShaderPlatformInfo.cpp:336</span></td>
+</tr>
+<tr>
+  <td>Primitive 数据量</td>
+  <td colspan="2" style="text-align:center">46 个 float4 = 736 字节（同一常量）</td>
+  <td><span class="ref">SceneDefinitions.h:90</span></td>
+</tr>
+<tr>
+  <td>批大小上限</td>
+  <td><code>MAX_uint32</code>（不限制）</td>
+  <td><b>64</b>（Generic）/ <b>32</b>（UnCulled）</td>
+  <td><span class="ref">InstanceCullingContext.cpp:1631-1632</span></td>
+</tr>
+<tr>
+  <td>实例顺序保持</td>
+  <td>支持（两阶段紧凑化）</td>
+  <td><b>强制禁用</b></td>
+  <td><span class="ref">InstanceCullingContext.cpp:88-92</span></td>
+</tr>
+<tr>
+  <td>Primitive 取值</td>
+  <td><code>GetPrimitiveData()</code> 走 SSBO 索引</td>
+  <td>走 UBO：<code>LoadPrimitiveDataUBO()</code> 或 <code>GetPrimitiveDataFromUniformBuffer()</code></td>
+  <td><span class="ref">SceneData.ush:428-448</span></td>
+</tr>
+<tr>
+  <td>Instance 取值</td>
+  <td><code>GetInstanceSceneData()</code> 走 SSBO SOA</td>
+  <td><code>LoadInstanceDataUBO()</code> 走 UBO AOS</td>
+  <td><span class="ref">SceneData.ush:1183</span><br><span class="ref">SceneDataMobileLoader.ush:190</span></td>
+</tr>
+<tr>
+  <td>顶点着色器读 Primitive</td>
+  <td>正常</td>
+  <td>若无 VS SRV 能力，<b>返回全零</b>（有专门分支）</td>
+  <td><span class="ref">SceneData.ush:438-441</span></td>
+</tr>
+<tr>
+  <td>ISM 的实例数据</td>
+  <td>GPUScene SSBO</td>
+  <td>BatchedPrimitive UBO（若走 <code>USE_INSTANCE_CULLING</code>）</td>
+  <td><span class="ref">SceneData.ush:1403-1406</span></td>
+</tr>
+<tr>
+  <td>LocalVertexFactory 的 <code>USE_INSTANCE_CULLING</code></td>
+  <td>设置（当 <code>UseGPUScene</code>）</td>
+  <td><b>不设置</b>（除 Imposter 外）——<span class="tag t-fork">GR</span> 改写</td>
+  <td><span class="ref">LocalVertexFactory.cpp:305-319</span></td>
+</tr>
+<tr>
+  <td>ISM 顶点工厂的 <code>USE_INSTANCE_CULLING</code></td>
+  <td>设置</td>
+  <td><b>设置</b>（<code>UseGPUScene</code> 为真），否则 <code>USE_INSTANCING</code></td>
+  <td><span class="ref">InstancedStaticMesh.cpp:747-755</span></td>
+</tr>
+<tr>
+  <td>剔除系统</td>
+  <td>InstanceCulling + SceneCulling（Nanite 时）</td>
+  <td>仅 InstanceCulling</td>
+  <td><span class="ref">SceneCulling.cpp:272-275</span></td>
+</tr>
+<tr>
+  <td>GPUScene 缓冲形态</td>
+  <td>Primitive / Payload 为 Buffer</td>
+  <td>同左（<span class="tag t-fork">GR</span> 写了 Texture2D 分支但默认关闭，见 §10.2）</td>
+  <td><span class="ref">GPUSceneWriter.h:13-15</span><br><span class="ref">GPUScene.h:333-337</span></td>
+</tr>
+</tbody>
+</table>
+
+<h3>9.3 三个最容易搞混的移动端 <code>#if</code> 宏</h3>
+<div class="callout warn">
+  <div class="h">名字相近，含义完全不同 —— 逐个定义与设置点都查过</div>
+  <table style="margin:8px 0">
+  <thead><tr><th>宏</th><th>定义/含义</th><th>谁设置</th></tr></thead>
+  <tbody>
+  <tr>
+    <td><code>USE_INSTANCE_CULLING</code></td>
+    <td><b>顶点工厂的 permutation 能力标志</b>，表示「本 VF 支持经剔除的实例化」</td>
+    <td><span class="ref">InstancedStaticMesh.cpp:750</span>、<span class="ref">LocalVertexFactory.cpp:316</span></td>
+  </tr>
+  <tr>
+    <td><code>USE_INSTANCE_CULLING_DATA</code></td>
+    <td><b>编译目标判定</b>：默认 <code>!(RAYHITGROUPSHADER || RAYTRACING_DYNAMIC_GEOMETRY_CONVERTER)</code>，表示「该去读剔除结果缓冲」</td>
+    <td><span class="ref">SceneData.ush:27-29</span></td>
+  </tr>
+  <tr>
+    <td><code>SHADER_USES_PRIMITIVE_UBO</code></td>
+    <td><code>PLATFORM_USES_PRIMITIVE_UBO &amp;&amp; (PIXELSHADER || VERTEXSHADER) &amp;&amp; !USE_GLOBAL_GPU_SCENE_DATA</code></td>
+    <td><span class="ref">SceneData.ush:43-45</span></td>
+  </tr>
+  </tbody>
+  </table>
+  它们的守卫分支在源码里彻底不同。仅仅因为名字都带 <code>INSTANCE_CULLING</code> 就把前两者合并理解，是本主题最常见的错误。
+</div>
+
+<pre><span class="c">// SceneData.ush:39-45（逐字符照录）</span>
+<span class="k">#ifndef</span> PLATFORM_USES_PRIMITIVE_UBO
+    <span class="k">#define</span> PLATFORM_USES_PRIMITIVE_UBO (PLATFORM_SUPPORTS_UNIFORM_BUFFER_OBJECTS &amp;&amp; FEATURE_LEVEL == FEATURE_LEVEL_ES3_1)
+<span class="k">#endif</span>
+
+<span class="k">#ifndef</span> SHADER_USES_PRIMITIVE_UBO
+    <span class="k">#define</span> SHADER_USES_PRIMITIVE_UBO (PLATFORM_USES_PRIMITIVE_UBO &amp;&amp; (PIXELSHADER || VERTEXSHADER) &amp;&amp; !USE_GLOBAL_GPU_SCENE_DATA)
+<span class="k">#endif</span></pre>
+<p><b><code>PLATFORM_USES_PRIMITIVE_UBO</code> 的 <code>FEATURE_LEVEL == FEATURE_LEVEL_ES3_1</code> 就是「移动端」的另一种写法。</b>整个移动端的 Primitive 取值路径都挂在这个条件上。</p>
+
+<h3>9.4 <code>GetPrimitiveData</code> 的四条分支</h3>
+<pre><span class="c">// SceneData.ush:428-448（逐字符照录）</span>
+FPrimitiveSceneData GetPrimitiveData(uint PrimitiveId)
+{
+<span class="k">#if</span> VF_FORCE_SHADER_USES_PRIMITIVE_UBO
+    <span class="k">return</span> GetPrimitiveDataFromUniformBuffer();
+<span class="k">#elif</span> SHADER_USES_PRIMITIVE_UBO
+    <span class="k">#if</span> USE_INSTANCE_CULLING
+        <span class="k">return</span> GetPrimitiveDataFromUniformBuffer();
+    <span class="k">#else</span>
+        <span class="k">return</span> LoadPrimitiveDataUBO(PrimitiveId);
+    <span class="k">#endif</span>
+<span class="k">#elif</span> (VERTEXSHADER &amp;&amp; !PLATFORM_SUPPORTS_VERTEX_SHADER_SRVS)
+    <span class="c">// Vertex shaders may not have access to GPUScene on mobile. Use GetPrimitiveData(FVertexFactoryIntermediates Intermediates)</span>
+    <span class="c">// TODO: need a way to report invalid usage, after all dead code elimination</span>
+    <span class="k">return</span> (FPrimitiveSceneData)0;
+<span class="k">#else</span>
+    FPrimitiveSceneData PrimitiveData = (FPrimitiveSceneData)0;
+    <span class="c">// Note: layout must match FPrimitiveSceneShaderData in C++</span>
+    <span class="c">// Relying on optimizer to remove unused loads</span>
+    uint PrimitiveIndex = PrimitiveId * PRIMITIVE_SCENE_DATA_STRIDE;
+    ...</pre>
+<table>
+<thead><tr><th>分支</th><th>成立条件</th><th>数据来源</th></tr></thead>
+<tbody>
+<tr><td>① <code>VF_FORCE_SHADER_USES_PRIMITIVE_UBO</code></td><td>顶点工厂强制（本仓库中由 GPUSkin 设置 <span class="ref">GPUSkinVertexFactory.cpp:1555</span>）</td><td>单个 Primitive UBO</td></tr>
+<tr><td>② <code>SHADER_USES_PRIMITIVE_UBO &amp;&amp; USE_INSTANCE_CULLING</code></td><td>移动端 + 是 ISM（走实例剔除）</td><td>单个 Primitive UBO（配合 batched instance UBO）</td></tr>
+<tr><td>③ <code>SHADER_USES_PRIMITIVE_UBO &amp;&amp; !USE_INSTANCE_CULLING</code></td><td>移动端 + 普通静态网格</td><td><code>LoadPrimitiveDataUBO(PrimitiveId)</code>——索引进 batched Primitive UBO</td></tr>
+<tr><td>④ <code>VERTEXSHADER &amp;&amp; !PLATFORM_SUPPORTS_VERTEX_SHADER_SRVS</code></td><td>移动端 VS 无 SRV 能力</td><td><b>返回全零</b>（属于能力缺失的兜底）</td></tr>
+<tr><td>⑤ <code>#else</code></td><td>PC</td><td>SSBO：<code>PrimitiveId * PRIMITIVE_SCENE_DATA_STRIDE</code></td></tr>
+</tbody>
+</table>
+
+<h3>9.5 Instance 数据的两条加载路径</h3>
+<table class="kv">
+<thead><tr><th>路径</th><th>代码</th><th>位置</th></tr></thead>
+<tbody>
+<tr><td><span class="tag t-mob">Mobile</span> Primitive</td><td><code>uint DataOffset = DrawInstanceId * BATCHED_PRIMITIVE_DATA_STRIDE_FLOAT4 + DataIdx; return BatchedPrimitive.Data[DataOffset];</code></td><td><span class="ref">SceneDataMobileLoader.ush:15-16</span></td></tr>
+<tr><td><span class="tag t-mob">Mobile</span> Instance</td><td><code>uint DataOffset = DrawInstanceId * BATCHED_INSTANCE_DATA_STRIDE_FLOAT4 + DataIdx; return BatchedPrimitive.Data[DataOffset];</code></td><td><span class="ref">SceneDataMobileLoader.ush:183-184</span></td></tr>
+<tr><td><span class="tag t-pc">PC</span> Instance</td><td><code>LoadInstanceSceneDataElement(slot * SOAStride + InstanceId)</code></td><td><span class="ref">SceneData.ush:1211</span> 等多处</td></tr>
+</tbody>
+</table>
+<div class="callout note">
+  <div class="h">注意：移动端两条路径写的是同一个数组</div>
+  <code>LoadPrimitiveDataElementUBO</code> 与 <code>LoadInstanceDataElementUBO</code> <b>都从 <code>BatchedPrimitive.Data</code> 取值</b> <span class="ref">SceneDataMobileLoader.ush:16</span>、<span class="ref">SceneDataMobileLoader.ush:184</span>，只是 stride 不同（32 vs 16 个 float4）。也就是说两者共用同一条 uniform buffer，靠 stride 区分「这 16 KB 里装的是 Primitive 还是 Instance」——对应 §8.7 的两种 <code>EBatchProcessingMode</code>。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s10"><span class="num">10</span>本分叉（GR）定制清单</h2>
+
+<p>阅读本仓库 GPUScene 代码时，必须能区分「官方逻辑」与「自研改动」。以下按标记逐项列出（均已核对源码原文）。</p>
+
+<h3>10.1 标记体系</h3>
+<table class="kv">
+<thead><tr><th>标记形式</th><th>含义</th><th>示例位置</th></tr></thead>
+<tbody>
+<tr><td><code>#pragma region Engine ZXB</code></td><td>引擎改动统一包裹格式</td><td><span class="ref">MeshDrawCommands.cpp:239</span>、<span class="ref">MeshDrawCommands.cpp:1899</span></td></tr>
+<tr><td><code>// Add by ZXB</code></td><td>同一作者的行内说明</td><td><span class="ref">SceneData.ush:52</span></td></tr>
+<tr><td><code>#pragma region shiyu</code> / <code>S1_Engine_Shiyu</code></td><td>另一套个人 region 标记</td><td><span class="ref">InstanceUniformShaderParameters.h:161</span>、<span class="ref">LocalVertexFactory.cpp:305</span></td></tr>
+<tr><td><code>[某某]:[ADD/MODIFY]:[BEGIN/END]</code></td><td>功能级改动块标记</td><td><span class="ref">InstanceCullingLoadBalancer.h:64-68</span></td></tr>
+<tr><td><code>@人名</code></td><td>行级归属</td><td><span class="ref">SceneDefinitions.h:76-81</span></td></tr>
+<tr><td><code>#if 1 // GR 相关宏</code></td><td>硬开的功能开关</td><td><span class="ref">SceneData.ush:1219</span>、<span class="ref">InstanceCullingContext.cpp:1582</span></td></tr>
+</tbody>
+</table>
+
+<h3>10.2 逐项清单</h3>
+<table>
+<thead><tr><th style="width:20%">改动</th><th style="width:12%">归属</th><th style="width:46%">做什么</th><th style="width:22%">证据</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>GPUScene 纹理化<br>（本仓库未启用）</b></td><td>@Beiyu</td>
+  <td>为 <code>GPUScenePrimitiveSceneData</code> / <code>GPUSceneInstancePayloadData</code> 新写了一条 <code>Texture2D</code> 分支（对应走 Buffer 的原逻辑保留在 <code>#else</code>），由宏 <code>PRIMITIVE_DATA_USE_TEXTURE</code> 门控。<br><b>该宏在全仓库只有一处定义且值为 <code>0</code></b> <span class="ref">GPUSceneWriter.h:14</span>；<code>Engine/Source</code> 与 <code>S1Game/Source</code> 下均无 <code>.cs</code> 构建脚本覆盖、无 S1Game 侧定义 → <b>本仓库当前编译的是 Buffer 分支</b>。动机注释：<code>[Fix GPU Crash: GPUScene Pagefault]</code>。配套常量在 <span class="ref">SceneDefinitions.h:132-137</span>。</td>
+  <td><span class="ref">GPUSceneWriter.h:13-39</span><br><span class="ref">GPUScene.h:38-62</span></td>
+</tr>
+<tr>
+  <td><b>压缩变换换成 2 个 float4</b></td><td>@shiyu</td>
+  <td>新增 <code>FCompressedTransform2</code>（Translation+Rot01 / Scale+Rot23 各一个 float4），取代官方的 3 float4 <code>FCompressedTransform</code>。旋转用 Hemi-Octahedron 编码成两个 uint16，分藏在 Translation.w / Scale.w。着色器侧由硬开的 <code>#if 1 // GR_COMPRESSE_WORLD_MATRIX</code> 走 <code>DecodeTransform2</code>。<br><b>该改动只在「压缩变换开启」时生效</b> —— 即 PC 走它，本项目 Android 走的是非压缩的 3×4 矩阵分支。</td>
+  <td><span class="ref">RenderTransform.h:609-686</span><br><span class="ref">InstanceUniformShaderParameters.h:161-165</span><br><span class="ref">SceneData.ush:1219-1228</span></td>
+</tr>
+<tr>
+  <td><b>ISM 与 SM 合并实例化</b></td><td>@yinnhaowang</td>
+  <td>改写 <code>LocalVertexFactory</code> 的条件，使桌面端 SM 也能带 <code>USE_INSTANCE_CULLING</code>，从而与 ISM 合批；同时新增 <code>GR_USE_INSTANCE</code> 宏供 shader 区分两者。</td>
+  <td><span class="ref">LocalVertexFactory.cpp:305-319</span><br><span class="ref">InstancedStaticMesh.cpp:767-772</span></td>
+</tr>
+<tr>
+  <td><b>ISM Dithered LOD</b></td><td>@yinnhaowang</td>
+  <td>新增 <code>LODScreenSizes[2]</code> / <code>MinLOD</code> / <code>MaxLOD</code> 三个 Primitive 字段（占了 slot 43-45），以及独立缓冲 <code>InstanceLODsBuffer</code>。<b>移动端 UBV 路径下该缓冲被刻意置为 dummy</b>，即移动端不支持。</td>
+  <td><span class="ref">SceneData.ush:124</span><br><span class="ref">SceneData.ush:182-184</span><br><span class="ref">InstanceCullingContext.h:25</span></td>
+</tr>
+<tr>
+  <td><b>LoadBalancer 加字段</b></td><td>@yinnhaowang</td>
+  <td><code>FPackedItem</code> 增加第三个 uint32 <code>AdditionalCustomCullingFlags</code>，承载 Imposter / DitheredLOD 两个自定义剔除标志（<span class="ref">SceneDefinitions.h:127-128</span>）。<b>代价：item stride 从 8B 增到 12B。</b></td>
+  <td><span class="ref">InstanceCullingLoadBalancer.h:58-84</span><br><span class="ref">InstanceCullingContext.cpp:1765-1769</span></td>
+</tr>
+<tr>
+  <td><b>BlueCircleCulling</b></td><td>@wanmuxin / @shiyu</td>
+  <td>一种屏幕空间圆形剔除，硬编码 <code>RadiusExt = 1500.0f</code>。参数经 <code>Nanite::FPackedViewParams</code> 下发。</td>
+  <td><span class="ref">SceneDefinitions.h:79</span><br><span class="ref">InstanceCullingManager.cpp:69-72</span></td>
+</tr>
+<tr>
+  <td><b>ProbabilisticInstanceCulling</b></td><td>@yinnhaowang</td>
+  <td>概率化实例剔除（用 Hash31 + 参数做抽样），用于草木等海量实例。</td>
+  <td><span class="ref">SceneDefinitions.h:81</span><br><span class="ref">InstanceCullingManager.cpp:74-75</span></td>
+</tr>
+<tr>
+  <td><b>AxisZConeCulling</b></td><td>@Beiyu @CYH</td>
+  <td>新增 Primitive 字段 <code>AxisZConeCullingAngle</code>（占 slot 33 的 .z）与对应可见性 flag。</td>
+  <td><span class="ref">SceneData.ush:180</span><br><span class="ref">SceneDefinitions.h:78</span></td>
+</tr>
+<tr>
+  <td><b>PVS 相关</b></td><td>@Gongruhe</td>
+  <td><code>PRIMITIVE_VISIBILITY_FLAG_FORCE_HIDDEN_IN_PVS_SCENE_CAPTURE</code>。</td>
+  <td><span class="ref">SceneDefinitions.h:77</span></td>
+</tr>
+<tr>
+  <td><b>强制 Generic 剔除</b></td><td><span class="tag t-fork">GR ADD</span></td>
+  <td><code>#if 1 // GR ADD</code>：HZB 相关 CVar 开启时把单实例图元也赶进 Generic 管线（上游为 <code>false</code>）。</td>
+  <td><span class="ref">InstanceCullingContext.cpp:1582-1588</span></td>
+</tr>
+<tr>
+  <td><b>强制 Primitive UBO 开关</b></td><td>@ZXB</td>
+  <td>新增 <code>VF_FORCE_DISABLE_PRIMITIVE_SCENE_DATA</code> / <code>VF_FORCE_SHADER_USES_PRIMITIVE_UBO</code>，让指定顶点工厂退回 Primitive UBO 路径。</td>
+  <td><span class="ref">SceneData.ush:52-59</span></td>
+</tr>
+<tr>
+  <td><b>Adreno SSBO stride 修包</b></td><td>@ZXB</td>
+  <td>用<b>单成员结构体</b>包裹 <code>StructuredBuffer</code> 声明以规避 Adreno 630 的 stride 计算偏差。这是本项目排查 845 黑屏时落下的修复。</td>
+  <td><span class="ref">SceneData.ush:661-668</span><br><span class="ref">BuildInstanceDrawCommands.usf:54-62</span></td>
+</tr>
+<tr>
+  <td><b>PER_OBJECT_SHADOW_DISABLE_CULLING</b></td><td>@easonjiang</td>
+  <td>逐物体阴影关闭剔除时强制 <code>InstanceId = InstanceIdOffset</code>。</td>
+  <td><span class="ref">SceneData.ush:47-49</span><br><span class="ref">SceneData.ush:1458-1460</span></td>
+</tr>
+<tr>
+  <td><b>Occlusion Query 默认关</b></td><td>@lukesren</td>
+  <td><code>ENABLE_IMPOSTER_SHADER_PARAMETER</code> 默认定义为 0，导致两大段 imposter 绑定代码默认不编译。</td>
+  <td><span class="ref">InstanceCullingContext.cpp:25-27</span></td>
+</tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+  <div class="h">阅读本仓库 GPUScene 的注意事项</div>
+  <ol style="margin:6px 0">
+    <li><b>看到 <code>#if 1</code> 要停下来查注释</b>。本分叉多处用 <code>#if 1</code> 硬开官方 <code>#else</code> 分支（如 <span class="ref">SceneData.ush:1219</span> 的 <code>GR_COMPRESSE_WORLD_MATRIX</code>）。忽略它会把官方旧路径当成现行路径。</li>
+    <li><b>宏名拼写错误是真实存在的</b>，例如 <code>GR_COMPRESSE_WORLD_MATRIX</code>（多一个 S）、<code>r.GPUScene.DiscradLightMapData</code>（Discard 少了 d）<span class="ref">GPUScene.cpp:121</span>。按「正确拼写」去搜会搜不到。</li>
+    <li><b>注释与实际可能不一致</b>：<span class="ref">SceneDefinitions.h:62</span> 写「Visibility Flags Are Using 13bits」，实际到 <code>0x8000</code> 已是 16 位。</li>
+  </ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s11"><span class="num">11</span>网络资料勘误</h2>
+
+<p>以下逐条核对社区文章与本仓库源码。核对方式：凡声称的符号名、常量值、文件名，一律在本仓库 grep/sed 实证。</p>
+
+<h3>11.1 经核实<b>错误</b>或与本仓库不符</h3>
+<table>
+<thead><tr><th style="width:32%">网络说法</th><th style="width:14%">结论</th><th style="width:54%">本仓库实际</th></tr></thead>
+<tbody>
+<tr>
+  <td>"primitive 数据的 stride 为 42"</td>
+  <td><span class="tag t-bad">不符</span></td>
+  <td>本仓库为 <b>46</b> 个 float4 <span class="ref">SceneDefinitions.h:90</span>。差异很可能来自版本（本分叉额外加了 <code>AxisZConeCullingAngle</code>、<code>LODScreenSizes[2]</code>、<code>MinLOD/MaxLOD</code>）。<b>跨版本引用 stride 数字必须回到对应版本源码。</b></td>
+</tr>
+<tr>
+  <td>"PC 端 GPUScene 使用 <b>2 个</b> SSBO"</td>
+  <td><span class="tag t-bad">不完整</span></td>
+  <td>本仓库 <code>FGPUSceneResourceParameters</code> 绑定 <b>5</b> 条：InstanceSceneData、InstancePayloadData、PrimitiveSceneData、LightmapData、LightData <span class="ref">GPUScene.h:51-61</span>。（"2 个"可能指最核心的两条，但作为事实陈述是错的。）</td>
+</tr>
+<tr>
+  <td>"<code>SceneVisibilityBuffer</code> 为 R32_UINT Texture2D"</td>
+  <td><span class="tag t-bad">未找到</span></td>
+  <td>在 <code>Engine/Shaders</code> 全目录 grep 无匹配。疑为虚构或属其它引擎/其它版本。</td>
+</tr>
+<tr>
+  <td>"<code>FMatrix44fCompressed</code>"</td>
+  <td><span class="tag t-bad">未找到</span></td>
+  <td>同上，全目录 grep 无匹配。本仓库的压缩变换类型是 <code>FCompressedTransform2</code> <span class="ref">RenderTransform.h:610</span>（另有官方的 <code>FCompressedTransform</code> <span class="ref">RenderTransform.h:439</span>）。</td>
+</tr>
+<tr>
+  <td>"<code>BuildInstanceDrawCommands.usf:395</code> 是剔除 CS <b>写入</b> <code>InstanceIdOffsetBuffer</code> 的位置"</td>
+  <td><span class="tag t-bad">方向相反</span></td>
+  <td>该行是 <b>读</b>：<code>InstanceIdOffsetBuffer[Payload.IndirectArgIndex]</code>；且声明为只读 <code>Buffer&lt;uint&gt;</code> <span class="ref">BuildInstanceDrawCommands.usf:59</span>。写方在 VSM/MMH 路径（<code>InstanceIdOffsetBufferOut</code>）。</td>
+</tr>
+<tr>
+  <td>"实例数据每实例占 64 字节"</td>
+  <td><span class="tag t-bad">只说对一半</span></td>
+  <td>非压缩 4×16 = 64 字节；<b>压缩时是 3×16 = 48 字节</b> <span class="ref">InstanceUniformShaderParameters.h:74-75</span>。<br><b>本项目 Android 未开启压缩变换</b>（DDSPI 未声明该键，见 §9.2），故移动端实际是 <b>64 字节／实例</b>。</td>
+</tr>
+<tr>
+  <td>"移动端在支持 uniform views 时使用单个 UBO 加间隔"</td>
+  <td><span class="tag t-ok">准确</span></td>
+  <td>完全成立，且本仓库有明确判据函数与 stride 常量 <span class="ref">RenderUtils.cpp:488-491</span>、<span class="ref">SceneDefinitions.h:121-124</span>。</td>
+</tr>
+</tbody>
+</table>
+
+<h3>11.2 经核实<b>准确</b>的说法</h3>
+<table>
+<thead><tr><th style="width:44%">网络说法</th><th style="width:56%">本仓库印证</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>FInstanceSceneShaderData</code> 在 <code>InstanceUniformShaderParameters.h</code></td>
+  <td>确实存在 <span class="ref">InstanceUniformShaderParameters.h:69</span></td>
+</tr>
+<tr>
+  <td><code>FPackedBatch</code> / <code>FPackedItem</code> 在 <code>InstanceCullingLoadBalancer.h</code></td>
+  <td>确实存在 <span class="ref">InstanceCullingLoadBalancer.h:45-69</span>（另有分叉新增的第三字段）</td>
+</tr>
+<tr>
+  <td>剔除流程：先 <code>BoxCullFrustum</code>，再用上帧 HZB 做 <code>IsVisibleHZB</code></td>
+  <td>成立 <span class="ref">BuildInstanceDrawCommands.usf:235</span>、<span class="ref">BuildInstanceDrawCommands.usf:240</span></td>
+</tr>
+<tr>
+  <td>可见实例用 <code>InterlockedAdd</code> 对 indirect args 的实例计数做原子累加</td>
+  <td>成立 <span class="ref">BuildInstanceDrawCommands.usf:453</span>（立体声路径 <span class="ref">BuildInstanceDrawCommands.usf:420</span>）</td>
+</tr>
+<tr>
+  <td>剔除入口为 <code>InstanceCullBuildInstanceIdBufferCS</code>，文件 <code>BuildInstanceDrawCommands.usf</code></td>
+  <td>成立 <span class="ref">BuildInstanceDrawCommands.usf:336</span></td>
+</tr>
+<tr>
+  <td><code>r.Mobile.SupportGPUScene</code> 可控制移动端 GPUScene</td>
+  <td>成立，且本仓库默认值已由 ini 设为 1 <span class="ref">BaseEngine.ini:3798</span></td>
+</tr>
+<tr>
+  <td>移动端使用 CPU 侧间接光照导致可移动物体无法合批（桌面在 GPU 侧）</td>
+  <td>方向合理且与本仓库的移动端 UBO 路径一致；但本次<b>未在源码中定位到该判定点</b>，故仅记为「方向可信、细节未验证」。</td>
+</tr>
+<tr>
+  <td><code>r.MeshDrawCommands.DynamicInstancing</code> 存在</td>
+  <td>存在 <span class="ref">SceneRendering.cpp:301</span></td>
+</tr>
+</tbody>
+</table>
+
+<h3>11.3 网络资料的方法论提醒</h3>
+<div class="callout warn">
+  <ul style="margin:6px 0">
+    <li><b>版本敏感的数字必须回源码。</b>stride（42 vs 46）、实例字节数（64 vs 48）、flag 个数都会随版本变。中文博客常不标版本。</li>
+    <li><b>「文件名 + 行号」在网络文章里几乎都不可复核</b>（版本漂移）。本文所有行号均已在本仓库逐条验过。</li>
+    <li><b>本仓库是分叉</b>，任何网络结论都需要额外过滤一层「这是官方逻辑还是 GR 自研」。例如 <code>FCompressedTransform2</code>、<code>GR_USE_INSTANCE</code>、<code>FPackedItem</code> 的第三字段，在官方资料里根本不存在。</li>
+    <li><b>最容易误读的是「教你自己写一个」的示例代码</b>——它们排版得像引擎源码，但符号名往往 grep 不到。</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s12"><span class="num">12</span>CVar 与调试速查</h2>
+
+<h3>12.1 GPUScene 自身</h3>
+<table>
+<thead><tr><th>CVar</th><th>默认</th><th>作用</th><th>位置</th></tr></thead>
+<tbody>
+<tr><td><code>r.GPUScene.UploadEveryFrame</code></td><td><code>0</code></td><td>每帧全量上传（调试用）</td><td><span class="ref">GPUScene.cpp:70-75</span></td></tr>
+<tr><td><code>r.GPUScene.MaxPooledUploadBufferSize</code></td><td><code>256000</code></td><td>上传缓冲池上限</td><td><span class="ref">GPUScene.cpp:77-82</span></td></tr>
+<tr><td><code>r.GPUScene.ParallelUpdate</code></td><td><code>0</code></td><td>并行更新</td><td><span class="ref">GPUScene.cpp:84-89</span></td></tr>
+<tr><td><code>r.GPUScene.DebugMode</code></td><td><code>0</code></td><td>0 不画 / 1 全画 / 2 选中 / 3 本帧更新过的</td><td><span class="ref">GPUScene.cpp:91-101</span></td></tr>
+<tr><td><code>r.GPUScene.DebugDrawRange</code></td><td><code>-1.0</code></td><td>调试绘制距离上限</td><td><span class="ref">GPUScene.cpp:103-108</span></td></tr>
+<tr><td><code>r.GPUScene.UseGrowOnlyAllocationPolicy</code></td><td><code>0</code></td><td>5.3 起废弃，仅用于模拟旧行为</td><td><span class="ref">GPUScene.cpp:110-116</span></td></tr>
+<tr><td><code>r.GPUScene.DiscradLightMapData</code> <span class="tag t-fork">GR</span></td><td><code>0</code></td><td>丢弃光照贴图数据（注意拼写）</td><td><span class="ref">GPUScene.cpp:118-126</span></td></tr>
+</tbody>
+</table>
+
+<h3>12.2 InstanceCulling</h3>
+<table>
+<thead><tr><th>CVar</th><th>源码默认</th><th>实际生效</th><th>作用</th><th>位置</th></tr></thead>
+<tbody>
+<tr><td><code>r.CullInstances</code></td><td><code>1</code></td><td>1</td><td>GPU 实例剔除总开关</td><td><span class="ref">InstanceCullingContext.cpp:37-41</span></td></tr>
+<tr><td><code>r.InstanceCulling.OcclusionCull</code></td><td><code>0</code></td><td>PC 端 <b>1</b>（<span class="ref">BaseEngine.ini:3793</span>）；<b>本项目 Adreno6xx 低驱动档位强制 0</b>（<span class="ref">DefaultDeviceProfiles.ini:1869</span> 的 <code>[Android_Adreno6xx_Vulkan_LowDriver DeviceProfile]</code> 下 <span class="ref">DefaultDeviceProfiles.ini:1883</span>）</td><td>HZB 遮挡剔除</td><td><span class="ref">InstanceCullingContext.cpp:43-47</span></td></tr>
+<tr><td><code>r.InstanceCulling.ForceInstanceCulling</code></td><td><code>0</code></td><td>0</td><td>强制所有图元走实例剔除</td><td><span class="ref">InstanceCullingContext.cpp:49-54</span></td></tr>
+<tr><td><code>r.InstanceCulling.AllowInstanceOrderPreservation</code></td><td><code>1</code></td><td>1（移动端无效）</td><td>允许两阶段紧凑化保序</td><td><span class="ref">InstanceCullingContext.cpp:56-61</span></td></tr>
+<tr><td><code>r.InstanceCulling.AllowBatchedBuildRenderingCommands</code></td><td><code>1</code></td><td>1</td><td>多 pass 合并进 deferred context</td><td><span class="ref">InstanceCullingManager.cpp:17-22</span></td></tr>
+<tr><td><code>r.InstanceCulling.OcclusionQueries</code></td><td><code>0</code></td><td>0</td><td>逐实例软件遮挡查询（EXPERIMENTAL）</td><td><span class="ref">InstanceCullingOcclusionQuery.cpp:27-31</span></td></tr>
+<tr><td><code>r.InstanceCulling.UseLoadBalancer</code></td><td><code>1</code></td><td>1</td><td>遮挡查询复用 BasePass 的 LoadBalancer</td><td><span class="ref">InstanceCullingOcclusionQuery.cpp:33-38</span></td></tr>
+<tr><td><code>r.InstanceCulling.SkipImposterRendering</code> <span class="tag t-fork">GR</span></td><td><code>1</code></td><td>1</td><td>跳过 imposter draw</td><td><span class="ref">InstanceCullingContext.cpp:64-68</span></td></tr>
+</tbody>
+</table>
+
+<h3>12.3 移动端 / MeshDrawCommand</h3>
+<table>
+<thead><tr><th>CVar</th><th>默认</th><th>作用</th><th>位置</th></tr></thead>
+<tbody>
+<tr><td><code>r.Mobile.SupportGPUScene</code></td><td><code>1</code></td><td>移动端 GPUScene 总开关（<b>ReadOnly，只能走 ini</b>）</td><td><span class="ref">BaseEngine.ini:3798</span></td></tr>
+<tr><td><code>r.MeshDrawCommands.DynamicInstancing</code></td><td><code>1</code></td><td>动态实例化合批</td><td><span class="ref">SceneRendering.cpp:301</span></td></tr>
+<tr><td><code>r.InstancedStaticMeshes.DynamicInstancing</code></td><td>—</td><td><span class="tag t-fork">GR</span> 在 <code>SetupDrawCommands</code> 中读取，但判据行被注释 → <b>当前不生效</b></td><td><span class="ref">InstanceCullingContext.cpp:1653</span>、<span class="ref">InstanceCullingContext.cpp:1659</span></td></tr>
+<tr><td><code>r.HZBOcclusion</code> / <code>r.HZB.IndirectDraw</code></td><td><code>1</code> / —</td><td><span class="tag t-fork">GR</span> 二者同时开时强制 Generic 剔除</td><td><span class="ref">BaseEngine.ini:3794</span>、<span class="ref">InstanceCullingContext.cpp:1583-1584</span></td></tr>
+</tbody>
+</table>
+
+<h3>12.4 排查入口建议</h3>
+<table class="kv">
+<thead><tr><th>现象</th><th>先看哪</th></tr></thead>
+<tbody>
+<tr><td>ISM 实例渲染错位 / 读到别的实例数据</td><td>先确认走的是 SSBO-SOA 还是 UBO-AOS 路径；再查 <code>InstanceSceneDataSOAStride</code> 与实际分配的容量是否一致 <span class="ref">GPUScene.cpp:1047-1054</span></td></tr>
+<tr><td>移动端大场景实例丢失</td><td>查批上限是否被撞到（64 / 32）<span class="ref">InstanceCullingContext.cpp:1631-1632</span>；查 <code>TotalInstances</code> 是否超 <code>MAX_INSTANCE_ID</code></td></tr>
+<tr><td>实例可见但没画出来</td><td>查 <code>IsInstanceVisible</code> 链上的 GR 自研项（BlueCircle / Probabilistic）<span class="ref">BuildInstanceDrawCommands.usf:219-246</span></td></tr>
+<tr><td>实例绘制顺序不对</td><td>确认是否开启了保序；移动端该功能被硬禁用 <span class="ref">InstanceCullingContext.cpp:88-92</span></td></tr>
+<tr><td>改动不生效</td><td>先确认 CVar 是 ReadOnly（只能 ini）还是普通（可运行时）——<code>r.Mobile.SupportGPUScene</code> 属前者</td></tr>
+</tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="s13"><span class="num">13</span>一页总结</h2>
+
+<div class="panel">
+<h4>一句话</h4>
+<p>GPUScene 把「每个物体的着色参数」从「逐 draw 绑定」改造成「全局池化 + ID 索引」，<b>这是合批能成立的前提</b>；而 InstanceCulling 在此基础上把剔除粒度从 Primitive 下沉到 Instance，并让 GPU 直接产出 Indirect Draw 参数。<b>PC 用 SSBO + SOA，移动端用 Uniform Buffer + AOS</b>——后者的批大小被 16 KB UBO 上限锁死在 64/32。</p>
+
+<h4>五条必须记住的事实</h4>
+<ol>
+<li><b>切换点只有一个</b>：<code>PlatformGPUSceneUsesUniformBufferView = IsMobilePlatform &amp;&amp; SupportsUniformBufferObjects</code> <span class="ref">RenderUtils.cpp:488-491</span>。整条 PC/Mobile 分叉都从这里分出去。</li>
+<li><b>两种布局的寻址公式互不通用</b>：SOA 是 <code>slot×SOAStride + InstanceId</code>，AOS 是 <code>DrawInstanceId×stride + idx</code>。混用必错。</li>
+<li><b>SOAStride 是「实例容量」不是「每实例 float4 数」</b>，且是 2 的幂 <span class="ref">GPUScene.cpp:1047-1054</span>。</li>
+<li><b>批上限 64/32 全部来自 16 KB</b>：<code>16384/256</code> 与 <code>16384/512</code>。PC 不拆分正说明它是 UBO 约束而非算法约束。</li>
+<li><b>InstanceIdOffsetBuffer 有三重身份</b>：CPU 上传的数据、剔除 CS 的读源、VS 的 PrimitiveId 顶点流。判据是「<code>Buffer</code> 还是 <code>RWBuffer</code>」+「绑到哪个槽」。</li>
+</ol>
+
+<h4>三个易踩的坑</h4>
+<ul>
+<li><b>宏名近似但语义无关</b>：<code>USE_INSTANCE_CULLING</code>（VF 能力）≠ <code>USE_INSTANCE_CULLING_DATA</code>（编译目标）≠ <code>SHADER_USES_PRIMITIVE_UBO</code>（移动端 UBO 路径）。</li>
+<li><b>「3 还是 4 个 float4」取决于是否含头 slot</b>：含头是 3/4 <span class="ref">InstanceUniformShaderParameters.h:74-75</span>，不含头是 2/3 <span class="ref">SceneData.ush:115-119</span>。</li>
+<li><b>本仓库是分叉</b>：多处 <code>#if 1</code> 硬开了官方 <code>#else</code> 分支；<code>FCompressedTransform2</code>、<code>GR_USE_INSTANCE</code>、<code>FPackedItem</code> 第三字段都是自研，官方资料里没有。</li>
+</ul>
+
+<h4>还有两处「源码现状」值得单独记住</h4>
+<ul>
+<li><code>InstanceCullingContext.cpp:1659</code> 的 <code>bCanCompactCurrentCommand</code> 判据行被注释掉 → <code>r.InstancedStaticMeshes.DynamicInstancing</code> 当前是 dead code。</li>
+<li><code>SceneDefinitions.h:87</code> 的 <code>NOTE: Out of flags</code> → Primitive 数据 flag 已用满 31 位，再加标志位必须另起炉灶（这正是 GR 自研 visibility flag 单独占 16 位的原因）。</li>
+</ul>
+</div>
+
+<footer>
+  <p><b>参考基线</b>：<code>D:\GR_DevTest\UE5EA</code>（Unreal Engine 5.5.4 分叉 <code>++GR+DevTest</code>，CL 1011149）。</p>
+  <p><b>核实方式</b>：本文所有 <code>文件:行号</code> 引用均在本仓库逐条读取确认；凡未在源码中找到的说法一律标注「未找到」，未做推测性补全。所有代码片段为<b>逐字符拷贝</b>（仅允许删除无关行并在旁标注省略），未改写表达式。</p>
+  <p><b>图</b>：图 1 每帧数据流 · 图 2 Instance 打包与变换槽位 · 图 3 SOA/AOS 布局对比 · 图 4 主剔除 CS 流程。</p>
+</footer>
+
+</div>
+</body>
+</html>
