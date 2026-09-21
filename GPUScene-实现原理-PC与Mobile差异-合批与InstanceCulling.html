@@ -154,6 +154,16 @@
   <td>是<b>比 InstanceCulling 更新的一层</b>（层级化 cell 剔除），但它 <code>UseSceneCulling = r.SceneCulling!=0 &amp;&amp; UseNanite()</code>——<b>依赖 Nanite，移动端跑不到</b>。别把两者混为一谈。</td>
   <td><span class="ref">SceneCulling.cpp:272-275</span></td>
 </tr>
+<tr>
+  <td>是按图形 API 分叉的吗</td>
+  <td><b>不是。</b>DX12 / Vulkan-PC / Metal-Mac 完全同路（SSBO+SOA）；Android 的 GLES 与 Vulkan 也完全同路（UBO+AOS）。真正的分叉键是 DDSPI 的两个位：<code>MaxFeatureLevel==ES3_1</code> 与 <code>bSupportsUniformBufferObjects</code>。<b>iOS Metal 是移动端却走 SSBO</b>。</td>
+  <td><span class="ref">RenderUtils.cpp:488-491</span><br><span class="ref">DataDrivenShaderPlatformInfo.h:891-894</span><br>详见 §9.6</td>
+</tr>
+<tr>
+  <td>上传涉及多少 Buffer / Pass</td>
+  <td><b>5 条常驻</b>资源（Primitive / InstanceScene / InstancePayload / Lightmap / Light）+ <b>4 组</b>池化暂存；一帧 <b>0~4 个 ScatterUpload</b> + <b>0~2 个 SetInstancePrimitiveIdCS</b> + 1 个光数据 copy。无变化帧 = <b>0 个 pass</b>。</td>
+  <td>详见 §6.8 / §6.9</td>
+</tr>
 </tbody>
 </table>
 
@@ -854,7 +864,271 @@ RENDERER_API <span class="k">void</span> Commit();</pre>
 </div>
 <p>消费侧：<code>ExecuteDeferredGPUWritePass(GraphBuilder, Views, Pass)</code> <span class="ref">GPUScene.h:311</span>，队列存放在 <code>DeferredGPUWritePassDelegates[NumDeferredGPUWritePasses]</code> <span class="ref">GPUScene.h:424-426</span>。</p>
 
-<h3>6.8 上传流程小结</h3>
+<h3>6.8 Buffer 全清单：5 条常驻 + 4 条暂存</h3>
+
+<p>GPUScene 一共涉及 <b>5 条常驻 GPU 资源</b>（着色器真正读的）和 <b>4 组上传暂存</b>（池化、可回收）。</p>
+
+<h4>常驻资源：5 条</h4>
+<p><code>FGPUScene::RegisterBuffers</code>（<span class="ref">GPUScene.cpp:1112-1128</span>）注册的就是这 5 条，与着色器侧的 <code>FGPUSceneResourceParameters</code>（<span class="ref">GPUScene.h:51-61</span>）5 个 SHADER_PARAMETER 一一对应：</p>
+<table>
+<thead><tr><th style="width:22%">缓冲</th><th style="width:33%">内容</th><th style="width:45%">大小公式（<span class="ref">GPUScene.cpp:952</span> UpdateBufferAllocations）</th></tr></thead>
+<tbody>
+<tr><td><code>GPUScene.PrimitiveData</code></td><td>每 Primitive 46 个 float4（736 B）</td><td><code>RoundUpToPowerOfTwo(max(DynamicPrimitivesOffset, InitialBufferSize)) × sizeof(FPrimitiveSceneShaderData::Data)</code> <span class="ref">GPUScene.cpp:1037-1038</span></td></tr>
+<tr><td><code>GPUScene.InstanceSceneData</code></td><td><b>SOA</b>，每条槽位数组 <code>InstanceSceneDataSizeReserve</code> 个实例</td><td><code>NumBytes = SizeReserve × GetEffectiveNumBytes()</code>、<code>NumArrays = GetDataStrideInFloat4s()</code> <span class="ref">GPUScene.cpp:1049-1053</span></td></tr>
+<tr><td><code>GPUScene.InstancePayloadData</code></td><td>实例变长扩展（自定义数据/骨骼/前帧变换…）</td><td><code>RoundUpToPowerOfTwo(max(PayloadFloat4Count, InitialBufferSize)) × sizeof(FVector4f)</code> <span class="ref">GPUScene.cpp:1040-1042</span></td></tr>
+<tr><td><code>GPUScene.LightmapData</code></td><td>光照贴图数据</td><td><code>RoundUpToPowerOfTwo(max(allocMaxSize, InitialBufferSize)) × sizeof(FLightmapSceneShaderData::Data)</code> <span class="ref">GPUScene.cpp:1074-1075</span></td></tr>
+<tr><td><code>GPUScene.LightData</code></td><td><code>FLightSceneData</code> 数组</td><td><code>RoundUpToPowerOfTwo(max(Scene.Lights.GetMaxIndex(), InitialBufferSize)) × sizeof(FLightSceneData)</code> <span class="ref">GPUScene.cpp:765-766</span></td></tr>
+</tbody>
+</table>
+<div class="callout note">
+  <div class="h">两点注意</div>
+  ① <b>InstanceSceneData 走 SOA 专用扩容路径</b>（<code>ResizeStructuredBufferSOAIfNeeded</code>），其余走普通 <code>ResizeStructuredBufferIfNeeded</code> —— 这是「SOA 不是普通数组」在 buffer 层的体现。<br>
+  ② 另有 1 条<b>仅调试</b>用的 <code>DrawCounter</code>（<span class="ref">GPUScene.cpp:2170</span>），只在 <code>r.GPUScene.DebugMode</code> 开启时使用，不计入常驻。
+</div>
+
+<h4>上传暂存：4 组 scatter uploader</h4>
+<p><code>FGPUScene</code> 成员里是 4 条 <code>FRDGAsyncScatterUploadBuffer</code>：Primitive / InstanceScene / InstancePayload / Lightmap（<span class="ref">GPUScene.h:338</span>、<span class="ref">GPUScene.h:342</span>、<span class="ref">GPUScene.h:351</span>、<span class="ref">GPUScene.h:356</span>）。</p>
+<p>每组内部还有 <b>2 条 RHI buffer</b> —— <code>ScatterBuffer</code>（目标下标数组）与 <code>UploadBuffer</code>（打包好的数据），见 <span class="ref">UnifiedBuffer.h:93-94</span>。它们是<b>池化</b>的：超过 <code>r.GPUScene.MaxPooledUploadBufferSize</code>（默认 256000）会被 <code>Release()</code>，见 <span class="ref">GPUScene.cpp:1629-1648</span>。</p>
+
+<h3>6.9 Pass 全清单：一帧发多少个 dispatch</h3>
+
+<table>
+<thead><tr><th style="width:26%">Pass</th><th style="width:26%">何时发生</th><th style="width:12%">个数</th><th style="width:36%">证据</th></tr></thead>
+<tbody>
+<tr><td><code>ResizeResourceSOAIfNeeded</code><br><code>ResizeResourceIfNeeded-Copy</code></td><td><b>仅扩容帧</b>（某条 buffer 尺寸变化）</td><td>0~2 类</td><td><span class="ref">UnifiedBuffer.cpp:1603</span>、<span class="ref">UnifiedBuffer.cpp:1639</span></td></tr>
+<tr><td><b><code>ScatterUpload</code></b>（<code>ScatterCopyCS</code>）</td><td>对应 uploader 非空时</td><td><b>0~4 个</b>，每个还可能拆多轮 dispatch</td><td>shader 实现 <span class="ref">UnifiedBuffer.cpp:303</span>；派发 <span class="ref">UnifiedBuffer.cpp:884-905</span></td></tr>
+<tr><td><code>GPUScene::SetInstancePrimitiveIdCS</code></td><td>清 / 初始化实例 ID，两拨各自非空时</td><td><b>0~2 个</b></td><td><span class="ref">GPUScene.cpp:2495</span>、shader 声明 <span class="ref">GPUScene.cpp:2480</span></td></tr>
+<tr><td>光数据上传</td><td>每帧</td><td>1 个（<b>copy</b>，非 compute）</td><td><span class="ref">GPUScene.cpp:793</span></td></tr>
+<tr><td>GPU 写回委托（<code>GPUSceneWriter</code>）</td><td>有 GPU 自产数据（如骨骼）时</td><td>0~N（<b>由外部决定</b>）</td><td><span class="ref">GPUScene.cpp:943</span></td></tr>
+<tr><td>Debug 相关</td><td><b>仅 <code>r.GPUScene.DebugMode != 0</code></b></td><td>0~2</td><td><span class="ref">GPUScene.cpp:2170</span>、<span class="ref">GPUScene.cpp:2252</span></td></tr>
+</tbody>
+</table>
+<p><b>稳态典型值</b>：有少量图元变动时约 <b>1 个 Primitive scatter + 1 个 InstanceScene scatter + 0~1 个 Lightmap scatter + 0~2 个 SetInstancePrimitiveIdCS</b>。</p>
+<p><b>完全无变化的帧 = 0 个 pass</b>：</p>
+<pre><span class="c">// GPUScene.cpp:1225-1230（逐字符照录）</span>
+	const int32 NumPrimitiveDataUploads = UploadDataSourceAdapter.NumPrimitivesToUpload();
+
+	if (!NumPrimitiveDataUploads)
+	{
+		return;
+	}</pre>
+
+<div class="callout warn">
+  <div class="h">对账时最容易对不上的一处</div>
+  <code>UpdatesFromCompute</code> 那条（<span class="ref">GPUScene.cpp:926-945</span>）<b>不是 GPUScene 自己产生的</b>，是外部（<code>FUpdateFromComputeCommands</code>）传进来的委托。按「GPUScene 有 N 个 pass」去和 profiler 对账时，这一项数不上是正常的。
+</div>
+
+<h3>6.10 散射 Compute Shader：<code>ScatterCopyCS</code></h3>
+
+<p>引擎<b>没有</b>为 Primitive / Instance 写「逐字段搬进 buffer」的专用 compute。CPU 端按最终格式并行打包好，GPU 端只用一个<b>通用</b>散射 CS 按算好的目标下标搬。这就是 <code>Set_GetRef(源, 目标)</code> 要两个下标的原因。</p>
+<p><b>位置</b>：<code>/Engine/Private/ByteBuffer.usf:238-294</code>；C++ 声明 <span class="ref">UnifiedBuffer.cpp:303</span>。</p>
+<pre><span class="c">// ByteBuffer.usf:238-294（FLOAT4_TEXTURE 分支已省略；其余逐字符照录）</span>
+[numthreads(64, 1, 1)]
+void ScatterCopyCS( uint DispatchThreadId : SV_DispatchThreadID ) 
+{
+	uint ThreadId = DispatchThreadId + SrcOffset;
+
+	uint ScatterIndex = ThreadId / Size;
+	uint ScatterOffset = ThreadId - ScatterIndex * Size;
+
+	if( ScatterIndex &lt; NumScatters )
+	{
+#if RESOURCE_TYPE == RESOURCE_TYPE_FLOAT4_BUFFER
+		uint DstIndex = ScatterStructuredBuffer[ScatterIndex] * Size + ScatterOffset;
+		uint SrcIndex = ThreadId;
+		DstBuffer[DstIndex] = UploadStructuredBuffer4x[SrcIndex];
+#elif RESOURCE_TYPE == RESOURCE_TYPE_STRUCTURED_BUFFER
+		uint DstIndex = ScatterStructuredBuffer[ ScatterIndex ] * Size + ScatterOffset;
+		uint SrcIndex = ThreadId;
+		STRUCTURED_BUFFER_ACCESS(DstStructuredBuffer, DstIndex) = STRUCTURED_BUFFER_ACCESS(UploadStructuredBuffer, SrcIndex);
+#elif RESOURCE_TYPE == RESOURCE_TYPE_UINT4_ALIGNED_BUFFER
+		uint DstIndex = ScatterByteAddressBuffer.Load( ScatterIndex * 4 ) * Size + ScatterOffset;
+		uint SrcIndex = ThreadId;
+		uint4 SrcData = UploadByteAddressBuffer.Load4( SrcIndex * 16 );
+		DstByteAddressBuffer.Store4( DstIndex * 16, SrcData );
+<span class="c">// ……（此处省略 RESOURCE_TYPE_FLOAT4_TEXTURE 分支，它是本分叉 @Beiyu 的纹理路径，当前宏为 0 不编译）</span>
+#elif RESOURCE_TYPE == RESOURCE_TYPE_UINT_BUFFER
+		uint DstIndex = ScatterByteAddressBuffer.Load( ScatterIndex * 4 ) * Size + ScatterOffset;
+		uint SrcIndex = ThreadId;
+		uint SrcData = UploadByteAddressBuffer.Load( SrcIndex * 4 );
+		DstByteAddressBuffer.Store(DstIndex * 4, SrcData);
+#else
+	#error "Not implemented"
+#endif
+	}
+}</pre>
+
+<h4>核心只有一行</h4>
+<pre><span class="c">// ByteBuffer.usf:249（RESOURCE_TYPE_FLOAT4_BUFFER 分支；:253 的 STRUCTURED_BUFFER 分支表达式完全相同）</span>
+uint DstIndex = ScatterStructuredBuffer[ScatterIndex] * Size + ScatterOffset;</pre>
+<p>每个线程搬<b>一个元素</b>（对 GPUScene 就是一个 float4），三个量决定搬到哪：</p>
+<table class="kv">
+<thead><tr><th>量</th><th>含义</th><th>从哪来</th></tr></thead>
+<tbody>
+<tr><td><code>ScatterStructuredBuffer[k]</code></td><td>第 k 条散射记录的<b>目标基址（记录号）</b></td><td>CPU 上传的 <code>ScatterBuffer</code></td></tr>
+<tr><td><code>Size</code></td><td>一条记录占<b>多少个元素</b></td><td><code>NumThreadsPerScatter</code>，见下</td></tr>
+<tr><td><code>ScatterOffset</code></td><td>本线程在记录内的偏移 = <code>ThreadId % Size</code></td><td>shader 内算</td></tr>
+</tbody>
+</table>
+
+<h4><code>Size</code> 是关键：它按 uploader 不同而不同</h4>
+<pre><span class="c">// UnifiedBuffer.cpp:729-749（逐字符照录）</span>
+FScatterUploadComputeConfig GetScatterUploadComputeConfig(uint32 NumScatters, uint32 NumBytesPerElement, int32 NumElementsPerScatter = -1)
+{
+	constexpr uint32 ThreadGroupSize = 64u;
+
+	FScatterUploadComputeConfig Config;
+	Config.ThreadGroupSize = ThreadGroupSize;
+	if (NumElementsPerScatter != INDEX_NONE)
+	{
+		Config.NumBytesPerThread = NumBytesPerElement;
+		Config.NumThreadsPerScatter = NumElementsPerScatter; 
+	}
+	else
+	{
+		Config.NumBytesPerThread = (NumBytesPerElement &amp; 15) == 0 ? 16 : 4;
+		Config.NumThreadsPerScatter = NumBytesPerElement / Config.NumBytesPerThread;
+	}
+	Config.NumThreads = NumScatters * Config.NumThreadsPerScatter;
+	Config.NumDispatches = FMath::DivideAndRoundUp(Config.NumThreads, Config.ThreadGroupSize);
+	Config.NumLoops = FMath::DivideAndRoundUp(Config.NumDispatches, (uint32)GMaxComputeDispatchDimension);
+	return Config;
+}</pre>
+<p>RDG 异步散射路径传的是 <code>NumElementsPerScatter = INDEX_NONE</code>（<span class="ref">UnifiedBuffer.cpp:997</span>），所以走 <code>else</code> 那条。代入 GPUScene 的 4 个 uploader：</p>
+<table>
+<thead><tr><th>uploader</th><th><code>NumBytesPerElement</code></th><th>算出 <code>Size</code></th><th>一条记录 = 什么</th></tr></thead>
+<tbody>
+<tr><td><b>Primitive</b></td><td><code>sizeof(FPrimitiveSceneShaderData::Data)</code> = 46 × 16 = <b>736</b></td><td><b>46</b></td><td>一个 Primitive 的全部 46 个 float4</td></tr>
+<tr><td><b>InstanceScene</b></td><td><code>sizeof(FVector4f)</code> = <b>16</b></td><td><b>1</b></td><td>1 个 float4</td></tr>
+<tr><td><b>InstancePayload</b></td><td><code>sizeof(FVector4f)</code> = <b>16</b></td><td><b>1</b></td><td>1 个 float4</td></tr>
+</tbody>
+</table>
+<p>证据（Begin 调用的实参）：</p>
+<pre><span class="c">// GPUScene.cpp:1286-1296（节选，两次 Begin 的实参对照）</span>
+	TaskContext.PrimitiveUploader = PrimitiveUploadBuffer.Begin(GraphBuilder, BufferState.PrimitiveBuffer, UploadDataSourceAdapter.GetItemPrimitiveIds().Num(), sizeof(FPrimitiveSceneShaderData::Data), TEXT("PrimitiveUploadBuffer"));
+
+	if (TaskContext.NumInstancePayloadDataUploads &gt; 0)
+	{
+		TaskContext.InstancePayloadUploader = InstancePayloadUploadBuffer.BeginPreSized(GraphBuilder, BufferState.InstancePayloadDataBuffer, TaskContext.NumInstancePayloadDataUploads, sizeof(FVector4f), TEXT("InstancePayloadUploadBuffer"));
+	}
+#endif
+
+	if (TaskContext.NumInstanceSceneDataUploads &gt; 0)
+	{
+		TaskContext.InstanceSceneUploader = InstanceSceneUploadBuffer.BeginPreSized(GraphBuilder, BufferState.InstanceSceneDataBuffer, TaskContext.NumInstanceSceneDataUploads * FInstanceSceneShaderData::GetDataStrideInFloat4s(), sizeof(FVector4f), TEXT("InstanceSceneUploadBuffer"));</pre>
+<p><b>同一个 shader，在 Primitive 上是「每 46 个线程共享一条记录」，在 Instance 上是「一线程一条记录」。</b>那两行 <code>/Size</code> 与 <code>*Size</code> 存在的全部理由就在这里。</p>
+
+<h4>代入验证：两条路径都自洽</h4>
+<p><b>Primitive（Size = 46）</b>：<code>ScatterBuffer</code> 由 <code>PrimitiveUploader-&gt;Add(GetItemPrimitiveIds())</code> 灌入（<span class="ref">GPUScene.cpp:1356</span>），而</p>
+<pre><span class="c">// GPUScene.cpp:469-472（逐字符照录）</span>
+	FORCEINLINE TArrayView&lt;const uint32&gt; GetItemPrimitiveIds() const
+	{
+		return TArrayView&lt;const uint32&gt;(reinterpret_cast&lt;const uint32 *&gt;(PrimitivesToUpdate.GetData()), PrimitivesToUpdate.Num());
+	}</pre>
+<p>返回的就是 <code>PrimitivesToUpdate</code> 数组本体（把 <code>FPersistentPrimitiveIndex</code> reinterpret 成 <code>uint32</code>）→ <code>ScatterStructuredBuffer[k]</code> = 第 k 个待上传图元的 <b>目标 PrimitiveID</b> → <code>DstIndex = PrimitiveID × 46 + 本线程在该 Primitive 内的 float4 序号</code>，正是 <code>FPrimitiveSceneShaderData</code> 的 AoS stride。</p>
+<p><b>Instance（Size = 1）</b>：由 <code>Set_GetRef</code> 逐元素写入：</p>
+<pre><span class="c">// UnifiedBuffer.h:148-158（逐字符照录）</span>
+	void* Set_GetRef(uint32 ElementIndex, uint32 ElementScatterOffset, uint32 Num = 1)
+	{
+		checkSlow(ElementIndex + Num &lt;= MaxScatters );
+		checkSlow( ScatterData != nullptr );
+		checkSlow( UploadData != nullptr );
+		for (uint32 i = 0; i &lt; Num; i++)
+		{
+			ScatterData[ElementIndex + i] = ElementScatterOffset + i;
+		}
+		return UploadData + ElementIndex * NumBytesPerElement;
+	}</pre>
+<p>调用点 <span class="ref">GPUScene.cpp:1453</span> 传的第二个参数正是 SOA 目标下标 <code>RefIndex * SOAStride + InstanceSceneDataOffset + InstanceIndex</code> → <code>DstIndex = SOA目标下标 × 1 + 0</code>。</p>
+<p>两条路径的 CPU 写法不同（一个 <code>Add</code> 整个数组、一个 <code>Set_GetRef</code> 逐元素），却被 shader 里同一行统一吃下。</p>
+
+<h4>附：<code>Size</code> 是「线程数」，别当成「每线程字节数」</h4>
+<p>这个 shader 里有两个数很容易混，含义完全不同：</p>
+<table>
+<thead><tr><th>量</th><th>Primitive</th><th>Instance / Payload</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>Size</code>（= <code>NumThreadsPerScatter</code>）</td><td><b>46</b></td><td><b>1</b></td><td><b>每条散射记录占多少线程</b></td></tr>
+<tr><td><code>NumBytesPerThread</code></td><td><b>16</b></td><td><b>16</b></td><td><b>每线程搬多少字节</b></td></tr>
+</tbody>
+</table>
+<p>关系是 <code>Size = NumBytesPerElement / NumBytesPerThread</code>（<span class="ref">UnifiedBuffer.cpp:743</span>）——Primitive 的 46 是「736 字节 ÷ 16 字节/线程」，<b>是线程数不是字节数</b>。</p>
+
+<h4>那每线程到底搬多少字节？取决于 <code>RESOURCE_TYPE</code></h4>
+<p>这个 CS 有 4 个可编译分支，<b>每线程的搬运单位并不统一</b>：</p>
+<table>
+<thead><tr><th><code>RESOURCE_TYPE</code></th><th>取数代码</th><th>每线程字节</th></tr></thead>
+<tbody>
+<tr><td><code>FLOAT4_BUFFER</code> (0)</td><td><code>DstBuffer[DstIndex] = UploadStructuredBuffer4x[SrcIndex]</code></td><td><b>16</b></td></tr>
+<tr><td><code>STRUCTURED_BUFFER</code> (1)</td><td><code>STRUCTURED_BUFFER_ACCESS(...)</code> —— 按 <code>STRUCTURED_ELEMENT_SIZE</code> 宏展开</td><td><b>4 / 8 / 16 / 32</b></td></tr>
+<tr><td><code>UINT_BUFFER</code> (2)</td><td><code>Load(SrcIndex * 4)</code> / <code>Store(DstIndex * 4)</code></td><td><b>4</b> ← 不是 float4</td></tr>
+<tr><td><code>UINT4_ALIGNED_BUFFER</code> (3)</td><td><code>Load4(SrcIndex * 16)</code> / <code>Store4(DstIndex * 16)</code></td><td><b>16</b></td></tr>
+</tbody>
+</table>
+<p><code>STRUCTURED_BUFFER</code> 那档之所以可变，是因为 <code>STRUCTURED_BUFFER_ACCESS</code> 是按元素宽度展开的宏：</p>
+<pre><span class="c">// ByteBuffer.usf:51-62（逐字符照录）</span>
+#if STRUCTURED_ELEMENT_SIZE_UINT1 == STRUCTURED_ELEMENT_SIZE
+	#define STRUCTURED_BUFFER_ACCESS(BufferName, Index) BufferName##1x[(Index)]
+	#define STRUCTURED_VALUE Value
+#elif STRUCTURED_ELEMENT_SIZE_UINT2 == STRUCTURED_ELEMENT_SIZE
+	#define STRUCTURED_BUFFER_ACCESS(BufferName, Index) BufferName##2x[(Index)]
+	#define STRUCTURED_VALUE uint2(Value, Value)
+#elif STRUCTURED_ELEMENT_SIZE_UINT4 == STRUCTURED_ELEMENT_SIZE
+	#define STRUCTURED_BUFFER_ACCESS(BufferName, Index) BufferName##4x[(Index)]
+	#define STRUCTURED_VALUE uint4(Value,Value,Value,Value)
+#elif STRUCTURED_ELEMENT_SIZE_UINT8 == STRUCTURED_ELEMENT_SIZE
+	#define STRUCTURED_BUFFER_ACCESS(BufferName, Index) BufferName##8x[(Index)]
+	FUint8 MakeUint8(uint InValue)</pre>
+<p><b>GPUScene 一定落在 16 字节那条</b>，有两条独立保证：</p>
+<p><b>① 目标 buffer 本身就是 float4 数组。</b>GPUScene 的 4 条 structured buffer 全由 <code>ResizeStructuredBufferIfNeeded</code> / <code>ResizeStructuredBufferSOAIfNeeded</code> 创建，而它们<b>硬编码 16 字节元素</b>：</p>
+<pre><span class="c">// UnifiedBuffer.cpp:617-626（逐字符照录）</span>
+FRDGBuffer* ResizeStructuredBufferIfNeeded(FRDGBuilder&amp; GraphBuilder, TRefCountPtr&lt;FRDGPooledBuffer&gt;&amp; ExternalBuffer, uint32 NumBytes, const TCHAR* Name)
+{
+	const uint32 BytesPerElement = 16;
+
+	check((NumBytes &amp; (BytesPerElement - 1)) == 0);
+
+	const uint32 NumElements = NumBytes / BytesPerElement;
+
+	return ResizeBufferIfNeeded(GraphBuilder, ExternalBuffer, FRDGBufferDesc::CreateStructuredDesc(BytesPerElement, NumElements), Name);
+}</pre>
+<p>所以 <code>GetStructuredBufferElementSize</code>（<span class="ref">UnifiedBuffer.cpp:347-355</span>）拿到的一定是 <code>Uint4</code>，宏展开成 <code>##4x</code>，即 <code>StructuredBuffer&lt;uint4&gt;</code>。</p>
+<div class="callout note">
+  <div class="h">那条 <code>checkf</code> 说明了一切</div>
+  <code>GetStructuredBufferElementSize</code> 里有：<i>"Unsupported structured buffer BytesPerElement size (%d) ... supported sizes are 4,8,16,32."</i> —— 元素宽<b>只允许 4/8/16/32 字节</b>。也就是说「736 字节一个元素」这种 buffer 压根建不出来，必须先化成 <b>16 字节元素 × 46 倍元素数</b>。
+</div>
+<p><b>② GPUScene 传的 <code>NumBytesPerElement</code> 都是 16 的倍数</b>，故 <code>NumBytesPerThread</code> 必为 16（<span class="ref">UnifiedBuffer.cpp:742</span>）：Primitive 传 736（46×16）、Instance / Payload 传 <code>sizeof(FVector4f)</code> = 16。</p>
+<p>→ 实际走 <code>RESOURCE_TYPE_STRUCTURED_BUFFER</code> + <code>STRUCTURED_ELEMENT_SIZE_UINT4</code>，<b>每线程搬一个 uint4 = 16 字节 = 一个 float4</b>。但这是 <b>GPUScene 的实际情况</b>，不是这个 shader 的普遍性质。</p>
+
+<h4>派发规模</h4>
+<pre><span class="c">// UnifiedBuffer.cpp:745-747（逐字符照录）</span>
+	Config.NumThreads = NumScatters * Config.NumThreadsPerScatter;
+	Config.NumDispatches = FMath::DivideAndRoundUp(Config.NumThreads, Config.ThreadGroupSize);
+	Config.NumLoops = FMath::DivideAndRoundUp(Config.NumDispatches, (uint32)GMaxComputeDispatchDimension);</pre>
+<p>每轮 loop 下发一次 pass，用 <code>SrcOffset</code> 错开线程空间（<span class="ref">UnifiedBuffer.cpp:889</span>）。线程组固定 <code>[numthreads(64, 1, 1)]</code>（<span class="ref">ByteBuffer.usf:238</span>），<code>ThreadGroupSize = 64u</code>（<span class="ref">UnifiedBuffer.cpp:731</span>）。<b>所以一次 uploader 的 End 可能产生多个 dispatch</b> —— 这就是 §6.9 表格里「0~4 个，每个还可能拆多轮」的出处。</p>
+
+<div class="callout warn">
+  <div class="h">两个容易读错的点</div>
+  <b>① <code>ScatterIndex &lt; NumScatters</code> 不是多余的。</b>线性线程数按 64 对齐展开，尾部会多出线程；这里的 <code>NumScatters</code> 是<b>记录条数</b>（<span class="ref">UnifiedBuffer.cpp:810</span>），不是元素数。<br>
+  <b>② <code>SrcOffset</code> 的语义在三个 shader 里是<b>一致</b>的——都是「本批处理在全局线程空间里的起点」，加到 <code>SV_DispatchThreadID</code> 上得到全局下标</b>（<span class="ref">ByteBuffer.usf:241</span>、<span class="ref">ByteBuffer.usf:165</span>）。<br>
+  <b>真正会变的是 <code>Size</code></b>：
+  <table style="margin:8px 0">
+  <thead><tr><th>shader</th><th><code>Size</code> 是什么</th><th><code>SrcOffset</code></th></tr></thead>
+  <tbody>
+  <tr><td><code>ScatterCopyCS</code></td><td><code>NumThreadsPerScatter</code> —— 每条散射记录占多少线程</td><td>本批线程起点（<code>+ SV_DispatchThreadID</code>）</td></tr>
+  <tr><td><code>MemcpyCS</code></td><td><code>NumElementsPerDispatch</code> —— 本次 dispatch 处理多少元素 <span class="ref">UnifiedBuffer.cpp:472</span></td><td>同语义；另有对称的 <code>DstOffset</code> <span class="ref">UnifiedBuffer.cpp:473</span></td></tr>
+  <tr><td><code>MemsetBufferCS</code></td><td>本次要写的元素/字节总数（判据 <code>if (ThreadId &lt; Size)</code>）<span class="ref">ByteBuffer.usf:113</span></td><td><b>不用</b>（无源），只用 <code>DstOffset</code></td></tr>
+  </tbody>
+  </table>
+  <code>SrcOffset</code> 的取值是 <code>LoopIdx × GMaxComputeDispatchDimension × 64</code>（<span class="ref">UnifiedBuffer.cpp:889</span>），<b>单位是线程数，不是线程组数</b>（<code>ThreadGroupSize = 64</code>，<span class="ref">UnifiedBuffer.cpp:731</span>）。
+</div>
+
+<div class="callout note">
+  <div class="h">同一个文件里还有两个 shader</div>
+  <code>ByteBuffer.usf</code> 里共有三个：<code>MemsetBufferCS</code>（<span class="ref">ByteBuffer.usf:107</span>，批量清零）、<code>MemcpyCS</code>（<span class="ref">ByteBuffer.usf:158</span>，线性拷贝，扩容搬旧数据用）、<code>ScatterCopyCS</code>（<span class="ref">ByteBuffer.usf:239</span>）。后两个都被本分叉改过（<span class="ref">ByteBuffer.usf:158</span>、<span class="ref">ByteBuffer.usf:262</span> 的 <code>[Fix GPU Crash: GPUScene Pagefault] -- ADD @Beiyu</code>）。
+</div>
+
+
+<h3>6.11 上传流程小结</h3>
 <div class="fig">
 <svg viewBox="0 0 1080 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
   <defs>
@@ -1505,6 +1779,494 @@ FPrimitiveSceneData GetPrimitiveData(uint PrimitiveId)
   <code>LoadPrimitiveDataElementUBO</code> 与 <code>LoadInstanceDataElementUBO</code> <b>都从 <code>BatchedPrimitive.Data</code> 取值</b> <span class="ref">SceneDataMobileLoader.ush:16</span>、<span class="ref">SceneDataMobileLoader.ush:184</span>，只是 stride 不同（32 vs 16 个 float4）。也就是说两者共用同一条 uniform buffer，靠 stride 区分「这 16 KB 里装的是 Primitive 还是 Instance」——对应 §8.7 的两种 <code>EBatchProcessingMode</code>。
 </div>
 
+<h3>9.6 图形 API 维度对照：DX12 / GLES / Vulkan / Metal</h3>
+
+<div class="callout warn">
+  <div class="h">先说结论：引擎<b>不按图形 API 分叉</b></div>
+  §9.2 那张表的「PC / Mobile」是按 <b>ShaderPlatform 的 DDSPI 位</b>分的，不是按 D3D12 / Vulkan / Metal / GLES 分的。<b>DX12、Vulkan-PC、Metal-Mac 在 GPUScene 上完全同路</b>（SSBO + SOA）；Android 的 GLES 与 Vulkan 也完全同路（UBO + AOS）。真正的分叉键只有两个 DDSPI 位。
+</div>
+
+<h4>两个真正的判定键</h4>
+<pre><span class="c">// DataDrivenShaderPlatformInfo.h:890-894（逐字符照录）</span>
+/** Whether the shader platform corresponds to the ES3.1/Metal/Vulkan feature level. */
+inline bool IsMobilePlatform(const FStaticShaderPlatform Platform)
+{
+	return FDataDrivenShaderPlatformInfo::GetMaxFeatureLevel(Platform) == ERHIFeatureLevel::ES3_1;
+}</pre>
+<p>注意 <code>IsMobilePlatform</code> <b>不是平台名判断</b>，它就是「最大特性级别 == ES3.1」。着色器侧的 <code>PLATFORM_USES_PRIMITIVE_UBO</code>（<span class="ref">SceneData.ush:40</span>）用的是同一个谓词，两边等价。</p>
+<p>另一个键是 <code>bSupportsUniformBufferObjects</code>：它<b>只在 ini 里读入</b>（<span class="ref">DataDrivenShaderPlatformInfo.cpp:341</span>），<code>SetDefaultValues()</code>（<span class="ref">DataDrivenShaderPlatformInfo.cpp:172-189</span>）不设它，而 <code>Infos[]</code> 是全局数组（<span class="ref">DataDrivenShaderPlatformInfo.cpp:21</span>）→ 零初始化 → <b>没声明就是 false</b>。</p>
+
+<h4>逐 ShaderPlatform 对照（均已回源码核对）</h4>
+<table>
+<thead><tr><th>ShaderPlatform</th><th>API</th><th>MaxFeatureLevel</th><th>UBO 声明</th><th>IsMobilePlatform()</th><th>GPUScene 数据路径</th><th>压缩变换</th></tr></thead>
+<tbody>
+<tr><td><code>PCD3D_SM5</code> / <code>PCD3D_SM6</code></td><td><b>D3D12</b></td><td>SM5 / SM6</td><td>未声明</td><td>false</td><td><b>SSBO + SOA</b></td><td>true</td></tr>
+<tr><td><code>VULKAN_SM5</code> / <code>VULKAN_SM6</code></td><td><b>Vulkan（PC）</b></td><td>SM5 / SM6</td><td><b>true</b></td><td>false</td><td><b>SSBO + SOA</b></td><td>true</td></tr>
+<tr><td><code>METAL_SM5</code> / <code>METAL_SM6</code></td><td><b>Metal（Mac）</b></td><td>SM5 / SM6</td><td>未声明</td><td>false</td><td><b>SSBO + SOA</b></td><td>未声明</td></tr>
+<tr><td><code>METAL</code></td><td><b>Metal（iOS）</b></td><td><b>ES3_1</b></td><td><b>未声明</b></td><td><b>true</b></td><td><b>SSBO + SOA</b> ← 反直觉</td><td>未声明</td></tr>
+<tr><td><code>VULKAN_ES3_1_ANDROID</code></td><td><b>Vulkan（Android）</b></td><td>ES3_1</td><td><b>true</b></td><td>true</td><td><b>UBO + AOS</b></td><td>未声明</td></tr>
+<tr><td><code>OPENGL_ES3_1_ANDROID</code></td><td><b>GLES</b></td><td>ES3_1</td><td><b>true</b></td><td>true</td><td><b>UBO + AOS</b></td><td>未声明</td></tr>
+<tr><td><code>VULKAN_SM5_ANDROID</code></td><td>Vulkan（Android）</td><td>SM5</td><td>true</td><td><b>false</b></td><td><b>SSBO + SOA</b></td><td>未声明</td></tr>
+<tr><td><code>VULKAN_PCES3_1</code></td><td>Vulkan（PC）</td><td>ES3_1</td><td>true</td><td>true</td><td><b>UBO + AOS</b></td><td>未声明</td></tr>
+<tr><td><code>PCD3D_ES3_1</code></td><td>D3D11</td><td>ES3_1</td><td>未声明</td><td>true</td><td>SSBO + SOA</td><td>true</td></tr>
+</tbody>
+</table>
+<p>配置来源：<span class="ref">Windows/DataDrivenPlatformInfo.ini:35</span>、<span class="ref">Windows/DataDrivenPlatformInfo.ini:79</span>、<span class="ref">Windows/DataDrivenPlatformInfo.ini:144</span>、<span class="ref">VulkanPC/DataDrivenPlatformInfo.ini:55</span>、<span class="ref">Mac/DataDrivenPlatformInfo.ini:26</span>、<span class="ref">Mac/DataDrivenPlatformInfo.ini:67</span>、<span class="ref">IOS/DataDrivenPlatformInfo.ini:49</span>、<span class="ref">Android/DataDrivenPlatformInfo.ini:61</span>、<span class="ref">Android/DataDrivenPlatformInfo.ini:81</span>、<span class="ref">Android/DataDrivenPlatformInfo.ini:105</span>。</p>
+
+<h4>三个反直觉结论</h4>
+<ol>
+<li><b>iOS Metal 是移动端，却走 SSBO。</b>因为它没声明 <code>bSupportsUniformBufferObjects</code>，且 iOS/Mac 的 DDSPI 都没有 <code>BaseProfileName</code> 继承。所以「移动端 = UBO 路径」这个直觉是错的。</li>
+<li><b>D3D12 / Vulkan-PC / Metal-Mac 在 GPUScene 上完全同路。</b>API 差异在这一层不存在。</li>
+<li><b>同一台安卓机，跑 ES3_1 还是 SM5 是两套实现。</b><code>VULKAN_ES3_1_ANDROID</code> → UBO+AOS+批上限 64/32；<code>VULKAN_SM5_ANDROID</code> → SSBO+SOA+无批上限。跟 API 无关，只跟特性级别有关。</li>
+</ol>
+
+<h4>交叉验证：RHI 后端的 UniformView 实现分布</h4>
+<p><code>ERHIUniformBufferFlags::UniformView</code>（<span class="ref">RHIDefinitions.h:645</span>）在各后端的落地情况：</p>
+<table class="kv">
+<thead><tr><th>后端</th><th>是否有 UniformView 实现</th><th>证据</th></tr></thead>
+<tbody>
+<tr><td><b>VulkanRHI</b></td><td>有，完整</td><td><span class="ref">VulkanPipelineState.h:139</span>、<span class="ref">VulkanCommands.cpp:996</span>、<span class="ref">VulkanResources.h:1113</span></td></tr>
+<tr><td><b>OpenGLDrv</b></td><td>有</td><td><span class="ref">OpenGLUniformBuffer.cpp:417</span>、<span class="ref">OpenGLUniformBuffer.cpp:626-638</span></td></tr>
+<tr><td><b>D3D12RHI</b></td><td><b>一处都没有</b></td><td>全目录 grep <code>UniformView</code> 无匹配</td></tr>
+<tr><td><b>MetalRHI</b></td><td><b>一处都没有</b></td><td>全目录 grep <code>UniformView</code> 无匹配</td></tr>
+</tbody>
+</table>
+<p>「只有 Vulkan / OpenGL 后端实现了 UniformView」与上面那张表的「只有 Vulkan / GLES 平台会用到 UBO 路径」<b>完全吻合</b>——两条独立证据链互证。</p>
+
+<div class="callout note">
+  <div class="h">无法在本仓库验证的</div>
+  社区资料常提到「主机平台 UBO 上限 64 KB」。本仓库 <code>PLATFORM_MAX_UNIFORM_BUFFER_RANGE</code> <b>只有 <code>HAL/Platform.h:641</code> 一处定义</b>（16 KB），无任何平台覆盖。主机平台代码不在本仓库（通常单独分发），故此项<b>本地无法验证也无法证伪</b>。
+</div>
+
+<h3>9.7 per-draw 索引的两种承载方式：VBO vs UBO 动态偏移</h3>
+
+<p>PC 上 GPUScene 用 <b>SSBO（存数据）+ VBO（充当 <code>InstanceIdOffsetBuffer</code>）</b>。到了移动端，VBO 这一角色被 <b>uniform buffer 的动态偏移</b>取代 —— 不是「VBO 换成 UBO」，而是<b>根本没有 PrimitiveId 顶点流这个输入了</b>。</p>
+
+<h4>三条互相印证的证据</h4>
+<p><b>① 顶点工厂不给它加顶点元素</b>：</p>
+<pre><span class="c">// VertexFactory.cpp:346-356（逐字符照录）</span>
+		if (GIsEditor || GMaxRHIFeatureLevel &gt; ERHIFeatureLevel::ES3_1 || AttributeIndex_Mobile != 0xff)
+		{
+			<span class="c">// UniformView path does not use PrimitiveId stream, we still need to set it to a non-negative index</span>
+			int32 AddedStreamIndex = 0;
+			if (!PlatformGPUSceneUsesUniformBufferView(GMaxRHIShaderPlatform))
+			{
+				<span class="c">// When the VF is used for rendering in normal mesh passes, this vertex buffer and offset will be overridden</span>
+				Elements.Add(AccessStreamComponent(FVertexStreamComponent(&amp;GPrimitiveIdDummy, 0, 0, 0u, VET_UInt, EVertexStreamUsage::Instancing), AttributeIndex, InputStreamType));
+				AddedStreamIndex = Elements.Last().StreamIndex;
+			}
+			</pre>
+<p><b>② 绘制时把流索引置 -1，改设 UBO 动态偏移</b>：</p>
+<pre><span class="c">// MeshPassProcessor.cpp:1710-1711（逐字符照录）</span>
+	<span class="c">// Platforms that use global UB binding don't need to set PrimitiveIdStream</span>
+	const int8 PrimitiveIdStreamIndex = (IsUniformBufferStaticSlotValid(SceneArgs.BatchedPrimitiveSlot) ? -1 : MeshDrawCommand.PrimitiveIdStreamIndex);</pre>
+<pre><span class="c">// MeshPassProcessor.cpp:1775-1778（逐字符照录）</span>
+	if (IsUniformBufferStaticSlotValid(SceneArgs.BatchedPrimitiveSlot))
+	{
+		RHICmdList.SetUniformBufferDynamicOffset(SceneArgs.BatchedPrimitiveSlot, SceneArgs.PrimitiveIdOffset);
+	}</pre>
+<p><b>③ 着色器输入块里干脆没有这个 attribute</b>：</p>
+<pre><span class="c">// VertexFactoryCommon.ush:25-39（逐字符照录）</span>
+#if VF_USE_PRIMITIVE_SCENE_DATA
+	#if SHADER_USES_PRIMITIVE_UBO
+		#define VF_GPUSCENE_DECLARE_INPUT_BLOCK(Attr0) \
+			uint DrawInstanceId : SV_InstanceID;
+
+		#define VF_GPUSCENE_GET_INTERMEDIATES(VFInput) \
+			GetSceneDataIntermediates(0u, VFInput.DrawInstanceId)
+	#else
+		#define VF_GPUSCENE_DECLARE_INPUT_BLOCK(Attr0) \
+			uint InstanceIdOffset : ATTRIBUTE##Attr0; \
+			uint DrawInstanceId : SV_InstanceID;
+
+		#define VF_GPUSCENE_GET_INTERMEDIATES(VFInput) \
+			GetSceneDataIntermediates(VFInput.InstanceIdOffset, VFInput.DrawInstanceId)
+	#endif <span class="c">//SHADER_USES_PRIMITIVE_UBO</span></pre>
+<p>注意 ② 里那个 <code>0u</code>：移动端直接把 <code>InstanceIdOffset</code> 传 0。而 <code>SceneArgs.PrimitiveIdOffset</code> <b>同一个值</b>，PC 上喂给 <code>SetStreamSource</code> 当顶点缓冲偏移，移动端喂给 <code>SetUniformBufferDynamicOffset</code> 当动态偏移。</p>
+
+<h4>UBO 里存的是什么：数据本身，不是 ID</h4>
+<p>PC 的 VBO 提供的是一个<b>索引</b>（<code>InstanceIdOffset</code>），后面还要查两次 SSBO；移动端直接就是<b>着色数据</b>。写入端在 <code>SceneDataMobileWriter.ush</code>：</p>
+<pre><span class="c">// SceneDataMobileWriter.ush:12-18（逐字符照录）</span>
+void WriteDataElementUBO(RWStructuredBuffer&lt;float4&gt; Output, uint Offset, uint DataIdx, float4 Data)
+{
+#if	PLATFORM_USES_PRIMITIVE_UBO
+	uint DataOffset = Offset + DataIdx;
+	Output[DataOffset] = Data;
+#endif
+}</pre>
+<p>两个写入函数逐字段铺开（<span class="ref">SceneDataMobileWriter.ush:23-152</span> 与 <span class="ref">SceneDataMobileWriter.ush:154-222</span>）：</p>
+<table>
+<thead><tr><th style="width:14%">版本</th><th style="width:12%">大小</th><th>字段（按写入顺序）</th></tr></thead>
+<tbody>
+<tr><td><code>WritePrimitiveDataUBO</code></td><td>512 B<br>（32 float4）</td><td>[静态光照 3] → <code>PositionHigh</code>+<code>Flags</code> → <code>LocalToWorld</code>×3 → <code>InvNonUniformScale</code> → <code>ObjectWorldPosition</code>×2 → <code>ActorWorldPosition</code>×2 → <code>ObjectOrientation</code>+<code>ObjectBoundsX</code> → <code>LocalObjectBoundsMin</code>+<code>ObjectBoundsY</code> → <code>LocalObjectBoundsMax</code>+<code>ObjectBoundsZ</code> → <code>WorldToLocal</code>×3 → <code>PreviousLocalToWorld</code>×3 → <code>PreviousWorldToLocal</code>×3 → <code>CustomPrimitiveData[]</code></td></tr>
+<tr><td><code>WriteInstanceDataUBO</code></td><td>256 B<br>（16 float4）</td><td><code>PositionHigh</code>+<code>Flags</code> → <code>LocalToWorld</code>×3 → <code>InvNonUniformScale</code>+<code>RandomID</code> → <code>PrevLocalToWorld</code>×3 → [静态光照 1] → <code>CustomDataCount</code> → CustomData</td></tr>
+</tbody>
+</table>
+<p>需要注意的是：<b>写入端自己仍然在读 GPUScene SSBO</b>（例如 <code>LoadInstanceRelativeIdAndCustomDataCount(InstanceId, InstanceSceneDataSOAStride, ...)</code>，<span class="ref">SceneDataMobileWriter.ush:186</span>）—— 它是「把 SSBO 里需要的部分抄进 UBO」，不是「SSBO 不存在了」。</p>
+
+<h4>「UBO」在这里的准确含义</h4>
+<p><b>数据并没有被拷进 UBO。</b>数据躺在一条普通 buffer 里，只是描述符按 <b>dynamic uniform buffer</b> 绑：</p>
+<pre><span class="c">// VulkanPipelineState.h:138-143（逐字符照录）</span>
+		const VulkanRHI::FVulkanAllocation&amp; Allocation = UniformBuffer-&gt;Allocation;
+		VkDeviceSize Range = UniformBuffer-&gt;IsUniformView() ? PLATFORM_MAX_UNIFORM_BUFFER_RANGE : UniformBuffer-&gt;GetSize();
+
+		if (bDynamic)
+		{
+			MarkDirty(DSWriter[DescriptorSet].WriteDynamicUniformBuffer(BindingIndex, Allocation.GetBufferHandle(), Allocation.HandleId, 0, Range, UniformBuffer-&gt;GetOffset()));</pre>
+<pre><span class="c">// VulkanUniformBuffer.cpp:93-103（逐字符照录）</span>
+void FVulkanUniformBuffer::SetupUniformBufferView()
+{
+	if (UniformViewSRV &amp;&amp; GetBufferHandle() == VK_NULL_HANDLE)
+	{
+		const FRHIViewDesc::FBufferSRV&amp; SRVInfo = UniformViewSRV-&gt;GetDesc().Buffer.SRV;
+		FVulkanResourceMultiBuffer* Buffer = ResourceCast(UniformViewSRV-&gt;GetBuffer());
+		Allocation.Reference(Buffer-&gt;GetCurrentAllocation());
+		check(Allocation.Size &gt;= PLATFORM_MAX_UNIFORM_BUFFER_RANGE);
+		<span class="c">//Adjust Allocation.Size ???</span>
+		Allocation.Offset += SRVInfo.OffsetInBytes;
+	}</pre>
+<p><code>SetupUniformBufferView()</code> 显示 UBV 的 uniform buffer 就是 <code>Allocation.Reference(...)</code> <b>引用一条已有 buffer</b>，只是把 range 限定为 16 KB。准确说法是「<b>用 16 KB 的 uniform buffer view 去读一条 buffer</b>」——<code>EUsageFlags::UniformView</code>（<span class="ref">InstanceCullingContext.cpp:75</span>）与 <code>IsUniformView()</code>（<span class="ref">VulkanResources.h:1113-1116</span>）的名字就是这么来的。</p>
+<p><b>这也正好解释批上限</b>：窗口 16 KB ÷ instance 256 B = <b>64</b>；÷ primitive 512 B = <b>32</b>（<span class="ref">InstanceCullingContext.cpp:1631-1632</span>）。</p>
+
+<table>
+<thead><tr><th></th><th><span class="tag t-pc">PC</span>（SSBO）</th><th><span class="tag t-mob">Mobile</span>（UBV）</th></tr></thead>
+<tbody>
+<tr><td>per-draw 索引来源</td><td><b>VBO</b> 顶点流（<code>InstanceIdOffset</code> attribute）</td><td><b>UBO 动态偏移</b></td></tr>
+<tr><td>VS 拿到的东西</td><td>一个索引</td><td>直接是数据</td></tr>
+<tr><td>取数据几次间接</td><td><b>3 次</b>：VBO(offset) → SSBO(packed id) → SSBO(instance data, SOA)</td><td><b>1 次</b>：UBO 窗口内直接下标</td></tr>
+<tr><td>数据布局</td><td>SOA</td><td>AoS</td></tr>
+<tr><td>谁写的</td><td>CPU scatter 上传</td><td><b>剔除 CS 顺带写</b>（<span class="ref">BuildInstanceDrawCommands.usf:114</span>）</td></tr>
+</tbody>
+</table>
+
+<h3>9.8 三问：为什么 AoS？为什么直接是数据？为什么 UBO？</h3>
+
+<div class="callout warn">
+  <div class="h">先说清楚哪部分是源码事实、哪部分是推断</div>
+  引擎对此<b>没有留下任何解释性注释</b>。我找过的位置：<code>RenderUtils.h/.cpp</code>、<code>RHIDefinitions.h</code>、<code>ShaderParameterMetadata.h</code>、<code>InstanceCullingContext.h/.cpp</code>、<code>SceneData.ush</code>、<code>SceneDataMobileLoader/Writer.ush</code>、<code>MeshDrawCommands.cpp</code>、<code>ShaderBaseClasses.cpp</code>。<br>
+  找到的原文全是「是什么」：<code>RHIDefinitions.h:645</code> / <code>ShaderParameterMetadata.h:159</code> 都只写 <i>"This struct is a view into uniform buffer object, on platforms that support UBO"</i>；<code>InstanceCullingContext.cpp:1865</code> 写 <i>"UniformBufferView suplies instance data through global UB binding"</i>。下面每一条我都标注了性质。
+</div>
+
+<h4>① 为什么 AoS —— <span class="tag t-fork">机制推论</span></h4>
+<p><b>代码事实</b>：移动端寻址 <code>DrawInstanceId × STRIDE + DataIdx</code>（<span class="ref">SceneDataMobileLoader.ush:16</span>）；PC 是 <code>slot × SOAStride + InstanceId</code>（<span class="ref">SceneData.ush:1211</span>）。</p>
+<p><b>推论</b>：UBO 一次 draw 只能设<b>一个</b> dynamic offset（<span class="ref">MeshPassProcessor.cpp:1777</span>），即只能圈定<b>一个连续的 16 KB 窗口</b>（<span class="ref">VulkanPipelineState.h:139</span>）。要让窗口内第 i 个实例可算，数据必须满足 <code>base + i×stride</code> —— 这正是 AoS 的定义。SOA 的 <code>slot×SOAStride + InstanceId</code> 在一段连续窗口里根本表达不出来（同一实例的 3~4 段散在窗口不同位置，不同实例又交错）。</p>
+<p><b>顺带的代价（代码有明文）</b>：批上限 64/32（<span class="ref">InstanceCullingContext.cpp:1631-1632</span>）、<code>// UniformBufferView path does not support merging ISM draws atm</code>（<span class="ref">InstanceCullingContext.cpp:1649</span>）。</p>
+
+<h4>② 为什么直接是数据，不是索引 —— <span class="tag t-fork">机制推论</span></h4>
+<p><b>代码事实</b>：剔除 CS 在 UBO 路径写 <code>WriteDataUBO(InstanceIdsBufferOutMobile, ...)</code>（<span class="ref">BuildInstanceDrawCommands.usf:114</span>），PC 的 <code>#else</code> 写 <code>InstanceIdsBufferOut[Offset] = PackedId</code>（<span class="ref">BuildInstanceDrawCommands.usf:118</span>）。</p>
+<p><b>推论</b>：若 UBO 里放索引，VS 还得再读一次 <code>InstanceIdsBuffer</code> —— 那是一次 <b>SSBO 读</b>，而这条路径存在的意义恰恰是不做 SSBO 随机读（见 ③）。<b>放索引 = 绕一圈回到原点，还多付一次窗口绑定。</b>另一条约束来自 ①：窗口是 AoS 连续的，本来就得装数据。</p>
+
+<h4>③ 为什么 UBO 不是 SSBO —— <span class="tag t-ok">部分为源码事实</span></h4>
+<p><b>代码事实</b>：</p>
+<ul>
+<li>分支显式绑定 ES3.1：<code>PLATFORM_USES_PRIMITIVE_UBO = ... &amp;&amp; FEATURE_LEVEL == FEATURE_LEVEL_ES3_1</code>（<span class="ref">SceneData.ush:40</span>）</li>
+<li>启用条件是<b>平台能力位</b>，iOS 有 SSBO 能力也不用（见 §9.6）</li>
+<li><b>VS 在 Android ES3.1 上读不了 SSBO</b> —— 见下面的引擎原注释与兜底分支</li>
+</ul>
+<pre><span class="c">// DataDrivenShaderPlatformInfo.cpp:180-182（逐字符照录）</span>
+	bSupportsAsyncPipelineCompilation = true;
+	bSupportsVertexShaderSRVs = true; <span class="c">// Explicitly overriden to false for ES 3.1 platforms via DDPI ini</span>
+	bSupportsVertexShaderUAVs = uint32(ERHIFeatureSupport::Unsupported);</pre>
+<pre><span class="c">// SceneData.ush:436-441（逐字符照录）</span>
+		return LoadPrimitiveDataUBO(PrimitiveId);
+	#endif
+#elif (VERTEXSHADER &amp;&amp; !PLATFORM_SUPPORTS_VERTEX_SHADER_SRVS)
+	<span class="c">// Vertex shaders may not have access to GPUScene on mobile. Use GetPrimitiveData(FVertexFactoryIntermediates Intermediates)</span>
+	<span class="c">// TODO: need a way to report invalid usage, after all dead code elimination</span>
+	return (FPrimitiveSceneData)0;</pre>
+<p><code>SceneData.ush:438-441</code> 那条 <code>return (FPrimitiveSceneData)0</code> 就是「VS 拿不到 GPUScene 数据时」的结果 —— 也就是说 <b>不给他一条 UBO 通路，VS 就彻底取不到实例数据</b>。</p>
+<p><b>未找到</b>：引擎没有写「为什么在有 SSBO 能力时仍优先 UBO」的理由陈述。</p>
+
+<h3>9.9 网络检索：关于「为什么移动端用 UBO」的外部资料与勘误</h3>
+
+<h4>网络给出的三条主要理由</h4>
+<ol>
+<li><b>顶点着色器读不了 SSBO（不是慢，是没有）。</b>ARM 官方论坛确认 GLES 上 Mali 不能含只读 buffer / SSBO，Mali-G78 的 <code>GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS</code> 返回 0；ARM 回复「GLES 做不了 Read-Only buffer，Vulkan 才有 Read-Only SSBO，所以这是 GLES 独有问题」。</li>
+<li><b>UBO 有硬件快路径。</b>Khronos wiki：<i>"SSBO access, all things being equal, will likely be slower than UBO access… At the very least, UBOs will be no slower than SSBOs."</i> ARM/Adreno 会把 uniform load 提到标量前导（scalar preamble），在 draw 前跑一次存进专用 constant 寄存器；SSBO 没有这种 uniform 语义。</li>
+<li><b>实测旁证</b>：Unity 用 Adreno 对比 BatchRendererGroup —— Vulkan 走 SSBO 时 tile binning 开销升高，切到 GLES（走 UBO）后 binning 开销恢复。</li>
+</ol>
+
+<h4>逐条与本地源码交叉验证</h4>
+<table>
+<thead><tr><th style="width:38%">网络说法</th><th style="width:44%">本地核实</th><th style="width:18%">结论</th></tr></thead>
+<tbody>
+<tr>
+  <td>部分移动平台<b>顶点着色器不支持 SSBO</b>，故改用 UBO</td>
+  <td><span class="ref">DataDrivenShaderPlatformInfo.cpp:181</span> 注释原文 <i>"Explicitly overriden to false for ES 3.1 platforms via DDPI ini"</i>；Android 两条 ES3.1 节均 <code>bSupportsVertexShaderSRVs=false</code>（<span class="ref">Android/DataDrivenPlatformInfo.ini:74</span>、<span class="ref">Android/DataDrivenPlatformInfo.ini:96</span>）；<span class="ref">ShaderCompiler.cpp:3966-3967</span> 注入宏；<span class="ref">SceneData.ush:438-441</span> 有兜底分支</td>
+  <td><span class="tag t-ok">证实</span></td>
+</tr>
+<tr>
+  <td>移动端 UBO 里 primitive stride 32 / instance stride 16</td>
+  <td><span class="ref">SceneDefinitions.h:121-124</span> 的 512 / 256 字节，除以 16 正好 32 / 16 个 float4</td>
+  <td><span class="tag t-ok">证实</span>（网上未说单位）</td>
+</tr>
+<tr>
+  <td>PC 用 <b>2 个</b> SSBO、primitive stride <b>42</b></td>
+  <td>本仓库绑 <b>5</b> 条（<span class="ref">GPUScene.h:51-61</span>）、stride = <b>46</b>（<span class="ref">SceneDefinitions.h:90</span>）</td>
+  <td><span class="tag t-bad">不符</span>（旧版本数字）</td>
+</tr>
+<tr>
+  <td>主机平台 UBO 上限 64 KB</td>
+  <td><code>PLATFORM_MAX_UNIFORM_BUFFER_RANGE</code> 全仓只有 <span class="ref">HAL/Platform.h:641</span> 一处定义（16 KB），无平台覆盖；主机平台代码不在本仓库</td>
+  <td><span class="tag t-bad">本地无法验证</span></td>
+</tr>
+<tr>
+  <td>有 CVar <code>r.Mobile.UseGPUSceneTexture=1</code> 走纹理回退</td>
+  <td>全仓搜 <code>GPUSceneTexture</code> <b>只命中一条注释</b>（<span class="ref">SceneRendering.h:1793</span>），<b>CVar 本身不存在</b>；只剩一个成员 <code>PrimitiveSceneDataTextureOverrideRHI</code></td>
+  <td><span class="tag t-bad">本仓库无此 CVar</span>（注释残留）</td>
+</tr>
+<tr>
+  <td>UE 5.4 起 mobile GPUScene 用 UBO，无 UBO 则回退 PC 路径</td>
+  <td><span class="ref">RenderUtils.cpp:488-491</span> 的判据即 <code>IsMobilePlatform &amp;&amp; GetSupportsUniformBufferObjects</code>；iOS 因未声明该位而走 SSBO</td>
+  <td><span class="tag t-ok">证实</span></td>
+</tr>
+</tbody>
+</table>
+
+<h4>完整因果链（本地证据串起来）</h4>
+<pre><span class="c">// 以下为本文归纳，非源码原文；每一环的证据见上表与 §9.8③</span>
+Android ES3.1 声明 bSupportsVertexShaderSRVs = false
+        ↓
+VS 读不了 StructuredBuffer（SSBO）
+        ↓
+SceneData.ush:438-441 的 "return (FPrimitiveSceneData)0" 就是没有替代方案时的结果
+        ↓
+必须有另一条把数据送进 VS 的路径
+        ↓
+Android 同时声明 bSupportsUniformBufferObjects = true
+        ↓
+PLATFORM_USES_PRIMITIVE_UBO 成立 → 走 UBO（UniformView）
+        ↓
+UBO 一次只能绑 16 KB → 批上限 64/32、AoS、直接放数据</pre>
+<div class="callout warn">
+  <div class="h">一个精度问题</div>
+  代码里的判定条件 <code>PLATFORM_USES_PRIMITIVE_UBO</code>（<span class="ref">SceneData.ush:40</span>）<b>只检查 UBO 支持，并没有检查 VS SRV</b>。也就是说引擎的写法是「<b>有 UBO 就用 UBO</b>」，而「VS 没有 SSBO」是<b>为什么需要这条路</b>的原因，<b>不是判定条件本身</b>。两者在 Android 上同时成立；iOS 上前者为假，故走 SSBO。
+</div>
+
+<p><b>来源</b>：<a href="https://wikis.khronos.org/opengl/index.php?oldid=14359&amp;printable=yes&amp;title=Shader_Storage_Buffer_Object">Khronos Wiki — Shader Storage Buffer Object</a>；<a href="https://community.arm.com/forums/f/mobile-graphics-and-gaming-forum/52064/do-you-have-a-plan-to-support-ssbo-at-vertex-shader-on-opengl-es/175467">ARM Community — SSBO at vertex shader on OpenGL ES</a>；<a href="https://community.arm.com/support-forums/f/mobile-graphics-and-gaming-forum/170/uniform-blocks-optimal-qualifiers/216">ARM Community — Uniform blocks: Optimal qualifiers</a>；<a href="https://discussions.unity.com/t/entities-graphics-on-mobile-tile-binning-cost-is-higher-compared-to-not-using-entities-graphics/917934/8">Unity Discussions — Tile Binning cost on Adreno</a>；<a href="https://forums.unrealengine.com/t/what-are-the-performance-implications-of-not-using-ubos-on-mobile-for-gpu-scene/2069671/6">Epic Forums — 不使用 UBO 的性能影响</a>。</p>
+
+<h3>9.10 移动端 GPUScene 的存储形态：<b>仍然是 SSBO</b>，UBO 只是取数通道</h3>
+<div class="callout warn">
+  <div class="h">最容易混淆的一点</div>
+  <b>「GPUScene 数据怎么存」和「per-draw 怎么取数」是两件事。</b>UBO/UniformView 只影响<b>后者</b>，不改前者。<br>
+  移动端 GPUScene 的 5 条常驻资源<b>依旧是 structured buffer（SSBO）</b>，与 PC 完全相同。
+</div>
+
+<h4>证据一：5 条资源的声明与平台无关</h4>
+<p><code>FGPUSceneResourceParameters</code>（<span class="ref">GPUScene.h:51-61</span>，本仓库编译的 <code>#else</code> 分支）5 个成员全是 <code>SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer&lt;...&gt;, ...)</code>。</p>
+
+<h4>证据二：GPUScene.cpp 全文不引用那个平台开关</h4>
+<p>对 <code>GPUScene.cpp</code> grep <code>PlatformGPUSceneUsesUniformBufferView</code> —— <b>零匹配</b>。存储路径（<span class="ref">GPUScene.cpp:1037-1077</span> 的 <code>ResizeStructuredBufferIfNeeded</code>）与平台开关<b>完全解耦</b>；该开关只出现在取数/提交侧（InstanceCulling、MeshDrawCommands、MeshPassProcessor、VertexFactory…）。</p>
+<p>所以移动端这 5 条 buffer 照样存在、照样被读 —— 被剔除 CS 读、被 <code>SceneDataMobileWriter.ush</code> 读、被 PS 读。</p>
+
+<h4>关键区分：存储 ≠ 取数通道</h4>
+<table>
+<thead><tr><th>角色</th><th>资源</th><th>PC</th><th>Mobile</th></tr></thead>
+<tbody>
+<tr><td><b>存储</b></td><td><code>GPUScene.PrimitiveData</code> / <code>InstanceSceneData</code> / <code>InstancePayloadData</code> / <code>LightmapData</code> / <code>LightData</code></td><td>structured buffer（SSBO）</td><td><b>同样是 structured buffer</b></td></tr>
+<tr><td><b>取数通道</b></td><td><code>InstanceIdOffsetBuffer</code> VBO / <code>BatchedPrimitive</code>（<code>FBatchedPrimitiveParameters</code>，静态 slot <code>"BatchedPrimitive"</code>）</td><td>VBO + SSBO 二次索引</td><td>UBO 16 KB 窗口 + dynamic offset</td></tr>
+</tbody>
+</table>
+<p>这两组是<b>不同的资源</b>。笼统说「GPUScene 用 UBO」会把两者混为一谈。</p>
+
+<h3>9.11 移动端渲染时读的，不是 GPUScene 原位数据</h3>
+<p>引擎把这件事写在自己的注释里：</p>
+<pre><span class="c">// InstancedStaticMesh.cpp:1639-1650（逐字符照录）</span>
+	if (bUseGPUScene)
+	{
+		if (PlatformGPUSceneUsesUniformBufferView(GetScene().GetShaderPlatform()))
+		{
+			<span class="c">// Only instance data comes from GPUScene on platforms that use uniform buffer views</span>
+			bVFRequiresPrimitiveUniformBuffer = true;
+			for (int32 LODIdx = 0; LODIdx &lt; LODs.Num(); ++LODIdx)
+			{
+				LODs[LODIdx].bCanUsePrecomputedLightingParametersFromGPUScene = false;
+			}
+		}
+	}</pre>
+<p><i>"Only instance data comes from GPUScene on platforms that use uniform buffer views"</i> —— 移动端 ISM <b>只有 instance 数据</b>走 GPUScene 那条通道。</p>
+
+<h4>移动端 VS/PS 的取数来源其实是三种，不能一概而论</h4>
+<table>
+<thead><tr><th style="width:22%">数据</th><th style="width:40%">取数路径</th><th style="width:38%">谁写进去的</th></tr></thead>
+<tbody>
+<tr><td><b>Instance 数据</b><br>（ISM，<code>USE_INSTANCE_CULLING</code>）</td><td>batched buffer 的 16 KB 窗口：<code>LoadInstanceDataUBO(DrawInstanceId)</code> <span class="ref">SceneData.ush:1405</span></td><td><b>剔除 CS</b> 的 <code>WriteInstanceDataUBO</code> <span class="ref">BuildInstanceDrawCommands.usf:114</span></td></tr>
+<tr><td><b>Primitive 数据</b><br>（ISM）</td><td><b>传统 <code>Primitive</code> uniform buffer</b>：<code>GetPrimitiveDataFromUniformBuffer()</code> <span class="ref">SceneData.ush:1404</span>，<b>不是</b> batched buffer</td><td>mesh draw command 自己绑的 per-draw UBO</td></tr>
+<tr><td><b>Primitive 数据</b><br>（普通静态网格，无 <code>USE_INSTANCE_CULLING</code>）</td><td>batched buffer：<code>LoadPrimitiveDataUBO(PrimitiveId)</code> <span class="ref">SceneData.ush:436</span></td><td><b>剔除 CS</b> 的 <code>WritePrimitiveDataUBO</code>（UnCulled 模式）<b>或 CPU</b>（见下）</td></tr>
+</tbody>
+</table>
+
+<h4>第三种有 CPU 旁路：不经 GPUScene，CPU 直接从 SceneProxy 打包</h4>
+<p>当 <code>bUsesUniformView</code> 时，<span class="ref">MeshDrawCommands.cpp:1423-1468</span> 会用 <code>FBatchedPrimitiveShaderData::Emplace</code> 直接把 SceneProxy 的着色参数写进这个 buffer：</p>
+<pre><span class="c">// MeshDrawCommands.cpp:1428-1432（逐字符照录）</span>
+				auto WritePrimitiveDataFn = [&amp;](int32 PrimitiveIndex, int32 DrawPrimitiveId, int32 ScenePrimitiveId)
+				{
+					checkSlow(PrimitiveIndex &lt; MaxNumPrimitives);
+					FBatchedPrimitiveShaderData* PrimitiveData = reinterpret_cast&lt;FBatchedPrimitiveShaderData*&gt;(PrimitiveIdBufferData) + PrimitiveIndex;
+					</pre>
+<pre><span class="c">// MeshDrawCommands.cpp:1444-1454（逐字符照录）</span>
+						const FScene* Scene = SceneView.Family-&gt;Scene-&gt;GetRenderScene();
+						if (ScenePrimitiveId &gt;= 0 &amp;&amp; ScenePrimitiveId &lt; Scene-&gt;Primitives.Num())
+						{
+							FPrimitiveSceneProxy* PrimitiveProxy = Scene-&gt;PrimitiveSceneProxies[ScenePrimitiveId];
+							FBatchedPrimitiveShaderData::Emplace(PrimitiveData, PrimitiveProxy);
+						}
+						else
+						{
+							FBatchedPrimitiveShaderData::Emplace(PrimitiveData, *IdentityShaderParams);
+						}
+					}</pre>
+<p><code>Emplace</code> 的两个重载在 <span class="ref">GPUScene.cpp:2513-2521</span>（一个收 <code>FPrimitiveUniformShaderParameters</code>、一个收 <code>FPrimitiveSceneProxy*</code>）。这条路径<b>完全不经过 GPUScene</b>。</p>
+
+<div class="callout">
+  <div class="h">对「UBO 窗口里是什么」的完整定性</div>
+  <ul style="margin:6px 0">
+    <li>它是 <b>per-batch 的 AoS 快照</b>，住在 <code>InstanceIdsBufferOutMobile</code> 这条 buffer 里，用 dynamic offset 选 16 KB 窗口</li>
+    <li><b>主要来自剔除 CS</b>（先从 GPUScene 读 → 重打包 → 写），<b>少部分由 CPU 直接烤</b></li>
+    <li><b>不是</b> GPUScene 的原位数据</li>
+    <li>是<b>字段子集</b>（只含 VS/PS 需要的那些），不是 GPUScene 的全部字段</li>
+    <li>但与 GPUScene <b>同源</b> —— 剔除阶段确实是去 GPUScene 读的原数据</li>
+  </ul>
+</div>
+
+<h3>9.12 「不支持 SSBO 就不能开 GPUScene」是错的 —— 真正的门槛是 compute</h3>
+<div class="callout warn">
+  <div class="h">先纠正三个常见误解</div>
+  <b>① 「GPUScene 存储基础是 SSBO」——基本对，但纹理回退不完整。</b><code>PRIMITIVE_DATA_USE_TEXTURE</code> 只把 5 条里的 <b>2 条</b>换成 Texture2D，<code>InstanceSceneData</code> / <code>LightmapData</code> / <code>LightData</code> <b>仍是 StructuredBuffer</b>（<span class="ref">GPUScene.h:39-49</span>）。<br>
+  <b>② 那个纹理路径的动机不是「不支持 SSBO」</b>，是 GPU 崩溃：标记为 <code>[Fix GPU Crash: GPUScene Pagefault] -- ADD @Beiyu</code>（<span class="ref">GPUScene.h:38</span>、<span class="ref">GPUScene.h:333</span>），且默认关（<span class="ref">GPUSceneWriter.h:14</span> 值为 0）。<br>
+  <b>③ 引擎里没有「支不支持 SSBO」这个能力位。</b>在 <code>DataDrivenShaderPlatformInfo.h</code> 里 grep <code>StructuredBuffer | SSBO | ShaderStorage</code> —— <b>零匹配</b>。有的是 <code>bSupportsVertexShaderSRVs</code>（VS 能不能读 SRV）。
+</div>
+
+<h4>移动端 VS/PS 根本不读 GPUScene 的 buffer</h4>
+<pre><span class="c">// SceneData.ush:685-696（逐字符照录）</span>
+float4 LoadInstanceSceneDataElement(uint Index)
+{
+#if SHADER_USES_PRIMITIVE_UBO
+	return 0; <span class="c">// FIXME LoadInstanceSceneDataElement for UBO case</span>
+#elif USE_GLOBAL_GPU_SCENE_DATA
+	return GPUSceneInstanceSceneData[Index].Data;
+#elif USE_GLOBAL_GPU_SCENE_DATA_RW
+	return GPUSceneInstanceSceneDataRW[Index];
+#else
+	return Scene.GPUScene.GPUSceneInstanceSceneData[Index];
+#endif
+}</pre>
+<p><code>SHADER_USES_PRIMITIVE_UBO</code> 含 <code>(PIXELSHADER || VERTEXSHADER)</code>（<span class="ref">SceneData.ush:44</span>），所以<b>移动端 VS 和 PS 都走 <code>return 0</code> 那条</b>（引擎自己还留了 FIXME）。</p>
+<p>真正读 GPUScene SSBO 的只有：</p>
+<ul>
+<li><b>剔除 CS</b>（走 <code>USE_GLOBAL_GPU_SCENE_DATA</code> 分支，<span class="ref">SceneData.ush:689-690</span>）</li>
+<li><b>writer shader</b>（<code>SceneDataMobileWriter.ush</code> 里读 relativeId / customDataCount，<span class="ref">SceneDataMobileWriter.ush:186</span>）</li>
+</ul>
+
+<h4>因此：Android 就是「VS 读不了 SSBO 但 GPUScene 照开」的活例子</h4>
+<pre><span class="c">// 本文归纳，非源码原文</span>
+「不支持 SSBO」不是 GPUScene 的阻塞点
+        ↓
+「VS 不支持 SRV」才是 —— 而它已被 UBO 通路兜住（见 §9.6-9.9）
+        ↓
+真正的硬门槛是：平台必须有 compute shader
+</pre>
+<p><b>GPUScene 的管理全程依赖 compute</b>：上传靠 <code>ScatterCopyCS</code>（<span class="ref">ByteBuffer.usf:239</span>）、剔除靠 <code>InstanceCullBuildInstanceIdBufferCS</code>（<span class="ref">BuildInstanceDrawCommands.usf:337</span>）、清 ID 靠 <code>GPUSceneSetInstancePrimitiveIdCS</code>（<span class="ref">GPUSceneDataManagement.usf:11</span>）。ES3.1 才有 CS —— 这也是为什么 <code>r.Mobile.SupportGPUScene</code> 是个人工确认的开关，而非无条件打开。</p>
+
+<h4>附带发现：一个死成员</h4>
+<p><code>PrimitiveSceneDataTextureOverrideRHI</code>（<span class="ref">SceneRendering.h:1795</span>）全仓只有两处：声明与 <span class="ref">SceneRendering.cpp:1287</span> 赋 <code>nullptr</code>，<b>没有任何写入者</b>。那是已删除的 <code>Mobile.UseGPUSceneTexture</code> CVar 留下的残留（见 §9.9 勘误表）。</p>
+
+<h3>9.13 关掉 GPUScene 会走什么路径 —— 每条 draw 一个 Primitive UBO</h3>
+<div class="callout warn">
+  <div class="h">一句话</div>
+  关掉 GPUScene 后，<b>每条 draw 各绑一份 <code>FPrimitiveUniformShaderParameters</code></b>，且这是 <code>checkf</code> 强制的。<b>这正是 GPUScene 要消灭的东西。</b>
+</div>
+
+<h4>触发链（全部是编译期宏，不经过运行期分支）</h4>
+<pre><span class="c">// 本文归纳，非源码原文</span>
+UseGPUScene() == false
+    ↓
+bUseGPUScene → VF_SUPPORTS_PRIMITIVE_SCENE_DATA = 0
+    ↓
+VF_USE_PRIMITIVE_SCENE_DATA = 0        （SceneData.ush:61-65）
+    ↓
+三处回落同时发生
+</pre>
+<p><code>VF_SUPPORTS_PRIMITIVE_SCENE_DATA</code> 的设置点都是 <code>bSupportsPrimitiveIdStream &amp;&amp; bUseGPUScene</code>：<span class="ref">LocalVertexFactory.cpp:280</span>、<span class="ref">GPUSkinVertexFactory.cpp:811</span>、<span class="ref">GeometryCacheVertexFactory.cpp:97</span>、<span class="ref">GeometryCollectionRendering.cpp:65</span>。</p>
+
+<h4>回落 1：着色器改从 Primitive UBO 填 Intermediates</h4>
+<pre><span class="c">// SceneData.ush:1469-1493（逐字符照录；引擎注释即为 Populate from Primitive uniform buffer）</span>
+#else
+FSceneDataIntermediates GetSceneDataIntermediates()
+{
+	FSceneDataIntermediates Intermediates = (FSceneDataIntermediates)0;
+	<span class="c">// Populate from Primitive uniform buffer</span>
+	Intermediates.ViewIndex = 0U;
+	Intermediates.PrimitiveId = 0U;
+	Intermediates.InstanceId = 0U;
+	Intermediates.Primitive = GetPrimitiveDataFromUniformBuffer();
+	<span class="c">// Populate instance data from primitive data</span>
+	Intermediates.InstanceData.LocalToWorld			= Intermediates.Primitive.LocalToWorld;
+	Intermediates.InstanceData.PrevLocalToWorld		= Intermediates.Primitive.PreviousLocalToWorld;
+	Intermediates.InstanceData.WorldToLocal			= Intermediates.Primitive.WorldToLocal;
+	Intermediates.InstanceData.NonUniformScale		= Intermediates.Primitive.NonUniformScale;
+	Intermediates.InstanceData.InvNonUniformScale	= Intermediates.Primitive.InvNonUniformScale;
+	Intermediates.InstanceData.DeterminantSign		= GetPrimitive_DeterminantSign_FromFlags(Intermediates.Primitive.Flags);
+	Intermediates.InstanceData.LocalBoundsCenter	= (Intermediates.Primitive.LocalObjectBoundsMax + Intermediates.Primitive.LocalObjectBoundsMin) * 0.5f;
+	Intermediates.InstanceData.LocalBoundsExtent	= (Intermediates.Primitive.LocalObjectBoundsMax - Intermediates.Primitive.LocalObjectBoundsMin) * 0.5f;
+	Intermediates.InstanceData.ValidInstance		= true;
+	
+	Intermediates.CullingFlags = INSTANCE_CULLING_FLAGS_DEFAULT;
+
+	return Intermediates;
+}
+#endif <span class="c">//VF_USE_PRIMITIVE_SCENE_DATA</span></pre>
+<p>注意 <code>ViewIndex / PrimitiveId / InstanceId</code> 全为 0 —— 这条路径下<b>「一个 draw = 一个实例」</b>，<code>InstanceData</code> 的每个字段都是从 <code>Primitive</code> 复制过来的。</p>
+
+<h4>回落 2：VF 输入块变成空的</h4>
+<pre><span class="c">// VertexFactoryCommon.ush:61-65（逐字符照录）</span>
+	#define VF_GPUSCENE_DECLARE_INPUT_BLOCK(Attr0) 
+	#define VF_GPUSCENE_GET_INTERMEDIATES(VFInput) GetSceneDataIntermediates()
+	#define VF_GPUSCENE_GET_LIGHTMAP_UV_SCALE_BIAS(VFInput, LightmapDataIndex) PrecomputedLightingBuffer.LightMapCoordinateScaleBias
+	#define VF_GPUSCENE_GET_SHADOWMAP_UV_SCALE_BIAS(VFInput, LightmapDataIndex) PrecomputedLightingBuffer.ShadowMapCoordinateScaleBias
+	#define VF_GPUSCENE_SET_INPUT_FOR_RT(_VFInputOut_, _InstanceId_, _DrawInstanceId_)</pre>
+<p>没有 PrimitiveId attribute、没有 InstanceIdOffset、连 <code>SV_InstanceID</code> 都不声明。</p>
+
+<h4>回落 3：每条 draw 绑一个 Primitive UBO</h4>
+<p><span class="ref">ShaderBaseClasses.cpp:615</span> 那条 <code>ensureMsgf</code>（"Shader attempted to bind the Primitive uniform buffer even though VF computes a PrimitiveId"）<b>只在 GPUScene 开启时生效</b>。关闭时走 <code>else</code>：</p>
+<pre><span class="c">// ShaderBaseClasses.cpp:622-634（逐字符照录）</span>
+	else
+	{
+		if (BatchElement.PrimitiveUniformBuffer)
+		{
+			ShaderBindings.Add(GetUniformBufferParameter&lt;FPrimitiveUniformShaderParameters&gt;(), BatchElement.PrimitiveUniformBuffer);
+		}
+		else
+		{
+			const FShaderType* ShaderType = GetType(PointerTable);
+			checkf(BatchElement.PrimitiveUniformBufferResource, TEXT("%s expected a primitive uniform buffer but none was set on BatchElement.PrimitiveUniformBuffer or BatchElement.PrimitiveUniformBufferResource"), ShaderType-&gt;GetName());
+			ShaderBindings.Add(GetUniformBufferParameter&lt;FPrimitiveUniformShaderParameters&gt;(), BatchElement.PrimitiveUniformBufferResource-&gt;GetUniformBufferRHI());
+		}
+	}</pre>
+<p><b>必须有一个 Primitive UB，否则 <code>checkf</code> 直接挂。</b></p>
+
+<h4>附带两处变化</h4>
+<ul>
+<li><b>ISM 换实例化模式</b>：<span class="ref">InstancedStaticMesh.cpp:747-755</span> 的 <code>else</code> 分支 → <code>USE_INSTANCING</code>（而非 <code>USE_INSTANCE_CULLING</code>），并启用 per-instance 顶点流（<span class="ref">InstancedStaticMesh.cpp:974-995</span>：InstanceOrigin / InstanceTransform×3 / InstanceLightmapAndShadowMapUVBias）。</li>
+<li><b>GPU 剔除整条链不参与</b>：<code>SortAndMergeDynamicPassMeshDrawCommands</code> 里那个 <code>if (bUseGPUScene)</code> 块（<span class="ref">MeshDrawCommands.cpp:1392-1496</span>）<b>没有 <code>else</code></b> —— 连 PrimitiveId vertex buffer 都不分配。</li>
+</ul>
+
+<h4>两条路径对比</h4>
+<table>
+<thead><tr><th></th><th>GPUScene 开</th><th>GPUScene 关</th></tr></thead>
+<tbody>
+<tr><td>Primitive 数据来源</td><td>GPUScene buffer（ID 索引）或 batched UBO</td><td><b>per-draw <code>Primitive</code> UBO</b></td></tr>
+<tr><td>ISM 实例化</td><td><code>USE_INSTANCE_CULLING</code></td><td><b><code>USE_INSTANCING</code> + per-instance 顶点流</b></td></tr>
+<tr><td>剔除粒度</td><td>实例级（视锥 + HZB，GPU）</td><td>只有 CPU 的 InitViews 级</td></tr>
+<tr><td>实例数据</td><td><code>GetInstanceSceneData(InstanceId, SOAStride)</code></td><td>从 Primitive 复制，<code>InstanceId = 0</code></td></tr>
+<tr><td>每 draw 的 CPU/RHI 成本</td><td>低（数据在池里，只传 ID）</td><td><b>高</b>（每个 primitive 一份 UBO，要绑/要更新）</td></tr>
+</tbody>
+</table>
+<div class="callout">
+  <div class="h">这反过来说明 GPUScene 到底解决了什么</div>
+  <b>不是「减少绘制」，而是把「每条 draw 一份 Primitive 常量」变成「一份全局池 + 一个 ID」。</b>合批与 GPU 剔除都是在这个基础上才成立的。
+</div>
+
 <!-- ============================================================ -->
 <h2 id="s10"><span class="num">10</span>本分叉（GR）定制清单</h2>
 
@@ -1768,6 +2530,25 @@ FPrimitiveSceneData GetPrimitiveData(uint PrimitiveId)
 <p>GPUScene 把「每个物体的着色参数」从「逐 draw 绑定」改造成「全局池化 + ID 索引」，<b>这是合批能成立的前提</b>；而 InstanceCulling 在此基础上把剔除粒度从 Primitive 下沉到 Instance，并让 GPU 直接产出 Indirect Draw 参数。<b>PC 用 SSBO + SOA，移动端用 Uniform Buffer + AOS</b>——后者的批大小被 16 KB UBO 上限锁死在 64/32。</p>
 
 <h4>五条必须记住的事实</h4>
+<h4>先有池化，才有合批与剔除（别把三者并列）</h4>
+<p>合批和 GPU 剔除常被当成 GPUScene 的「功能」，但它们其实是<b>池化的下游</b>。对照 §9.13 的回落路径可以看出因果：</p>
+<table>
+<thead><tr><th></th><th>没有 GPUScene</th><th>有 GPUScene</th></tr></thead>
+<tbody>
+<tr><td>数据组织</td><td><b>每条 draw 一份 Primitive 常量</b>（<code>checkf</code> 强制必须有，<span class="ref">ShaderBaseClasses.cpp:622-634</span>）</td><td>一份全局池 + 一个 ID</td></tr>
+<tr><td>实例数据</td><td>从 Primitive 复制，<code>InstanceId = 0</code>（1 draw = 1 实例）<span class="ref">SceneData.ush:1474-1487</span></td><td><code>InstanceId</code> 独立寻址（1 draw = N 实例）</td></tr>
+<tr><td>剔除粒度</td><td>CPU / Primitive 级</td><td>GPU / 实例级</td></tr>
+</tbody>
+</table>
+<p>因果链是单向的：</p>
+<pre><span class="c">// 本文归纳，非源码原文</span>
+数据池化（一份全局池 + ID 索引）
+        ↓ 才可能
+把「状态相同但 Primitive 不同」的 draw 合并  ← 否则每条 draw 的常量各不相同，合不了
+        ↓ 才可能
+在 GPU 上按实例并行剔除并产出 Indirect Args  ← 否则没有可寻址的实例 ID 列表
+</pre>
+<p>所以 <b>InstanceCulling 不是 GPUScene 的功能，而是 GPUScene 的消费者</b>；合批同理。这是读这套代码时最容易倒置的一层关系。</p>
 <ol>
 <li><b>切换点只有一个</b>：<code>PlatformGPUSceneUsesUniformBufferView = IsMobilePlatform &amp;&amp; SupportsUniformBufferObjects</code> <span class="ref">RenderUtils.cpp:488-491</span>。整条 PC/Mobile 分叉都从这里分出去。</li>
 <li><b>两种布局的寻址公式互不通用</b>：SOA 是 <code>slot×SOAStride + InstanceId</code>，AOS 是 <code>DrawInstanceId×stride + idx</code>。混用必错。</li>
@@ -1788,6 +2569,16 @@ FPrimitiveSceneData GetPrimitiveData(uint PrimitiveId)
 <li><code>InstanceCullingContext.cpp:1659</code> 的 <code>bCanCompactCurrentCommand</code> 判据行被注释掉 → <code>r.InstancedStaticMeshes.DynamicInstancing</code> 当前是 dead code。</li>
 <li><code>SceneDefinitions.h:87</code> 的 <code>NOTE: Out of flags</code> → Primitive 数据 flag 已用满 31 位，再加标志位必须另起炉灶（这正是 GR 自研 visibility flag 单独占 16 位的原因）。</li>
 </ul>
+
+<h4>三个「设计意图」类问题的答案性质（读文档时别混用）</h4>
+<table class="kv">
+<thead><tr><th>问题</th><th>答案的性质</th></tr></thead>
+<tbody>
+<tr><td>为什么移动端是 AoS</td><td><b>被 UBO 窗口模型倒逼</b>（一个 dynamic offset + 连续 16 KB）—— 机制推论，链条完整，见 §9.8①</td></tr>
+<tr><td>为什么直接放数据不放索引</td><td><b>放索引会要求一次 SSBO 读，与初衷相悖</b> —— 机制推论，见 §9.8②</td></tr>
+<tr><td>为什么 UBO 不是 SSBO</td><td>代码事实是「<b>支持 UBO 就用</b>」（iOS 反例佐证）+ <b>Android ES3.1 的 VS 读不了 SSBO</b>（引擎自己有注释）；但「为什么这么取向」<b>源码未说明</b>，见 §9.8③ / §9.9</td></tr>
+</tbody>
+</table>
 </div>
 
 <footer>

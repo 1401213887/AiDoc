@@ -255,3 +255,73 @@ ls -l --time-style=+%H:%M:%S UE5EA/Engine/Source/Runtime/SlateRHIRenderer/Privat
 - 验证通道相关：
   - `E:\AiDoc\UE-Mobile-PreZ-Pass-作用与只画Mask材质原理.md`（同为 mobile 渲染pass分析）
   - MCP 截图能力的边界（截不到 FCanvas / Slate 层）
+
+---
+
+## 十二、`r.MeshDrawCommands.Stats` 同口径核对（2026-09-21 追加）
+
+**背景**：`r.Mobile.BasePassMaxDC` 被查出「统计早于截断」缺陷 —— 统计采集发生在 mesh pass 的 setup task 里，截断发生在其后的 `Draw()` 提交时，中间隔着 `WaitForMeshPassSetupTask()`，于是 `r.MeshDrawCommands.Stats` 的 BasePass 行与 TOTAL 行报的是"不截断会画多少"而非"实际画了多少"。已修：`FMeshDrawCommandPassStats::NumSubmittedDraws` 由 `Draw()` 截断后回写，两个消费点（`Update()` 累加、`DumpStats()` 导出）按它截断。
+
+本篇核对 Slate 侧有无同类问题。
+
+### 结论 1：Slate 侧**不存在**同类问题
+
+| 环节 | `r.Mobile.BasePassMaxDC`（有缺陷） | `r.Mobile.SlateUIMaxDC`（无缺陷） |
+|---|---|---|
+| 计数采集 | setup task 里采集**全量** `DrawData`（`MeshDrawCommands.cpp:1041`） | `NumOpsCreated++`（`SlateRHIRenderingPolicy.cpp:1826`） |
+| 截断判据 | `Draw()` 里另一个时刻（`MeshDrawCommands.cpp:1901`） | `NumOpsCreated >= MaxDC`（`:1806`，**创建 op 之前**） |
+| 两者关系 | 两个阶段，中间有同步点 | **同一变量、同一时刻** |
+
+且计数条件与真正发 draw 的条件**逐字一致**：
+
+```cpp
+// :1820-1826 计数
+if (RenderBatchOp->bShow) { NumOpsCreated++; }
+// :1528-1532 发 draw
+if (RenderBatchOp.bShow) { RHICmdList.DrawIndexedPrimitive(...); }
+```
+
+⇒ `NumOpsCreated` == 实际发出的 draw 数（同步路径下逐位相等），没有"偏高"的余地。
+
+### 结论 2：Slate 的截断无法体现在任何「面数」读数上（要新增统计源才行）
+
+- **`r.MeshDrawCommands.Stats` 完全不含 Slate**：该统计只在 mesh pass 的 setup task 里采集；Slate 的 draw 由 `DrawSlateRenderBatch` 直接 `RHICmdList.DrawIndexedPrimitive` 发出（`:1531`），不经过 MeshDrawCommand
+- **Slate 的三角形也进不了 `stat rhi` 的 Triangles**：`GNumPrimitivesDirectDrawnRHI` 在整个 Runtime 只有定义（`RHIStats.cpp:11`）与读取（`UnrealClient.cpp:881`、`MeshDrawCommandStats.cpp:429`），**无任何写入点**，恒为 0；而 `GNumPrimitivesDrawnRHI = GNumPrimitivesIndirectDrawnRHI + Direct`（`MeshDrawCommandStats.cpp:429`）⇒ `stat rhi` 的 Triangles 实际等于 `Stats.TotalPrimitives`（纯 MDC 口径，且同样已被 MaxDC 截断修复覆盖）
+- ⇒ 要让 UI 的几何开销可见，必须**新增统计源**（在 op 创建处累计顶点/三角形数），不是"让 Stats 跟随截断"能解决的
+
+### 结论 3：真实存在的两处口径差（均为既有问题，与本次改动无关）
+
+**(a) CVar 是「每次 `AddSlateDrawElementsPass` 调用」的上限，不是 help 文本写的 "per window"**
+
+`NumOpsCreated` 是函数局部变量（`:1652`），每次调用从 0 起算；而该函数有**三个**调用点：
+
+| 调用点 | 场景 |
+|---|---|
+| `SlateRHIRenderer.cpp:801` | HDR batch 组 |
+| `SlateRHIRenderer.cpp:813` | 常规 batch 组（每窗口必走） |
+| `Slate3DRenderer.cpp:184` | Slate 3D（世界内 UI） |
+
+HDR 组的触发条件：`bCompositeUIWithSceneHDR = ViewportInfo.bDisplayFormatIsHDR && CompositeUIWithSceneHDR()`（`SlateRHIRenderer.cpp:740`）**且** `!BatchDataHDR.GetRenderBatches().IsEmpty()`（`:793`）。
+
+⇒ 实际可提交上限 = `MaxDC × 实际调用次数`。移动端在 `bDisplayFormatIsHDR == false` 时（Android 常规输出格式；**该值未在设备上实测**）只有 `:813` 一次调用 ⇒ "per window" 语义成立；PC/HDR 场景下 help 文本不准确。另：多窗口（编辑器主窗口 + 各浮动窗口）天然各自计一份。
+
+**(b) `CustomDrawer` / `PostProcess` 不计入预算但计入 drawcount**（help 文本已写明，此处补代码依据）
+
+- `case ESlateRenderBatchType::CustomDrawer:`（`:1740`）直接走 `ICustomSlateElement::Draw_RenderThread` 自绘，**不经过 op 链表、不 ++NumOpsCreated**；`PostProcess` 同理走 `AddSlatePostProcessBlurPass`
+- 它们的 draw 落在 `RDG_GPU_STAT_SCOPE(GraphBuilder, SlateUI)`（`SlateRHIRenderer.cpp:675`）作用域内 ⇒ 计入 `stat drawcount` 的 `Slate UI` 行
+- ⇒ 该行**可能高于 CVar 上限**，是口径差不是 bug
+
+### 结论 4：Slate 的 DC 读数天然跟随截断
+
+`stat drawcount` 的 `Slate UI` 是 **RHI 口径**（`FRHIDrawStats::AddDraw` 统计实际发出的 draw，`RHIStats.h:179`），发生在截断之后 ⇒ **天然反映截断效果**，无需修复。其偏差只来自上面 (b) 的旁路。
+
+### 一句话总结
+
+| 问题 | `BasePassMaxDC` | `SlateUIMaxDC` |
+|---|---|---|
+| 统计早于截断 → 读数偏高 | **有**（2026-09-21 已修） | **无**（计数即截断判据本身） |
+| 能否被 `r.MeshDrawCommands.Stats` 看到 | 能 | **不能**（Slate 不在 MDC 统计内） |
+| CVar 上限语义 | per pass / per view | per `AddSlateDrawElementsPass` 调用（移动端 == per window） |
+| 读数出口 | Stats 面板 + `stat rhi` | 仅 `stat drawcount`（RHI 口径，天然跟随） |
+| 三角形是否进 `stat rhi` | 是 | **否**（`GNumPrimitivesDirectDrawnRHI` 无写入点） |
+
