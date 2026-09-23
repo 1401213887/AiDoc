@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VHM 虚拟高度场实现剖析 — 四叉树 / 页表驱动 / Shader / 优化</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --ink:#1a1d21; --ink2:#4a5158; --ink3:#7a828a;
+    --line:#e2e6ea; --accent:#2f6feb; --accent-soft:#eaf1fe;
+    --pc:#2f6feb; --mobile:#d9741a; --fork:#8e44ad;
+    --ok:#1f9254; --warn:#c0392b; --note:#8a6d1f;
+    --code-bg:#f2f4f7;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.75; font-size:15px;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:40px 28px 100px}
+  header.top{
+    background:linear-gradient(135deg,#1f3a63 0%,#2f6feb 100%);
+    color:#fff; border-radius:14px; padding:34px 36px; margin-bottom:28px;
+  }
+  header.top h1{margin:0 0 10px; font-size:27px; letter-spacing:.3px}
+  header.top p{margin:0; opacity:.9; font-size:14px}
+  header.top .meta{margin-top:16px; font-size:12.5px; opacity:.82; border-top:1px solid rgba(255,255,255,.22); padding-top:12px}
+  header.top code{background:rgba(255,255,255,.18); color:#fff; padding:1.5px 6px}
+  h2{font-size:21px; margin:44px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--line)}
+  h2 .num{color:var(--accent); font-weight:700; margin-right:8px}
+  h3{font-size:17px; margin:28px 0 10px; color:var(--ink)}
+  h4{font-size:15px; margin:20px 0 8px; color:var(--ink2)}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0; padding-left:24px}
+  li{margin:5px 0}
+  code{
+    background:var(--code-bg); padding:1.5px 5px; border-radius:4px;
+    font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace; font-size:12.8px;
+  }
+  pre{
+    background:#1e232b; color:#dfe6ee; padding:14px 16px; border-radius:8px;
+    overflow-x:auto; font-size:12.5px; line-height:1.6;
+    font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  }
+  pre .c{color:#7f8c9b}
+  pre .k{color:#7cc4ff}
+  pre .s{color:#c3e88d}
+  .ref{
+    font-family:"Cascadia Mono",Consolas,monospace; font-size:11.5px;
+    color:var(--ink3); background:#eef1f4; border-radius:3px; padding:0 4px;
+    white-space:nowrap;
+  }
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 22px; margin:16px 0}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:13.4px; background:var(--panel)}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top}
+  th{background:#eef2f7; font-weight:600; font-size:13px}
+  tbody tr:nth-child(even){background:#fafbfc}
+  .tag{display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; font-weight:600; white-space:nowrap}
+  .t-pc{background:#e8f0fe; color:var(--pc)}
+  .t-mob{background:#fdf0e4; color:var(--mobile)}
+  .t-fork{background:#f5ebfa; color:var(--fork)}
+  .t-ok{background:#e6f6ec; color:var(--ok)}
+  .t-bad{background:#fdeaea; color:var(--warn)}
+  .callout{border-left:4px solid var(--accent); background:var(--accent-soft); padding:12px 16px; border-radius:0 8px 8px 0; margin:14px 0}
+  .callout.warn{border-color:var(--warn); background:#fdf0ef}
+  .callout.note{border-color:var(--note); background:#fdf8e8}
+  .callout.ok{border-color:var(--ok); background:#e9f7ef}
+  .callout .h{font-weight:700; margin-bottom:4px; font-size:13.5px}
+  .fig{margin:22px 0; text-align:center}
+  .fig svg{max-width:100%; height:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px}
+  .fig .cap{font-size:12.5px; color:var(--ink3); margin-top:8px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  .toc{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 22px; margin-bottom:26px}
+  .toc ol{margin:6px 0; padding-left:22px; columns:2; column-gap:30px}
+  @media(max-width:700px){.toc ol{columns:1}}
+  .toc a{color:var(--ink2); text-decoration:none}
+  .toc a:hover{color:var(--accent)}
+  .kv{font-size:13px}
+  .kv td:first-child{white-space:nowrap; font-weight:600; width:1%}
+  footer{margin-top:60px; padding-top:20px; border-top:1px solid var(--line); font-size:12.5px; color:var(--ink3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>VHM 虚拟高度场（Virtual Heightfield Mesh）实现剖析</h1>
+  <p>四叉树遍历 · 页表驱动 · 数据组织 · Shader 实现 · 优化总结</p>
+  <div class="meta">
+    代码基线：<code>D:\GR_DevTest\UE5EA\Engine\Plugins\Experimental\VirtualHeightfieldMesh</code>
+    （UE 5.5.4 分叉 <code>++GR+DevTest</code>，CL 1128341）<br>
+    所有结论均标注 <span style="background:rgba(255,255,255,.18);padding:0 4px;border-radius:3px">完整文件名:行号</span>；
+    凡本仓库未找到的写法一律标「未找到」，不做推测。<br>
+    行号基线 = <b>本工作区当前版本</b>（<code>VirtualHeightfieldMeshSceneProxy.cpp</code> 为 3053 行，含一处本地未提交的 <code>// [ZXB]</code> 改动；depot 版为 3052 行，差 1 行，详见 §9.3 末尾说明）。
+  </div>
+</header>
+
+<div class="toc">
+  <strong>目录</strong>
+  <ol>
+    <li><a href="#s1">TL;DR（三板斧）</a></li>
+    <li><a href="#s2">为什么需要 VHM（动机）</a></li>
+    <li><a href="#s3">整体架构与每帧流程图</a></li>
+    <li><a href="#s4">数据组织（这是理解 VHM 的钥匙）</a></li>
+    <li><a href="#s5">GPU 侧核心算法</a></li>
+    <li><a href="#s6">CPU 侧：帧调度与资源复用</a></li>
+    <li><a href="#s7">关键数学</a></li>
+    <li><a href="#s8">Heightfield 预处理链路（离线烘焙）</a></li>
+    <li><a href="#s9">本仓库（GR 分叉）的自研改动清单</a></li>
+    <li><a href="#s10">已做的优化总结</a></li>
+    <li><a href="#s11">已知问题与待人工确认</a></li>
+    <li><a href="#s12">CVar 速查表</a></li>
+    <li><a href="#s13">网络资料勘误</a></li>
+    <li><a href="#s14">一页总结</a></li>
+    <li><a href="#s15">参考</a></li>
+  </ol>
+</div>
+
+<div class="callout"><p style="margin:0">VHM 是 UE5 中"用 GPU Driven 四叉树 + 虚拟纹理页表"驱动的地形渲染方案，本仓库（GR 分叉 / UE 5.5.4）在其上做了大量自研改造（V3 三段式流水线、Mask 挖洞、LOD 调参）。 本文每条结论均附 <code>文件:行号</code>，可逐条回源码核对。</p></div>
+
+<p><strong>代码根目录（下称 <code>‹VHM›</code>）</strong>： <code>D:\GR_DevTest\UE5EA\Engine\Plugins\Experimental\VirtualHeightfieldMesh\</code></p>
+
+<h2 id="s1"><span class="num">〇</span>TL;DR（三板斧）</h2>
+
+<ol><li><strong>它不是"地形 Mesh"，而是"页表遍历器"</strong>。VHM 每帧在 GPU 上遍历 RVT（RuntimeVirtualTexture）的<strong>页表纹理</strong>，把"当前已驻留物理页 + 屏幕需要"的那些页，逐个变成一个 <strong>quad 实例</strong>，最后用 <code>DrawIndexedInstancedIndirect</code> 一次性画出来。CPU 全程不知道要画多少个实例。</li><li><strong>LOD 不是传统四叉树挑层级，而是"边遍历边细分"</strong>。从最粗的 64 个根 quad 开始，每个 quad 若"离相机够近"就分裂成 4 个子 quad 压回队列，直到层级降到 0。这是一个 <strong>GPU 上的层序（breadth-first）四叉树展开</strong>，天然对齐 VT 的 mip 结构。</li><li><strong>几何由 <code>SV_VertexID</code> 现场生成，没有顶点缓冲</strong>。每个实例只是一段 16 字节的数据（Pos + Level + 物理页地址），顶点位置由 VS 查页表 → 采高度图 → 位移得到。这就是"GPU Driven"的字面含义。</li></ol>
+
+<h2 id="s2"><span class="num">一</span>为什么需要 VHM（动机）</h2>
+
+<table class="kv"><thead><tr>
+<th>痛点</th>
+<th>VHM 的答案</th>
+</tr></thead><tbody>
+<tr><td>UE5 移除了 Tessellation，Landscape 无法高度位移</td><td>用 RVT(WorldHeight) + 顶点采样位移，几何全 GPU 生成</td></tr>
+<tr><td>传统 Landscape 是固定网格，远处浪费</td><td>四叉树按需细分，远处只画大 quad</td></tr>
+<tr><td>地形数据量 &gt;&gt; 显存</td><td>复用 <strong>虚拟纹理</strong> 的流式加载/页表机制，几何量与驻留量解耦</td></tr>
+<tr><td>Nanite 在移动端不可用</td><td>VHM 是 Nanite 的地形替代品；本仓库对 SM5/移动端专门放开了 VHM</td></tr>
+</tbody></table>
+
+<p><strong>本仓库的关键定位</strong>（<span class="ref">VirtualHeightfieldMeshEnable.cpp</span>）：</p>
+
+<ul><li><code>r.VHM.Enable</code> 默认 0（<span class="ref">VirtualHeightfieldMeshEnable.cpp:16-21</span>）。</li><li>但 sink 会在<strong>运行时自动改它</strong>：当 Nanite 关闭（或平台不满足）时自动置 1（<span class="ref">VirtualHeightfieldMeshEnable.cpp:55-68</span>）。</li><li><strong>GR 自研补丁</strong>：<code>bNaniteEnabled &amp;= GMaxRHIFeatureLevel &gt; ERHIFeatureLevel::SM5;</code>（<span class="ref">VirtualHeightfieldMeshEnable.cpp:51-53</span>，<code>Engine ZXB</code> 标记）——使得在 SM5 及以下（含移动端 ES3.1）<strong>即使 Nanite 开关是开的，也不再自动禁用 VHM</strong>，实现两套地形方案共存/切换。</li><li>最终判定还需 <code>FeatureLevel &gt;= SM5 || == ES3_1</code> <strong>且</strong> <code>UseVirtualTexturing()</code>（<span class="ref">VirtualHeightfieldMeshEnable.cpp:128-133</span>）。</li></ul>
+
+<p>工程侧：插件已在 <span class="ref">S1Game.uproject:191-193</span> 显式 <code>"Enabled": true</code>；关卡/组件用 <code>VirtualTexture</code> 指向 <code>ARuntimeVirtualTextureVolume</code>。</p>
+
+<h2 id="s3"><span class="num">二</span>整体架构与每帧流程图</h2>
+
+<h3>2.1 模块分层</h3>
+
+<div class="fig">
+<svg viewBox="0 0 1100 470" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/>
+    </marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/>
+    </marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/>
+    </marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/>
+    </marker>
+  </defs>
+
+  <rect x="16" y="16" width="380" height="438" rx="10" fill="#f4f7fc" stroke="#c9d8ee"/>
+  <text x="206" y="44" font-size="14" font-weight="700" fill="#1f3a63" text-anchor="middle">Game Thread</text>
+
+  <rect x="40" y="62" width="332" height="62" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="206" y="86" font-size="12.5" fill="#1a1d21" text-anchor="middle">UVirtualHeightfieldMeshComponent</text>
+  <text x="206" y="105" font-size="11" fill="#7a828a" text-anchor="middle">用户资产：VirtualTexture / MinMax / Mask / 材质</text>
+
+  <line x1="206" y1="124" x2="206" y2="150" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="40" y="152" width="332" height="44" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="206" y="179" font-size="12.5" fill="#1a1d21" text-anchor="middle">CreateSceneProxy()</text>
+
+  <line x1="206" y1="196" x2="206" y2="222" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="40" y="224" width="332" height="76" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="206" y="248" font-size="12.5" fill="#1a1d21" text-anchor="middle">FVirtualHeightfieldMeshSceneProxy</text>
+  <text x="206" y="267" font-size="11" fill="#7a828a" text-anchor="middle">LOD 参数 / UVToLocal·UVToWorld 矩阵</text>
+  <text x="206" y="284" font-size="11" fill="#7a828a" text-anchor="middle">创建并持有 FVirtualHeightfieldMeshVertexFactory</text>
+
+  <line x1="206" y1="300" x2="206" y2="326" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="40" y="328" width="332" height="58" rx="7" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="206" y="352" font-size="12.5" fill="#1a1d21" text-anchor="middle">GetDynamicMeshElements()</text>
+  <text x="206" y="371" font-size="11" fill="#a06a2c" text-anchor="middle">AddWork() 取缓冲 · AddMesh ×2（主材质 / 洞材质）</text>
+
+  <rect x="704" y="16" width="380" height="438" rx="10" fill="#f4fbf6" stroke="#bfe3cc"/>
+  <text x="894" y="44" font-size="14" font-weight="700" fill="#1f6b41" text-anchor="middle">Render Thread</text>
+
+  <rect x="728" y="62" width="332" height="62" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="894" y="86" font-size="12.5" fill="#1a1d21" text-anchor="middle">FVirtualHeightfieldMeshRendererExtension</text>
+  <text x="894" y="105" font-size="11" fill="#5f7a68" text-anchor="middle">TGlobalResource 全局单例 · 帧级调度</text>
+
+  <line x1="894" y1="124" x2="894" y2="150" stroke="#5f7a68" stroke-width="1.4" marker-end="url(#arg)"/>
+
+  <rect x="728" y="152" width="332" height="44" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="894" y="179" font-size="12.5" fill="#1a1d21" text-anchor="middle">BeginFrame(GraphBuilder)</text>
+
+  <line x1="894" y1="196" x2="894" y2="222" stroke="#5f7a68" stroke-width="1.4" marker-end="url(#arg)"/>
+
+  <rect x="728" y="224" width="332" height="58" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="894" y="248" font-size="12.5" fill="#1a1d21" text-anchor="middle">SubmitWork() / SubmitWork_V3()</text>
+  <text x="894" y="267" font-size="11" fill="#5f7a68" text-anchor="middle">按 r.VHM.Version 分发（默认 3）</text>
+
+  <line x1="894" y1="282" x2="894" y2="308" stroke="#5f7a68" stroke-width="1.4" marker-end="url(#arg)"/>
+
+  <rect x="728" y="310" width="332" height="62" rx="7" fill="#eef7f1" stroke="#8fc9a8"/>
+  <text x="894" y="334" font-size="12.5" fill="#1a1d21" text-anchor="middle">Compute Pass 链</text>
+  <text x="894" y="353" font-size="11" fill="#5f7a68" text-anchor="middle">查页表 → 细分 / 剔除 → 生成实例</text>
+
+  <line x1="894" y1="372" x2="894" y2="396" stroke="#5f7a68" stroke-width="1.4" marker-end="url(#arg)"/>
+
+  <rect x="728" y="398" width="332" height="44" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="894" y="425" font-size="12.5" fill="#1a1d21" text-anchor="middle">DrawIndexedInstancedIndirect ×2</text>
+
+  <line x1="374" y1="357" x2="726" y2="357" stroke="#2f6feb" stroke-width="1.6" marker-end="url(#arb)" stroke-dasharray="6 4"/>
+  <text x="550" y="346" font-size="11.5" fill="#2f6feb" text-anchor="middle" font-weight="600">AddWork() / AddMesh()</text>
+  <text x="550" y="376" font-size="10.5" fill="#7a828a" text-anchor="middle">跨线程（ENQUEUE_RENDER_COMMAND）</text>
+</svg>
+<div class="cap">图 1　模块分层：Game Thread 侧的对象与 Render Thread 侧的帧调度器</div>
+</div>
+
+<p>全局单例：<code>TGlobalResource&lt;FVirtualHeightfieldMeshRendererExtension&gt; GVirtualHeightfieldMeshViewRendererExtension</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:588</span>），通过 <code>GEngine-&gt;GetPreRenderDelegateEx()</code> 挂 <code>BeginFrame</code>、<code>PostRenderDelegateEx</code> 挂 <code>EndFrame</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:590-599</span>）。</p>
+
+<h3>2.2 每帧总流程</h3>
+
+<div class="fig">
+<svg viewBox="0 0 1100 760" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/>
+    </marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/>
+    </marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/>
+    </marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/>
+    </marker>
+  </defs>
+
+  <rect x="14" y="14" width="520" height="732" rx="10" fill="#f4f7fc" stroke="#c9d8ee"/>
+  <text x="274" y="42" font-size="14" font-weight="700" fill="#1f3a63" text-anchor="middle">① 提交阶段（CPU 侧，每帧一次）</text>
+
+  <rect x="38" y="60" width="472" height="46" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="274" y="88" font-size="12.5" fill="#1a1d21" text-anchor="middle">GetDynamicMeshElements → AddWork() 取 / 复用 DrawInstanceBuffers</text>
+
+  <line x1="274" y1="106" x2="274" y2="128" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="38" y="130" width="472" height="46" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="274" y="158" font-size="12.5" fill="#1a1d21" text-anchor="middle">AddMesh ×2：主材质（offset 0）+ Hole 材质（offset 5*4B）</text>
+
+  <line x1="274" y1="176" x2="274" y2="198" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="38" y="200" width="472" height="44" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="274" y="227" font-size="12.5" fill="#1a1d21" text-anchor="middle">BeginFrame(GraphBuilder)　—　PreRenderDelegateEx 挂载</text>
+
+  <line x1="274" y1="244" x2="274" y2="266" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <polygon points="274,268 434,300 274,332 114,300" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="274" y="298" font-size="12" fill="#1a1d21" text-anchor="middle">r.VHM.Version ?</text>
+  <text x="274" y="314" font-size="10.5" fill="#a06a2c" text-anchor="middle">默认 3</text>
+
+  <line x1="114" y1="300" x2="60" y2="300" stroke="#5a6672" stroke-width="1.4"/>
+  <line x1="60" y1="300" x2="60" y2="368" stroke="#5a6672" stroke-width="1.4"/>
+  <line x1="60" y1="368" x2="112" y2="368" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="88" y="288" font-size="10.5" fill="#7a828a" text-anchor="middle">=1</text>
+
+  <rect x="114" y="348" width="320" height="40" rx="7" fill="#f4f4f4" stroke="#b9c2cb"/>
+  <text x="274" y="373" font-size="12" fill="#4a5158" text-anchor="middle">SubmitWork()　V1 旧流水线</text>
+
+  <line x1="274" y1="332" x2="274" y2="410" stroke="#5a6672" stroke-width="1.4"/>
+  <line x1="274" y1="410" x2="274" y2="410" stroke="#5a6672"/>
+  <text x="288" y="352" font-size="10.5" fill="#7a828a">≠1</text>
+
+  <rect x="38" y="412" width="472" height="44" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="274" y="439" font-size="12.5" fill="#1a1d21" text-anchor="middle">SubmitWork_V3()　—　WorkDescs.Sort（按 Proxy→View 批处理）</text>
+
+  <line x1="274" y1="456" x2="274" y2="478" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="38" y="480" width="472" height="44" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="274" y="507" font-size="12.5" fill="#1a1d21" text-anchor="middle">InitVolatileBuffers()　填 UB + 绑定纹理</text>
+
+  <line x1="274" y1="524" x2="274" y2="546" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="38" y="548" width="472" height="44" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="274" y="575" font-size="12.5" fill="#1a1d21" text-anchor="middle">Transition 输出缓冲 → 可写（BeginUAVOverlap）</text>
+
+  <line x1="274" y1="592" x2="274" y2="614" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="38" y="616" width="472" height="44" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="274" y="643" font-size="12.5" fill="#1a1d21" text-anchor="middle">Post-Render: EndFrame()　回收缓冲池（4 帧老化）</text>
+
+  <rect x="566" y="14" width="520" height="732" rx="10" fill="#f4fbf6" stroke="#bfe3cc"/>
+  <text x="826" y="42" font-size="14" font-weight="700" fill="#1f6b41" text-anchor="middle">② GPU 计算阶段（每 WorkDesc 一段）</text>
+
+  <rect x="590" y="60" width="472" height="44" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="826" y="87" font-size="12.5" fill="#1a1d21" text-anchor="middle">InitAllBuffersCS　清零队列 / Args / 实例缓冲</text>
+
+  <line x1="826" y1="104" x2="826" y2="126" stroke="#5f7a68" stroke-width="1.4" marker-end="url(#arg)"/>
+
+  <rect x="590" y="128" width="472" height="44" rx="7" fill="#eef7f1" stroke="#8fc9a8"/>
+  <text x="826" y="155" font-size="12.5" fill="#1a1d21" text-anchor="middle">FillLevel4QuadCS　播种 64 个 MaxLevel-3 根 quad</text>
+
+  <line x1="826" y1="172" x2="826" y2="194" stroke="#5f7a68" stroke-width="1.4" marker-end="url(#arg)"/>
+
+  <polygon points="826,196 986,228 826,260 666,228" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="826" y="226" font-size="12" fill="#1a1d21" text-anchor="middle">One-Pass ?</text>
+  <text x="826" y="242" font-size="10.5" fill="#a06a2c" text-anchor="middle">r.VHM.WithOnePass（默认 0）</text>
+
+  <line x1="666" y1="228" x2="620" y2="228" stroke="#5a6672" stroke-width="1.4"/>
+  <line x1="620" y1="228" x2="620" y2="296" stroke="#5a6672" stroke-width="1.4"/>
+  <line x1="620" y1="296" x2="664" y2="296" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="646" y="216" font-size="10.5" fill="#7a828a" text-anchor="middle">否</text>
+
+  <rect x="666" y="274" width="396" height="44" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="864" y="301" font-size="12.5" fill="#1a1d21" text-anchor="middle">CollectSubdivideQuadsCS × (MaxLevel-3+1) 轮</text>
+
+  <line x1="986" y1="228" x2="1032" y2="228" stroke="#5a6672" stroke-width="1.4"/>
+  <line x1="1032" y1="228" x2="1032" y2="296" stroke="#5a6672" stroke-width="1.4"/>
+  <line x1="1032" y1="296" x2="988" y2="296" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="1010" y="216" font-size="10.5" fill="#7a828a" text-anchor="middle">是</text>
+
+  <rect x="666" y="344" width="396" height="44" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="864" y="371" font-size="12.5" fill="#1a1d21" text-anchor="middle">CollectQuadsOnePassCS × 2　（仅 SM6）</text>
+
+  <line x1="864" y1="318" x2="864" y2="344" stroke="#5f7a68" stroke-width="1.4" marker-end="url(#arg)"/>
+  <line x1="864" y1="388" x2="864" y2="412" stroke="#5f7a68" stroke-width="1.4" marker-end="url(#arg)"/>
+
+  <rect x="590" y="414" width="472" height="44" rx="7" fill="#eef7f1" stroke="#8fc9a8"/>
+  <text x="826" y="441" font-size="12.5" fill="#1a1d21" text-anchor="middle">CullQuadsAndGenerateInstancesCS　剔除 + 分主/洞两批</text>
+
+  <line x1="826" y1="458" x2="826" y2="480" stroke="#5f7a68" stroke-width="1.4" marker-end="url(#arg)"/>
+
+  <rect x="590" y="482" width="472" height="44" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="826" y="509" font-size="12.5" fill="#1a1d21" text-anchor="middle">Transition 输出缓冲 → 可读（EndUAVOverlap）</text>
+
+  <line x1="826" y1="526" x2="826" y2="548" stroke="#5f7a68" stroke-width="1.4" marker-end="url(#arg)"/>
+
+  <rect x="590" y="550" width="472" height="44" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="826" y="577" font-size="12.5" fill="#1a1d21" text-anchor="middle">SubmitVirtualTextureFeedbackBuffer　全帧合并一次</text>
+
+  <line x1="826" y1="594" x2="826" y2="616" stroke="#5f7a68" stroke-width="1.4" marker-end="url(#arg)"/>
+
+  <rect x="590" y="618" width="472" height="44" rx="7" fill="#ffffff" stroke="#8fc9a8"/>
+  <text x="826" y="645" font-size="12.5" fill="#1a1d21" text-anchor="middle">VS 顶点生成 → 光栅化（主材质 + 洞材质两批）</text>
+
+  <line x1="510" y1="638" x2="588" y2="638" stroke="#2f6feb" stroke-width="1.6" marker-end="url(#arb)" stroke-dasharray="6 4"/>
+  <text x="549" y="628" font-size="10.5" fill="#2f6feb" text-anchor="middle" font-weight="600">提交</text>
+</svg>
+<div class="cap">图 2　每帧总流程（V3 路径）：左侧 CPU 提交阶段，右侧 GPU 计算阶段</div>
+</div>
+
+<h3>2.3 两个版本的区别</h3>
+
+<table><thead><tr>
+<th></th>
+<th><strong>V1</strong>（Epic 原始）</th>
+<th><strong>V3</strong>（本仓库默认，<code>r.VHM.Version=3</code>）</th>
+</tr></thead><tbody>
+<tr><td>Shader 文件</td><td><span class="ref">VirtualHeightfieldMesh.usf</span></td><td><span class="ref">VirtualHeightfieldMesh3.usf</span></td></tr>
+<tr><td>遍历方式</td><td>单 CS <strong>持久波（persistent wave）</strong>：<code>while(NumActive&gt;0)</code> 反复从环形队列取节点（<span class="ref">VirtualHeightfieldMesh.usf:137</span>）</td><td><strong>多轮串行 dispatch</strong>：每轮 CS 处理一批，写出下一批（<span class="ref">VirtualHeightfieldMesh3.usf:272</span>）</td></tr>
+<tr><td>起点</td><td>从 <code>Level=MaxLevel</code> 单根节点开始（<span class="ref">VirtualHeightfieldMesh.usf:87</span>）</td><td>直接播种 <strong>64 个 <code>MaxLevel-3</code> 的 quad</strong>（8×8 Morton 展开），跳过最粗 3 层（<span class="ref">VirtualHeightfieldMesh3.usf:600-632</span>）</td></tr>
+<tr><td>节点打包</td><td><code>uint</code>（Address 24b + Level 8b）+ <code>uint2</code></td><td><code>uint4</code>（Morton+Level in .x, PhysicalAddress 三维 in .yzw）</td></tr>
+<tr><td>实例打包</td><td><code>Pos.x | Pos.y&lt;&lt;12 | Level&lt;&lt;24</code>（12/12/8）</td><td><code>Pos.x | Pos.y&lt;&lt;14 | Level&lt;&lt;28</code>（14/14/4）</td></tr>
+<tr><td>反馈写入</td><td>每线程一次原子加（<span class="ref">VirtualHeightfieldMesh3.usf:202-221</span>）</td><td><strong>每组一次</strong>原子加 + 组内偏移（<span class="ref">VirtualHeightfieldMesh3.usf:411-427</span>）</td></tr>
+<tr><td>Mask/洞</td><td>有（<span class="ref">VirtualHeightfieldMesh.usf</span>，Shiyu 加）</td><td>有（同上，V3 内联）</td></tr>
+<tr><td>遮挡查询</td><td>接了 <code>OcclusionTexture</code></td><td><strong>未接</strong>（<code>// todo</code>，<span class="ref">VirtualHeightfieldMesh3.usf:237</span>）</td></tr>
+</tbody></table>
+
+<h2 id="s4"><span class="num">三</span>数据组织（这是理解 VHM 的钥匙）</h2>
+
+<h3>3.1 三类核心结构（CPU/GPU 共享，改一处必须同步另一处）</h3>
+
+<div class="callout"><p style="margin:0"><span class="ref">VirtualHeightfieldMesh.ush:10-13</span> 原文：<em>"Structures used by VirtualHeightfieldMesh. These need to be kept in sync with any C++ buffer definitions in VirtualHeightfieldMeshSceneProxy.cpp"</em></p></div>
+
+<h4>① <code>WorkerQueueInfo</code> — 工作队列游标（持久波用）</h4>
+
+<p>来源：<span class="ref">VirtualHeightfieldMesh.ush:16-21</span> / C++ <span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1209-1214</span></p>
+
+<table><thead><tr>
+<th>字段</th>
+<th>类型</th>
+<th>含义</th>
+</tr></thead><tbody>
+<tr><td><code>Read</code></td><td>uint</td><td>消费者游标，每消费一个节点 <code>InterlockedAdd(+1)</code></td></tr>
+<tr><td><code>Write</code></td><td>uint</td><td>生产者游标，每产出 4 个子节点 <code>InterlockedAdd(+4)</code></td></tr>
+<tr><td><code>NumActive</code></td><td>int</td><td>在途任务数；降到 ≤0 时所有线程退出</td></tr>
+</tbody></table>
+
+<h4>② <code>QuadRenderItem</code> — 中间态四叉树节点（打包成 <code>uint2</code>，8 字节）</h4>
+
+<p>来源：<span class="ref">VirtualHeightfieldMesh.ush:55-72</span>；V3 变体 <code>uint4</code> 见 <span class="ref">VirtualHeightfieldMesh3.usf:28-80</span></p>
+
+<table><thead><tr>
+<th>位域</th>
+<th>宽度</th>
+<th>字段</th>
+<th>说明</th>
+</tr></thead><tbody>
+<tr><td><code>.x[11:0]</code></td><td>12</td><td><code>Pos.x</code></td><td>节点在该层的格子 X 坐标（0~4095）</td></tr>
+<tr><td><code>.x[23:12]</code></td><td>12</td><td><code>Pos.y</code></td><td>格子 Y 坐标</td></tr>
+<tr><td><code>.x[31:24]</code></td><td>8</td><td><code>Level</code></td><td>四叉树层级</td></tr>
+<tr><td><code>.y[19:0]</code></td><td>20</td><td><code>PhysicalAddress</code></td><td>VT 物理页地址</td></tr>
+<tr><td><code>.y[20]</code></td><td>1</td><td><code>bCull</code></td><td>是否被剔除（V1 的 <code>REUSE_CULL</code> 用的缓存标记）</td></tr>
+</tbody></table>
+
+<p><strong>V3 换成 <code>uint4</code></strong>：<code>.x = MortonEncode(Pos) | (Level &lt;&lt; 28)</code>，<code>.yzw = PhysicalAddress</code>（三维物理页地址，<span class="ref">VirtualHeightfieldMesh3.usf:73-80</span>）。用 <strong>Morton 码</strong>替代显式 XY，省一半位宽并能顺带改善访问局部性。</p>
+
+<h4>③ <code>QuadRenderInstance</code> — 最终渲染实例（打包成 4×uint32 = <strong>16 字节</strong>）</h4>
+
+<p>来源：<span class="ref">VirtualHeightfieldMesh.ush:96-116</span> / C++ <span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1217-1227</span></p>
+
+<table><thead><tr>
+<th>位域</th>
+<th>宽度</th>
+<th>字段</th>
+</tr></thead><tbody>
+<tr><td><code>PosLevelPacked[13:0]</code></td><td>14</td><td><code>Pos.x</code></td></tr>
+<tr><td><code>PosLevelPacked[27:14]</code></td><td>14</td><td><code>Pos.y</code></td></tr>
+<tr><td><code>PosLevelPacked[31:28]</code></td><td>4</td><td><code>Level</code></td></tr>
+<tr><td><code>PhysicalAddress</code>（<code>uint3</code>）</td><td>96</td><td>VT 物理页地址（含 level + PageX + PageY）</td></tr>
+</tbody></table>
+
+<p><strong>注意位宽差异</strong>：中间态 <code>QuadRenderItem</code> 用 12/12/8，最终实例 <code>QuadRenderInstance</code> 用 14/14/4。原因是中间态要跨 LOD 携带 <code>Level</code> 做比较，最终实例的 <code>Level</code> 只用于 VS 里算 morph，4 bit 够（最大 15）。</p>
+
+<p><code>QuadRenderInstance</code> 从 <strong><code>StructuredBuffer&lt;float4&gt;</code></strong> 读入（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:22-27</span>，<code>float4 Data; Inst.PosLevelPacked = asuint(Data.x); Inst.PhysicalAddress = asuint(Data.yzw);</code>），所以 stride 必须是 16 字节 —— 与 C++ 的 <code>sizeof(QuadRenderInstance)</code> 对应（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1787</span>）。</p>
+
+<h3>3.2 VT 物理页地址的位打包</h3>
+
+<p>来源：<span class="ref">VirtualHeightfieldMesh.ush:135-155</span>（注释："See packing in PageTableUpdate.usf"）</p>
+
+<pre>PhysicalAddress (uint32)
+├─ bit[3:0]               4 bits : 虚拟层级 (VirtualLevel)
+├─ bit[(4+NumAddressBits-1):4]    : PageX   （NumAddressBits = 6 或 8）
+└─ bit[31:(4+NumAddressBits)]     : PageY</pre>
+
+<p><code>NumAddressBits</code> 由页表格式决定：<code>EVTPageTableFormat::UInt16 ? 6 : 8</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:922</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2497</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2701</span>）。</p>
+
+<div class="callout warn"><div class="h">注意</div><p style="margin:0">反馈通道里 <code>PageTableFeedbackId</code> 占 <strong>bit[31:28]</strong>（<code>GetSpaceID() &lt;&lt; 28</code>，<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2498</span>），与 <code>Level</code> 字段在高位区"打架"——shader 注释里直白写着 <em>"PageTableFeedbackId is 4bit data, this value had shift to [28,32). fuck..."</em>（<span class="ref">VirtualHeightfieldMesh3.usf:214</span>）。这是已知的紧凑打包代价。</p></div>
+
+<h3>3.3 缓冲清单（V3 一帧用到的全部 GPU 缓冲）</h3>
+
+<table><thead><tr>
+<th>缓冲</th>
+<th>元素 / 大小</th>
+<th>访问</th>
+<th>谁写</th>
+<th>谁读</th>
+</tr></thead><tbody>
+<tr><td><code>QueueBuffer</code> / <code>SubdivideQuadBuffer[2]</code></td><td><code>uint4</code> × MaxRenderItems</td><td>RW</td><td>细分 CS 下一批</td><td>细分 CS 上一批（<strong>双缓冲</strong>）</td></tr>
+<tr><td><code>ArgsBuffer[2]</code></td><td>10 × uint32（Indirect）</td><td>RW</td><td>细分 CS</td><td><code>DispatchIndirect</code> 参数源</td></tr>
+<tr><td><code>FinalQuadBuffer</code></td><td><code>uint4</code> × MaxRenderItems</td><td>RW</td><td>细分 CS 叶子输出</td><td>剔除 CS</td></tr>
+<tr><td><code>FinalQuadArgsBuffer</code></td><td>10 × uint32</td><td>RW</td><td>细分 CS</td><td><code>DispatchIndirect</code>（剔除 CS 启动）</td></tr>
+<tr><td><code>InstanceBuffer</code></td><td><code>QuadRenderInstance</code> × MaxRenderItems</td><td>UAV→SRV</td><td>剔除 CS</td><td>VS（<code>VHMInst.InstanceBuffer</code>）</td></tr>
+<tr><td><code>HoleInstanceBuffer</code></td><td>同上（容量 /4）</td><td>UAV→SRV</td><td>剔除 CS</td><td>VS（洞材质那批）</td></tr>
+<tr><td><code>IndirectArgsBuffer</code></td><td>10 × uint32 = <strong>160 B</strong></td><td>UAV</td><td>剔除 CS</td><td><strong>Raster 的 IndirectDraw 参数</strong></td></tr>
+<tr><td><code>VTFeedbackBuf</code></td><td>uint32 × MaxFeedbackItems+1</td><td>UAV + CopySrc</td><td>细分 CS</td><td>VT 流送系统</td></tr>
+<tr><td><code>StatBuffer</code></td><td>uint32 × 64</td><td>UAV</td><td>各 CS</td><td>GPU Readback（默认编译关闭）</td></tr>
+</tbody></table>
+
+<p>容量常量：<code>IndirectArgsCount = 10</code>、<code>IndirectArgsByteSize = 4*4*10 = 160</code>、<code>MergeDispatchArgsOffset = 5</code>、<code>MaxStatCount = 64</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:216-222</span>）。</p>
+
+<p><strong><code>IndirectArgsBuffer</code> 的 10 个 uint 布局</strong>（这是"两批 draw"的关键）：</p>
+
+<pre>[0..4]  : DrawIndexedInstanced 参数 ——
+          0=IndexCountPerInstance(NumIndices)
+          1=InstanceCount        ← 剔除 CS 原子加
+          2=StartIndexLocation
+          3=BaseVertexLocation
+          4=StartInstanceLocation
+[5..9]  : 第二批（Hole/洞材质）的同结构参数</pre>
+
+<p>对应两个 FMeshBatch：主材质 <code>IndirectArgsOffset = 0</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1025</span>），洞材质 <code>IndirectArgsOffset = 5*sizeof(uint32)</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1083</span>）。</p>
+
+<h3>3.4 共享常量缓冲 <code>FVHMCSSharedParameters</code>（UB 名 <code>"VHMParam"</code>）</h3>
+
+<p>来源：<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:418-441</span>；填充点 <span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2670-2726</span></p>
+
+<table class="kv"><thead><tr>
+<th>字段</th>
+<th>来源</th>
+</tr></thead><tbody>
+<tr><td><code>ViewOrigin</code></td><td><strong>已变换到 UV 空间</strong>的相机位置</td></tr>
+<tr><td><code>FrustumPlanes[5]</code></td><td><strong>已变换到 UV 空间</strong>的视锥 5 平面</td></tr>
+<tr><td><code>UVToWorld</code> / <code>UVToWorldScale</code></td><td>VT Volume 的变换</td></tr>
+<tr><td><code>LodDistances</code></td><td><code>CalculateLodRanges()</code> 的返回值（见 §6.1）</td></tr>
+<tr><td><code>MaxLevel</code> / <code>RVTMinLevel</code> / <code>ExtSubdivisionLevel</code></td><td>LOD 层级体系</td></tr>
+<tr><td><code>PageTableSize</code> / <code>PhysicalPageTransform</code> / <code>NumPhysicalAddressBits</code></td><td>VT 地址换算</td></tr>
+<tr><td><code>OutBufferSizeMask</code> / <code>FinalQuadBufferSizeMask</code> / <code>QuadInstanceBufferSizeMask</code></td><td>全是 <code>MaxRenderItems - 1</code>，用于 <strong>位与取模</strong></td></tr>
+<tr><td><code>OutBufferSizeMask</code> 等掩码的副作用</td><td>溢出时<strong>回绕覆盖</strong>而非丢弃（<code>&amp; Mask</code>），所以容量必须开够</td></tr>
+</tbody></table>
+
+<h2 id="s5"><span class="num">四</span>GPU 侧核心算法</h2>
+
+<h3>4.1 层级体系（先把 Level 的定义搞对）</h3>
+
+<pre>Level 越大 = 越粗（覆盖范围越大）
+Level = MaxLevel  → 1 个 quad 覆盖整个地形
+Level = 0         → 最细（1 个 texel/page 一格）
+
+MaxLevel = floor(log2(RVT.TileCount)) + NumQuadsPerTileOfTwo + ExtSubdivisionLevel
+RVTMinLevel        = NumQuadsPerTileOfTwo
+NumInstanceVertexSide = 1 &lt;&lt; (log2(RVT.TileSize) - NumQuadsPerTileOfTwo)</pre>
+
+<p>来源：<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:877-882</span>。</p>
+
+<p>组件默认值（<span class="ref">VirtualHeightfieldMeshComponent.h:80-120</span>）： <code>NumQuadPerTileOfTwo = 4</code>、<code>ExtSubdivisionLevel = 0</code>、<code>Lod0ScreenSize = 1</code>、<code>Lod0Distribution = 1</code>、<code>LodDistribution = 2</code>、<code>LodBiasScale = 0</code>、<code>Lod0LevelBias = 4</code>。</p>
+
+<p><strong>几何层级 vs 纹理层级</strong>：几何可以比纹理细（<code>ExtSubdivisionLevel</code>），两者通过 <code>GeoToTexLevelOffset</code> 换算（<span class="ref">VirtualHeightfieldMesh3.usf:86-88</span>）：</p>
+
+<pre>const int TmpLevel = max(int(Item.Level) - VHMParam.ExtSubdivisionLevel, 0);
+const uint GeoToTexLevelOffset = max(int(InRVTMinLevel) - TmpLevel, 0)
+                               + max(0, VHMParam.ExtSubdivisionLevel - (int)Item.Level);</pre>
+
+<p>即：几何比纹理细时，多个几何 quad 共享同一个物理页（<code>SampleTexPos = Pos &gt;&gt; offset</code>）。</p>
+
+<h3>4.2 播种：<code>FillLevel4QuadCS</code></h3>
+
+<p><span class="ref">VirtualHeightfieldMesh3.usf:600-632</span>，<code>[numthreads(64,1,1)]</code>。</p>
+
+<pre>const uint Level = VHMParam.MaxLevel - 3;          <span class="c">// 跳过最粗 3 层</span>
+ThisPackData.x = ThisThreadID | (Level &lt;&lt; 28);     <span class="c">// 直接用线程号当 Morton 码</span>
+...
+ThisPackData.yzw = ThisInfo.PhysicalAddress.xxx;   <span class="c">// 三层共用同一个物理页地址（注释：this layer, parent layer, parent parent layer）</span></pre>
+
+<p>并预置 dispatch 参数：<code>OutDispatchArgsBuffer[0..3] = {2, 1, 1, 64}</code>（<span class="ref">VirtualHeightfieldMesh3.usf:608-611</span>）。</p>
+
+<p><strong>巧思</strong>：<code>ThisThreadID</code>（0~63）被直接当作 Morton 码，经 <code>MortonDecode</code> 后正好铺成 <strong>8×8 网格</strong>（因为 64 = 8×8，6 bit 的 Morton 码恰好覆盖 0~63 的所有二维组合）。一行代码生成 64 个根节点，零循环。</p>
+
+<div class="callout"><p style="margin:0">为什么从 <code>MaxLevel-3</code> 起？因为再粗的 3 层（1/2/4 quad）在任何视角下要么全屏要么全剔除，遍历它们纯属浪费。这是<strong>用一层预处理换掉 3 轮 dispatch</strong>。</p></div>
+
+<h3>4.3 细分：<code>CollectSubdivideQuadsCS</code>（V3 核心）</h3>
+
+<p><span class="ref">VirtualHeightfieldMesh3.usf:272-456</span>，<code>[numthreads(32,1,1)]</code>。单节点流程：</p>
+
+<div class="fig">
+<svg viewBox="0 0 980 700" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/>
+    </marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/>
+    </marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/>
+    </marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/>
+    </marker>
+  </defs>
+
+  <rect x="250" y="20" width="480" height="48" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="490" y="42" font-size="12.5" fill="#1a1d21" text-anchor="middle">读 QuadCount = InDispatchArgsBuffer[InArgsOffset + 3]</text>
+  <text x="490" y="59" font-size="10.5" fill="#7a828a" text-anchor="middle">s_SumQuadOffset = 3</text>
+
+  <line x1="490" y1="68" x2="490" y2="90" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="250" y="92" width="480" height="52" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="490" y="114" font-size="12.5" fill="#1a1d21" text-anchor="middle">IsValidThread = DispatchThreadID.x &lt; QuadCount</text>
+  <text x="490" y="132" font-size="10.5" fill="#7a828a" text-anchor="middle">无效线程回退读该组首索引，保证组内收敛</text>
+
+  <line x1="490" y1="144" x2="490" y2="166" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="250" y="168" width="480" height="46" rx="7" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="490" y="196" font-size="12.5" fill="#1a1d21" text-anchor="middle">ThisPackData = InQuadBuffer[LoadIdx]</text>
+
+  <line x1="490" y1="214" x2="490" y2="236" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="210" y="238" width="560" height="58" rx="7" fill="#eaf1fe" stroke="#9db8dd"/>
+  <text x="490" y="260" font-size="12.5" fill="#1a1d21" text-anchor="middle">GetQuadInfo() → SQuadInfo</text>
+  <text x="490" y="278" font-size="10.5" fill="#4a5158" text-anchor="middle">解 Morton → Pos/Level　算 GeoToTexLevelOffset / TextureLevel / TexPos</text>
+
+  <line x1="490" y1="296" x2="490" y2="318" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <rect x="210" y="320" width="560" height="58" rx="7" fill="#eaf1fe" stroke="#9db8dd"/>
+  <text x="490" y="342" font-size="12.5" fill="#1a1d21" text-anchor="middle">GetHeight() → 查页表 → 物理 UV → 采高度</text>
+  <text x="490" y="360" font-size="10.5" fill="#4a5158" text-anchor="middle">GetMinDistanceLod()：quad 内 3×3 共 9 点取最小距离</text>
+
+  <line x1="490" y1="378" x2="490" y2="400" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <polygon points="490,402 650,438 490,474 330,438" fill="#fdf0ef" stroke="#c0392b"/>
+  <text x="490" y="436" font-size="12" fill="#1a1d21" text-anchor="middle">bCull ?</text>
+  <text x="490" y="452" font-size="10.5" fill="#c0392b" text-anchor="middle">视锥 AABB + Mask &lt; 0.333</text>
+
+  <line x1="330" y1="438" x2="150" y2="438" stroke="#c0392b" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="240" y="428" font-size="10.5" fill="#c0392b" text-anchor="middle">是 → 丢弃</text>
+
+  <line x1="490" y1="474" x2="490" y2="500" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="504" y="492" font-size="10.5" fill="#7a828a">否</text>
+
+  <polygon points="490,502 650,538 490,574 330,538" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="490" y="534" font-size="12" fill="#1a1d21" text-anchor="middle">bThisSubdivide ?</text>
+  <text x="490" y="550" font-size="10.5" fill="#a06a2c" text-anchor="middle">Level &gt; 0 &amp;&amp; MinDistanceLod &lt; Level</text>
+
+  <line x1="330" y1="538" x2="120" y2="538" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <line x1="120" y1="538" x2="120" y2="608" stroke="#1f9254" stroke-width="1.4"/>
+  <text x="200" y="528" font-size="10.5" fill="#1f9254" text-anchor="middle">是（细分）</text>
+
+  <rect x="30" y="610" width="300" height="70" rx="7" fill="#e9f7ef" stroke="#8fc9a8"/>
+  <text x="180" y="632" font-size="12" fill="#1a1d21" text-anchor="middle">4 个子节点 → OutSubdivideQuadBuffer</text>
+  <text x="180" y="650" font-size="10.5" fill="#5f7a68" text-anchor="middle">ChildPos = Pos*2 + (i&amp;1, i&gt;&gt;1)</text>
+  <text x="180" y="667" font-size="10.5" fill="#5f7a68" text-anchor="middle">ChildLevel = Level - 1</text>
+
+  <line x1="650" y1="538" x2="840" y2="538" stroke="#2f6feb" stroke-width="1.4" marker-end="url(#arb)"/>
+  <line x1="840" y1="538" x2="840" y2="608" stroke="#2f6feb" stroke-width="1.4"/>
+  <text x="762" y="528" font-size="10.5" fill="#2f6feb" text-anchor="middle">否（收叶子）</text>
+
+  <rect x="690" y="610" width="280" height="70" rx="7" fill="#eaf1fe" stroke="#9db8dd"/>
+  <text x="830" y="632" font-size="12" fill="#1a1d21" text-anchor="middle">PackQuadItem2 → FinalQuadBuffer</text>
+  <text x="830" y="650" font-size="10.5" fill="#4a5158" text-anchor="middle">MortonEncode(Pos) | (Level &lt;&lt; 28)</text>
+  <text x="830" y="667" font-size="10.5" fill="#4a5158" text-anchor="middle">.yzw = PhysicalAddress</text>
+
+  <rect x="30" y="474" width="240" height="46" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-dasharray="4 3"/>
+  <text x="150" y="494" font-size="11.5" fill="#4a5158" text-anchor="middle">组内前缀和 + 每组合并原子加</text>
+  <text x="150" y="511" font-size="10.5" fill="#7a828a" text-anchor="middle">更新下一轮 DispatchArgs</text>
+</svg>
+<div class="cap">图 3　CollectSubdivideQuadsCS 单节点决策流程</div>
+</div>
+
+<p>关键点：</p>
+
+<ul><li><strong>组内前缀和（prefix sum）</strong>：<code>SubdivideQuadFlag[33]</code> / <code>FinalQuadFlag[33]</code> 在 groupshared 里攒，线程 0 做一次扫描，然后用 <code>flag[ThisThreadID]</code> 作为自己在组内的输出偏移（<span class="ref">VirtualHeightfieldMesh3.usf:383-407</span>、<span class="ref">VirtualHeightfieldMesh3.usf:448</span>、<span class="ref">VirtualHeightfieldMesh3.usf:453</span>）。<strong>整组只做常数次全局原子操作</strong>，这是 GPU 工作分配的标准高效写法。</li><li><strong><code>APPLY_LQT_OPTIM</code></strong>：宏开启时用 <code>NumActiveGroupThread = clamp(QuadCount - GroupID.x*32, 0, 32)</code> 直接算出组内活跃线程数（<span class="ref">VirtualHeightfieldMesh3.usf:294-296</span>），替代每个线程 <code>InterlockedMax</code> 的写法（<span class="ref">VirtualHeightfieldMesh3.usf:306-313</span> 的 <code>#if !APPLY_LQT_OPTIM</code> 分支）。</li><li><strong>距离 LOD 用 9 点采样</strong>而非 4 角：<code>GetMinDistanceLod</code> 在 quad 内取 3×3 = 9 个采样点求最小距离（<span class="ref">VirtualHeightfieldMesh3.usf:120-129</span>），避免大 quad 上"角点远但中心近"导致的错误降级。</li><li><strong>细分判据只有一条</strong>：<code>MinDistanceLod &lt; Level</code>（<span class="ref">VirtualHeightfieldMesh3.usf:335</span>）。含义是"该 quad 的屏幕尺寸已经撑不起当前层级了，需要更细"。V1 版本还额外减了 <code>MinMaxLodBias.y</code>（<span class="ref">VirtualHeightfieldMesh.usf:261</span>），V3 简化为不用 bias。</li></ul>
+
+<h3>4.4 剔除：<code>IsCullQuad</code></h3>
+
+<p><span class="ref">VirtualHeightfieldMesh3.usf:234-262</span>。三种剔除：</p>
+
+<pre>const bool bOccludeCull = false;                     <span class="c">// :237 遮挡剔除 todo，未接</span>
+const float MaskValue = GetMaskValue(ThisInfo);      <span class="c">// :241 采 Mask 纹理</span>
+bOpacity  = abs(MaskValue - 1.0f) &lt; 1e-3;            <span class="c">// :242 mask==1 → 不透明地面</span>
+const bool bMaskCull = MaskValue &lt; 0.333f;           <span class="c">// :243 mask&lt;1/3 → 直接剔除</span>
+<span class="c">// 视锥：用 MinMax 高度构成 AABB 做 5 平面测试</span>
+const float2 MinMaxHeight = UnPackMinMaxHeight(...);
+const float3 UVMin = float3(UV0, MinMaxHeight.x);
+const float3 UVMax = float3(UV1, MinMaxHeight.y);
+const bool bFrustumCull = !PlaneTestAABB(VHMParam.FrustumPlanes, UVCenter, UVExtern);</pre>
+
+<p><strong>MinMax 纹理的意义</strong>：一个 quad 的高度范围只有 [min, max] 两个数，却能构造一个<strong>保守 AABB</strong> 做视锥剔除——不需要采样整块高度图。这就是那套金字塔的用处。</p>
+
+<div class="callout warn"><div class="h">注意</div><p style="margin:0">这里有一个<strong>本仓库内可复现的不一致</strong>，详见 §9.1。</p></div>
+
+<h3>4.5 实例生成：<code>CullQuadsAndGenerateInstancesCS</code></h3>
+
+<p><span class="ref">VirtualHeightfieldMesh3.usf:463-594</span>，<code>[numthreads(32,1,1)]</code>。</p>
+
+<pre>读 FinalQuadBuffer → 再剔除一次 → 按 Mask 二分流：
+    bOpacity  → QuadInstanceBuffer[offset]      （主材质那批）
+    !bOpacity → HoleQuadInstanceBuffer[offset]  （洞材质那批）
+打包实例：Instance.PosLevelPacked = Pos.x | (Pos.y &lt;&lt; 14) | (Level &lt;&lt; 28)
+原子加：InstanceArgsBuffer[1]      += 不透明实例数
+        InstanceArgsBuffer[5 + 1]  += 洞实例数</pre>
+
+<p>（<span class="ref">VirtualHeightfieldMesh3.usf:548-549</span>、<span class="ref">VirtualHeightfieldMesh3.usf:556</span>、<span class="ref">VirtualHeightfieldMesh3.usf:564-570</span>）</p>
+
+<p><strong>为什么要分两批？</strong> 不透明地面的 quad 和"被挖洞/遮罩"的 quad 需要用<strong>不同材质</strong>渲染（<code>Material</code> vs <code>HoleMaterial</code>，<span class="ref">VirtualHeightfieldMeshComponent.h:69-75</span>）。与其在一批 draw 里做材质分支，不如在 CS 里就分流、产出两套 Indirect 参数、发两次 IndirectDraw——<strong>把分支成本从每像素挪到每实例</strong>。</p>
+
+<h3>4.6 可选：One-Pass 持久线程版本</h3>
+
+<p><code>r.VHM.WithOnePass = 1</code> 时（默认 0，<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:154-160</span>），改用 <code>CollectQuadsOnePassCS</code>（<span class="ref">VirtualHeightfieldMesh3.usf:648-776</span>）：</p>
+
+<pre>while (!bExit)
+{
+    InterlockedAdd(RWQueueInfo[0].NumActive, -1, NumActive);   <span class="c">// 抢任务</span>
+    if (NumActive &lt;= 0) { InterlockedAdd(RWQueueInfo[0].NumActive, 1, NumActive); }
+    else {
+        InterlockedAdd(RWQueueInfo[0].Read, 1, Read);          <span class="c">// 取节点</span>
+        ... 细分 → InterlockedAdd(RWQueueInfo[0].Write, 4, Write); <span class="c">// 压 4 子节点</span>
+        ... 叶子 → InterlockedAdd(FinalDispatchArgsBuffer[3], 1, Write);
+    }
+    DeviceMemoryBarrier();
+    if (NumGroupTasks == 0) bExit = true;                       <span class="c">// 队列空则退出</span>
+}</pre>
+
+<p>它把"多轮串行 dispatch"换成"一次 dispatch + GPU 内部循环"，省掉 N 次 dispatch 开销与 kernel launch 尾部延迟。还带一个 <code>VHM_END_WITH_ONE_STEP</code> 优化：当剩余任务数 ≤ <code>r.VHM.NumActiveForOnePassStep</code>（默认 640）时主动请求退出（<span class="ref">VirtualHeightfieldMesh3.usf:755-762</span>），避免最后几个任务时大量线程空转。</p>
+
+<div class="callout"><p style="margin:0">注意：<code>FCollectionQuadsOnePass_CS</code> 有 <code>ShouldCompilePermutation</code> 限制在 <strong>SM6</strong>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1525-1528</span>），移动端（ES3.1/SM5）不会编译这个 permutation。</p></div>
+
+<h3>4.7 顶点生成（"无顶点缓冲"的实现）</h3>
+
+<p><span class="ref">VirtualHeightfieldMeshVertexFactory.ush:115-251</span>。VF 是<strong>完全自建</strong>，不继承 <code>FLocalVertexFactory</code>，<code>InitRHI()</code> 里只挂了一个 <code>VertexBuffer=nullptr, Stride=0</code> 的 NullVertexStream，元素声明列表为空（<span class="ref">VirtualHeightfieldMeshVertexFactory.cpp:153-179</span>）。</p>
+
+<pre>uint2 VertexCoord = uint2(Input.VertexId % GRID_SIZE, Input.VertexId / GRID_SIZE);
+float2 LocalUV    = (float2)VertexCoord / (float)(GRID_SIZE - 1);</pre>
+
+<p>其中 <code>#define GRID_SIZE (VHM.NumInstanceVertexSide+1)</code>（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:7</span>）。</p>
+
+<p>也就是说：<strong>一个 quad 实例 = 一个 (NumInstanceVertexSide+1)² 个顶点的规则网格</strong>，顶点索引由 <code>SV_VertexID</code> 直接算出，索引缓冲全实例共享（<code>NumIndices = NumInstanceVertexSide² * 6</code>，<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2041</span>）。</p>
+
+<p><strong>顶点 morph（消除 LOD 跳变）</strong>：<code>MorphVertex</code>（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:86-101</span>）把顶点 UV 向粗网格"吸附"：</p>
+
+<pre>float2 MorphVertex(float2 InLocalUV, uint InGridSize, uint InMorphFactorFloor, float InMorphFactorFrac)
+{
+    float2 MorphedUV = InLocalUV;
+    float MorphGridSize = InGridSize &gt;&gt; InMorphFactorFloor;
+    float2 MorphOffset1 = frac(InLocalUV * MorphGridDimensions.x) * MorphGridDimensions.y;
+    MorphedUV -= MorphOffset1;                                        <span class="c">// 整级吸附</span>
+    float2 MorphOffset2 = frac(MorphedUV * MorphGridDimensions.x * 0.5f) * MorphGridDimensions.y * 2.f;
+    MorphedUV -= MorphOffset2 * InMorphFactorFrac;                    <span class="c">// 分数级平滑过渡</span>
+    return MorphedUV;
+}</pre>
+
+<p>morph 因子由 <strong>VS 内实时算的距离 LOD</strong> 决定（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:170-191</span>）：因为 VS 已经采了一次高度（为了算距离），顺手就得到了精确的 morph 目标，<strong>不需要 CPU 传 LOD</strong>。</p>
+
+<div class="callout"><p style="margin:0">设计注释（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:184-187</span>）原文： <em>"NOTE: Removing fractional continuous LOD here. This is because fractional locations come away from the surface of the triangles that they interpolate and we see the resultant surface shimmer. A fix for this while keeping fractional LOD is to use some sort of triangle barycentric interpolation when sampling the height texture instead of bilinear. But snapping to units here looks OK."</em> —— 这是"<strong>双线性插值 + 分数 UV 导致表面闪烁</strong>"的经典权衡记录，值得记住。</p></div>
+
+<p><strong>高度采样用双 mip 线性插值</strong>（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:208-214</span>）：</p>
+
+<pre>VTPageTableResult VTResult0 = TextureLoadVirtualPageTableLevel(..., floor(SampleLevel) - GetGlobalVirtualTextureMipBias());
+VTPageTableResult VTResult1 = TextureLoadVirtualPageTableLevel(..., ceil(SampleLevel)  - GetGlobalVirtualTextureMipBias());
+float Height0 = VHM.HeightTexture.SampleLevel(VHM.HeightSampler, UV0, 0);
+float Height1 = VHM.HeightTexture.SampleLevel(VHM.HeightSampler, UV1, 0);
+float Height = lerp(Height0.x, Height1.x, frac(SampleLevel));</pre>
+
+<p>查两次页表、采两次物理页，再按 <code>frac(SampleLevel)</code> 插值——<strong>高度图没有硬件 mip 链</strong>（物理页纹理只有 level 0），mip 过渡必须手工做。</p>
+
+<p><strong>法线是假的</strong>：<code>Intermediates.WorldNormal = float3(0, 0, 1);</code>（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:248</span>），切线也退化为单位阵（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:368-371</span>）。三维起伏靠材质里的法线贴图补。</p>
+
+<h2 id="s6"><span class="num">五</span>CPU 侧：帧调度与资源复用</h2>
+
+<h3>5.1 工作项（WorkDesc）与排序</h3>
+
+<p><code>FWorkDesc { ProxyIndex, MainViewIndex, CullViewIndex, BufferIndex }</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:557-563</span>），排序键：</p>
+
+<pre>SortKey = (ProxyIndex &lt;&lt; 24) | (MainViewIndex &lt;&lt; 16) | (CullViewIndex &lt;&lt; 8) | BufferIndex;</pre>
+
+<p>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:569-580</span>）</p>
+
+<p><strong>为什么这样排</strong>：<code>SubmitWork</code> 的外层循环按 Proxy 聚合、内层按 MainView 聚合（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2471</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2511</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2597</span> 的三层 while）。同 Proxy 同 View 的多个工作项共享同一套 volatile 缓冲与 UB 填充——<strong>排序把"重复计算"变成"复用"</strong>。</p>
+
+<h3>5.2 缓冲池与老化回收</h3>
+
+<p><code>AddWork()</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:606-660</span>）为 <code>(Proxy, MainView, CullView)</code> 组合分配 <code>FDrawInstanceBuffers</code>：</p>
+
+<ol><li>先找完全相同的已有 WorkDesc → 直接复用（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:624-631</span>）；</li><li>否则找 <code>DiscardIds[i] &lt; DiscardId</code> 的空闲槽（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:636-645</span>）——<strong>跨帧复用，避免每帧重新分配 GPU 缓冲</strong>；</li><li>都没有才新建（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:649-657</span>）。</li></ol>
+
+<p><code>EndFrame()</code> 里 <code>DiscardId++</code>，超过 4 帧未使用的槽被释放（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:730-744</span>）。这个 4 帧延迟是为了<strong>避免 GPU 还在读的时候就把缓冲释放</strong>。</p>
+
+<h3>5.3 帧挂载点</h3>
+
+<pre>GEngine-&gt;GetPreRenderDelegateEx().AddRaw(this, &amp;...::BeginFrame);
+GEngine-&gt;GetPostRenderDelegateEx().AddRaw(this, &amp;...::EndFrame);</pre>
+
+<p>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:595-596</span>）</p>
+
+<p><code>GetDynamicMeshElements</code> 里有保险：</p>
+
+<pre>if (GVirtualHeightfieldMeshViewRendererExtension.IsInFrame()) { return; }</pre>
+
+<p>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:984-992</span>），注释说明：UE5.0 缺 <code>InitViewsAfterPrepass</code> 钩子，导致阴影绘制时会撞上 <code>bInFrame</code>，强行继续会导致缓冲提前释放崩溃。</p>
+
+<h3>5.4 遮挡查询（仅 V1 生效）</h3>
+
+<p><code>BuildOcclusionVolumes()</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1137-1183</span>）在构造时从 MinMax 数据在 <strong>CPU 端</strong>构建遮挡体 AABB 数组，配 <code>NumOcclusionLods</code> 控制级数。查询结果通过 <code>AcceptOcclusionResults</code> 回填到 <code>GOcclusionResults</code>，下一帧上传成 <code>Texture2D&lt;float&gt;</code> 供 shader 使用（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2539-2583</span>，逐 mip 逐 texel 填充 0/255）。</p>
+
+<p>注意：V3 的 <code>IsCullQuad</code> 里 <code>bOccludeCull = false</code>（<span class="ref">VirtualHeightfieldMesh3.usf:237</span>），<strong>V3 路径实际没有遮挡剔除</strong>。</p>
+
+<h2 id="s7"><span class="num">六</span>关键数学</h2>
+
+<h3>6.1 LOD 距离函数</h3>
+
+<p><code>CalculateLodRanges()</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:400-414</span>）：</p>
+
+<pre>const float Lod0UVSize    = 1.f / (float)(1 &lt;&lt; MaxLevel);
+const FVector2D Lod0WorldSize = UVToWorldScale.XY * Lod0UVSize;
+const float Lod0WorldRadius   = Lod0WorldSize.Size();
+const float ScreenMultiple    = max(0.5f * Proj[0][0], 0.5f * Proj[1][1]);
+const float Lod0Distance      = Lod0WorldRadius * ScreenMultiple / Lod0ScreenSize;
+return FVector4f(Lod0Distance, Lod0Distribution, LodDistribution, LodScale);</pre>
+
+<p>shader 侧消费（<span class="ref">VirtualHeightfieldMesh.ush:120-126</span>）：</p>
+
+<pre>float CalculateDistanceLod(float InDistanceSq, float4 InLodFactors)
+{
+    float ScaledDistance   = sqrt(InDistanceSq) * InLodFactors.w;                       <span class="c">// w = LodScale</span>
+    float LodForDistance0  = saturate(ScaledDistance / (InLodFactors.x * InLodFactors.y)); <span class="c">// x=Lod0Distance, y=Lod0Distribution</span>
+    float LodForDistanceN  = log2(1 + max((ScaledDistance / InLodFactors.x - InLodFactors.y), 0)) / log2(InLodFactors.z); <span class="c">// z=LodDistribution</span>
+    return LodForDistance0 + LodForDistanceN;
+}</pre>
+
+<p><strong>读法</strong>：近处用线性段（<code>Lod0Distance × Lod0Distribution</code> 内 LOD 从 0 涨到 1），远处用对数段（底数 <code>LodDistribution</code>）。<code>LodDistribution</code> 必须 &gt; 1 否则 <code>log2(z)</code> 为 0 会除零——这也是组件上 <code>ClampMin = 1.0</code> 的原因（<span class="ref">VirtualHeightfieldMeshComponent.h:93</span>）。</p>
+
+<p><strong>符号说明</strong>：<code>InLodFactors.w = LodScale = ViewLodDistanceFactor × r.VHM.LodScale</code>，其中 <code>ViewLodDistanceFactor</code> 默认强制为 1（<code>r.VHM.EnableViewLodFactor=0</code>），原因见 <span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:69-80</span> 的注释：<code>ULocalPlayer</code> 里已经乘过 FOV 缩放，再乘一次就是<strong>双重计算</strong>。</p>
+
+<p><strong>代入示例</strong>（<code>r.VHM.LodScale=1</code>, <code>Lod0Distance=500</code>, <code>Lod0Distribution=1</code>, <code>LodDistribution=2</code>）：</p>
+
+<ul><li>距离 250 → <code>Scaled=250</code>；<code>Lod0 = saturate(250/500) = 0.5</code>；<code>LodN = log2(1+max(250/500-1,0))/log2(2) = log2(1+0)/1 = 0</code> → <strong>LOD = 0.5</strong></li><li>距离 1000 → <code>Scaled=1000</code>；<code>Lod0 = saturate(2) = 1</code>；<code>LodN = log2(1+1)/1 = 1</code> → <strong>LOD = 2.0</strong></li></ul>
+
+<h3>6.2 LOD Bias（材质驱动的局部细分密度）</h3>
+
+<p><code>CalculateBiasLod</code>（<span class="ref">VirtualHeightfieldMesh.ush:129-132</span>）：</p>
+
+<pre>return max((InValue - 0.05f) * InLodBiasScale - 1.f, 0);</pre>
+
+<p><code>LodBiasTexture</code> 由 MinMax 构建阶段生成（高度差归一化），<code>LodBiasMinMaxTexture</code> 存其 min/max 以抑制跳变。VS 里用 <code>clamp(LodForDistance - LodBias, Level, MaxLod)</code> 修正（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:177</span>）——<strong>几何起伏大的地方自动加密</strong>。</p>
+
+<h3>6.3 MinMax 打包（8888 双 16 位）</h3>
+
+<p>打包端 <span class="ref">HeightfieldMinMaxRender.usf:12-21</span>：</p>
+
+<pre>float4 PackMinMax(in float2 UnPacked)   <span class="c">// UnPacked = (Min, Max)</span>
+{
+    uint2 UnPackedUint = floor(UnPacked * 65535.f);
+    float4 Packed = float4(
+        (float)(UnPackedUint.y &gt;&gt; 8) / 255.f,      <span class="c">// .x = Max 高字节</span>
+        (float)(UnPackedUint.x &amp; 0xff) / 255.f,    <span class="c">// .y = Min 低字节</span>
+        (float)(UnPackedUint.x &gt;&gt; 8) / 255.f,      <span class="c">// .z = Min 高字节</span>
+        (float)(UnPackedUint.y &amp; 0xff) / 255.f);   <span class="c">// .w = Max 低字节</span>
+    return Packed;
+}</pre>
+
+<p>解包端（同文件 <span class="ref">HeightfieldMinMaxRender.usf:23-29</span>）严格互为逆运算：</p>
+
+<pre>uint2 UnPackedScaled = uint2(PackedScaled.z &lt;&lt; 8 | PackedScaled.y,   <span class="c">// = Min</span>
+                             PackedScaled.x &lt;&lt; 8 | PackedScaled.w);  <span class="c">// = Max</span></pre>
+
+<p><strong>为什么要打乱通道？</strong> 注释（<span class="ref">HeightfieldMinMaxRender.usf:11</span>）原文：<em>"Packing swizzles so that RGBA texture (required format for UAV) can be read after mapping on CPU as BGRA"</em> —— 因为 UAV 必须是 RGBA8，而 CPU 侧读回的 <code>UTexture2D</code> 是 <strong>BGRA8</strong>，打乱通道让两边都能直接读。</p>
+
+<h3>6.4 视锥 AABB 测试</h3>
+
+<p><code>PlaneTestAABB</code>（<span class="ref">VirtualHeightfieldMesh.ush:188-205</span>）：对 5 个平面，取 AABB 在平面法线方向上"最远"的那个角，只要它在任一平面外就剔除。</p>
+
+<pre>PlaneSigns = sign(InPlanes[PlaneIndex].xyz);       <span class="c">// 取指向法线正方向的角</span>
+bInsidePlane = dot(plane, float4(center + extent * PlaneSigns, 1.0)) &gt; 0;</pre>
+
+<p>其中 <code>extent</code> 的语义是<strong>半长</strong>（V1：<code>UVExtent = UVMax - UVCenter</code>，<span class="ref">VirtualHeightfieldMesh.usf:390</span>）。 V3 传的是<strong>全长</strong> <code>UVExtern = UVMax - UVMin</code>（<span class="ref">VirtualHeightfieldMesh3.usf:256</span>）→ 测试盒放大 2 倍 → 偏保守（少剔除、不漏画）。这是个"安全方向"的取舍。</p>
+
+<h2 id="s8"><span class="num">七</span>Heightfield 预处理链路（离线烘焙）</h2>
+
+<h3>7.1 MinMax 金字塔</h3>
+
+<p>全部在 <strong>Editor 模块</strong> <code>VirtualHeightfieldMeshEditor</code>，<code>WITH_EDITOR</code> 保护，<strong>不是运行时</strong>。</p>
+
+<div class="fig">
+<svg viewBox="0 0 1120 330" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/>
+    </marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/>
+    </marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/>
+    </marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/>
+    </marker>
+  </defs>
+
+  <text x="16" y="30" font-size="13" font-weight="700" fill="#1f3a63">离线烘焙（Editor only · WITH_EDITOR · MinMaxHeightCS numthreads(8,8,1)）</text>
+  <line x1="12" y1="42" x2="1108" y2="42" stroke="#c9d8ee" stroke-width="1"/>
+
+  <rect x="12" y="60" width="170" height="86" rx="8" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="97" y="86" font-size="12" fill="#1a1d21" text-anchor="middle">RVT WorldHeight</text>
+  <text x="97" y="104" font-size="10.5" fill="#7a828a" text-anchor="middle">逐 tile 渲染</text>
+  <text x="97" y="122" font-size="10.5" fill="#7a828a" text-anchor="middle">RenderPagesStandAlone</text>
+
+  <line x1="182" y1="103" x2="204" y2="103" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="206" y="60" width="170" height="86" rx="8" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="291" y="86" font-size="12" fill="#1a1d21" text-anchor="middle">PF_G16 (R16)</text>
+  <text x="291" y="104" font-size="10.5" fill="#7a828a" text-anchor="middle">TileSize × TileSize</text>
+  <text x="291" y="122" font-size="10.5" fill="#7a828a" text-anchor="middle">临时目标</text>
+
+  <line x1="376" y1="103" x2="400" y2="103" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="402" y="54" width="186" height="98" rx="8" fill="#eaf1fe" stroke="#9db8dd"/>
+  <text x="495" y="78" font-size="11" fill="#1a1d21" text-anchor="middle">DownsampleMinMaxAndCopy</text>
+  <text x="495" y="98" font-size="10.5" fill="#4a5158" text-anchor="middle">R16 → RG16（第一层）</text>
+  <text x="495" y="116" font-size="10.5" fill="#4a5158" text-anchor="middle">RG16 → RG16（逐 mip 归并）</text>
+  <text x="495" y="134" font-size="10.5" fill="#4a5158" text-anchor="middle">Min 归并时排除 0 值</text>
+
+  <line x1="588" y1="103" x2="612" y2="103" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="614" y="54" width="186" height="98" rx="8" fill="#eaf1fe" stroke="#9db8dd"/>
+  <text x="707" y="78" font-size="11" fill="#1a1d21" text-anchor="middle">RG16 → RGBA8 packed</text>
+  <text x="707" y="98" font-size="10.5" fill="#4a5158" text-anchor="middle">每个 tile 塌缩成 1 texel</text>
+  <text x="707" y="116" font-size="10.5" fill="#4a5158" text-anchor="middle">.x=Max&gt;&gt;8 .y=Min&amp;0xff</text>
+  <text x="707" y="134" font-size="10.5" fill="#4a5158" text-anchor="middle">.z=Min&gt;&gt;8 .w=Max&amp;0xff</text>
+
+  <line x1="800" y1="103" x2="824" y2="103" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="826" y="54" width="282" height="98" rx="8" fill="#e9f7ef" stroke="#8fc9a8"/>
+  <text x="967" y="78" font-size="11.5" fill="#1a1d21" text-anchor="middle">GenerateMinMaxTextureMips</text>
+  <text x="967" y="98" font-size="10.5" fill="#5f7a68" text-anchor="middle">RGBA8 → RGBA8 全局 mip 链</text>
+  <text x="967" y="116" font-size="10.5" fill="#5f7a68" text-anchor="middle">NumMips = CeilLogTwo(Max(TilesX,TilesY)) + 1</text>
+  <text x="967" y="134" font-size="10.5" fill="#5f7a68" text-anchor="middle">mip0 的 1 texel = 1 个 RVT tile 的高度范围</text>
+
+  <rect x="224" y="196" width="620" height="60" rx="8" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="534" y="220" font-size="12" fill="#1a1d21" text-anchor="middle">UHeightfieldMinMaxTexture</text>
+  <text x="534" y="240" font-size="10" fill="#7a828a" text-anchor="middle">Texture（BGRA8 全 mip · TF_Nearest · NeverStream）+ LodBiasTexture（G8）+ LodBiasMinMaxTexture（BGRA8）</text>
+
+  <line x1="967" y1="152" x2="967" y2="226" stroke="#5f7a68" stroke-width="1.5"/>
+  <line x1="967" y1="226" x2="848" y2="226" stroke="#5f7a68" stroke-width="1.5" marker-end="url(#arg)"/>
+
+  <rect x="224" y="286" width="620" height="34" rx="8" fill="#fdf0ef" stroke="#c0392b" stroke-dasharray="5 4"/>
+  <text x="534" y="308" font-size="11" fill="#c0392b" text-anchor="middle">消费端 UnPackMinMaxHeight（VirtualHeightfieldMesh.ush:173-179）与 PackMinMax 互不可逆 → 见 §10.1</text>
+
+  <line x1="534" y1="256" x2="534" y2="284" stroke="#c0392b" stroke-width="1.4" marker-end="url(#ar)"/>
+</svg>
+<div class="cap">图 4　MinMax 金字塔离线烘焙链路</div>
+</div>
+
+<ul><li>CS：<code>MinMaxHeightCS</code>，<code>[numthreads(8,8,1)]</code>（<span class="ref">HeightfieldMinMaxRender.usf:43</span>）</li><li>Dispatch：<code>((SrcSize.X/2 + 7)/8, (SrcSize.Y/2 + 7)/8, 1)</code></li><li>归并时 <strong>Min 排除 0 值</strong>（<code>Min4(Values, ReplaceZero)</code>，<span class="ref">HeightfieldMinMaxRender.usf:31-36</span>）—— 避免空洞像素把 min 拉到 0</li><li>mip 级数：<code>NumMips = CeilLogTwo(Max(NumTilesX, NumTilesY)) + 1</code>（<span class="ref">HeightfieldMinMaxTextureBuild.cpp:257</span>）</li><li><strong>mip0 的每个 texel = 一个 RVT tile 的高度范围</strong>，往上逐级合并</li></ul>
+
+<p>三张纹理（<span class="ref">HeightfieldMinMaxTexture.h:31-41</span>）：<code>Texture</code>（BGRA8，全 mip，TF_Nearest，NeverStream）、<code>LodBiasTexture</code>（G8 单 mip）、<code>LodBiasMinMaxTexture</code>（BGRA8 全 mip）。</p>
+
+<h3>7.2 Mask 纹理（GR 自研）</h3>
+
+<p><span class="ref">HeightfieldMaskRender.usf:16-84</span>，<code>[numthreads(8,8,1)]</code>，与 MinMax 链路对称。</p>
+
+<p>三值语义（<span class="ref">HeightfieldMaskRender.usf:52-81</span>）：</p>
+
+<table><thead><tr>
+<th>输出</th>
+<th>条件</th>
+<th>含义</th>
+</tr></thead><tbody>
+<tr><td><code>0.0</code></td><td>2×2 全 0</td><td>完全遮蔽</td></tr>
+<tr><td><code>1.0</code></td><td>2×2 全 1</td><td>完全可见（→ 主材质）</td></tr>
+<tr><td><code>0.5</code></td><td>混合</td><td>边界（若邻域有非 0/1 值则取最大）</td></tr>
+</tbody></table>
+
+<p>输入源可选 RGB A / RGB B / R8（<code>INPUT_FORMAT_MASK_RGBA8_A / _B / _MAST_R8</code>，<span class="ref">HeightfieldMaskRender.usf:34-49</span>），由 <code>MaterialTypeForMask</code> 决定。</p>
+
+<h3>7.3 触发与失效</h3>
+
+<table><thead><tr>
+<th>触发</th>
+<th>行为</th>
+<th>位置</th>
+</tr></thead><tbody>
+<tr><td>用户点编辑器按钮</td><td>全量重建</td><td><span class="ref">HeightfieldMinMaxTexture.cpp:31-38</span></td></tr>
+<tr><td><code>MaxCPULevels</code> 变化</td><td>只重建 CPU 数据</td><td><span class="ref">HeightfieldMinMaxTexture.cpp:18-29</span></td></tr>
+<tr><td>纹理重建完成</td><td>遍历引用它的 Component → <code>MarkRenderStateDirty()</code></td><td><span class="ref">HeightfieldMinMaxTextureNotify.cpp:16-38</span></td></tr>
+<tr><td><strong>RVT 材质修改</strong></td><td><strong>不自动触发</strong>，需手动重建</td><td>（未找到自动监听路径）</td></tr>
+<tr><td>WP Builder</td><td>烘焙时批量 Build</td><td><span class="ref">WorldPartitionVirtualHeightfieldMeshBuilder.cpp:48-55</span></td></tr>
+</tbody></table>
+
+<p>调试：<code>r.VHM.CaptureBuildTexture</code>（<span class="ref">HeightfieldMinMaxTextureBuild.cpp:22-28</span>）非零时挂 <code>RenderCaptureInterface::FScopedCapture</code>，可联动 RenderDoc 截帧。</p>
+
+<div class="callout"><p style="margin:0">构建是<strong>同步阻塞</strong>的：逐 tile 入队后 <code>FlushRenderingCommands()</code> 两次（<span class="ref">HeightfieldMinMaxTextureBuild.cpp:275-396</span>），带 <code>FScopedSlowTask</code> 进度条与取消。</p></div>
+
+<h2 id="s9"><span class="num">八</span>本仓库（GR 分叉）的自研改动清单</h2>
+
+<p>标注体系：<code>#pragma region S1_Engine_Shiyu</code> / <code>Engine CYH</code> / <code>Engine ZXB</code>。</p>
+
+<table><thead><tr>
+<th>贡献者</th>
+<th>改动</th>
+<th>关键位置</th>
+</tr></thead><tbody>
+<tr><td><strong>Shiyu</strong>（主力）</td><td><strong>Mask 纹理 + HoleMaterial 挖洞系统</strong>：地形可"挖洞"（洞穴/隧道），mask&lt;1/3 剔除、==1 走主材质、其余走洞材质</td><td><span class="ref">HeightfieldMaskRender.usf</span> 全文件；<span class="ref">VirtualHeightfieldMeshComponent.h:53-76</span>；<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:813-824</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1061-1120</span></td></tr>
+<tr><td><strong>Shiyu</strong></td><td><strong>VHM V3 流水线</strong>（<span class="ref">VirtualHeightfieldMesh3.usf</span> 全新增）：三段式 + 双缓冲 args + 组内前缀和</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1421-1612</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2117-2436</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2837-2972</span></td></tr>
+<tr><td><strong>Shiyu</strong></td><td><strong>LOD 全局调参 CVar</strong>：<code>r.VHM.AddLodDistribution</code>、<code>r.VHM.AddLod0LevelBias</code>、<code>r.VHM.Lod0LevelBias</code></td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:138-152</span>；<span class="ref">VirtualHeightfieldMeshComponent.h:87-88</span></td></tr>
+<tr><td><strong>Shiyu</strong></td><td><strong><code>NumQuadPerTileOfTwo</code> / <code>ExtSubdivisionLevel</code> / <code>r.VHM.EnableExtSubdivisionLevel</code></strong>：几何可细于纹理</td><td><span class="ref">VirtualHeightfieldMeshComponent.h:115-122</span>；<span class="ref">VirtualHeightfieldMeshEnable.cpp:33-38</span></td></tr>
+<tr><td><strong>Shiyu</strong></td><td><strong>One-Pass 持久线程</strong> + <code>r.VHM.WithOnePass</code> / <code>NumActiveForOnePassStep</code></td><td><span class="ref">VirtualHeightfieldMesh3.usf:648-776</span>；<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:154-173</span></td></tr>
+<tr><td><strong>Shiyu</strong></td><td><strong>GPU Stat 采集</strong>（按 LOD 统计剔除前/后实例数与三角面）</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:183-212</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2978-3047</span>；<span class="ref">VirtualHeightfieldMesh3.usf:574-592</span></td></tr>
+<tr><td><strong>Shiyu</strong></td><td><code>r.VHM.DisableCull</code> / <code>r.VHM.CloseMorphVertexForDebug</code></td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:124-136</span></td></tr>
+<tr><td><strong>CYH</strong></td><td><code>r.VHM.Visualize</code> 调试开关；<strong>Nanite/VHM 自动互斥框架</strong>（非 Editor 构建下二选一）</td><td><span class="ref">VirtualHeightfieldMeshEnable.cpp:23-31</span>、<span class="ref">VirtualHeightfieldMeshEnable.cpp:43-70</span></td></tr>
+<tr><td><strong>ZXB</strong></td><td><strong>SM5 下不禁用 VHM</strong>：<code>bNaniteEnabled &amp;= GMaxRHIFeatureLevel &gt; ERHIFeatureLevel::SM5;</code></td><td><span class="ref">VirtualHeightfieldMeshEnable.cpp:51-53</span></td></tr>
+<tr><td><strong>JLP</strong></td><td><code>GR_SHOULD_CACHE_VF</code> — VF permutation 缓存标记</td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.h:93</span></td></tr>
+<tr><td>工程配置</td><td>LOD 全局偏移：<code>r.VHM.AddLodDistribution=-0.3</code>、<code>r.VHM.AddLod0LevelBias=2</code>；容量放大到 256K；<strong>关异步计算修闪烁</strong></td><td><span class="ref">S1Game/Config/DefaultEngine.ini:293-299</span>、<span class="ref">S1Game/Config/DefaultEngine.ini:324</span></td></tr>
+</tbody></table>
+
+<h3>工程侧 CVar 配置（<span class="ref">S1Game/Config/DefaultEngine.ini</span>）</h3>
+
+<pre><span class="c">; Add by Shiyu upscale landscape precision</span>
+r.VHM.AddLodDistribution = -0.3
+r.VHM.AddLod0LevelBias = 2
+<span class="c">; 256*1024</span>
+r.VHM.MaxPersistentQueueItems = 262144
+r.VHM.MaxRenderInstances      = 262144
+<span class="c">; 256*1024 * 10</span>
+r.VHM.MaxFeedbackItems = 81920
+<span class="c">; shiyu: fix VHM flicker when use AsyncCompute</span>
+r.VHM.UseAsyncCompute = 0</pre>
+
+<h3>一个悬空的配置段（需人工确认）</h3>
+
+<p><span class="ref">S1Game/Config/DefaultVirtualHeightfieldMesh.ini</span> 声明了：</p>
+
+<pre>[/Script/VirtualHeightfieldMesh.VirtualHeightfieldMeshSetting]
++VirtualHeightDecalMaterials=/Game/Arts/.../M_VirtualHeightDecal.M_VirtualHeightDecal
++VirtualHeightDecalMaterials=/Game/Arts/.../M_VirtualHeightDecal_Inverse.M_VirtualHeightDecal_Inverse
+MaterialPivotZParameterName=VHMPivotZ</pre>
+
+<p>但在 <code>UE5EA/Engine/</code>、<code>UE5EA/Engine/Plugins/Experimental/VirtualHeightfieldMesh/</code>、<code>S1Game/Source/</code>、<code>S1Game/Plugins/</code> 全量搜索 <strong>均未找到 <code>VirtualHeightfieldMeshSetting</code> 这个 UCLASS</strong>，也未找到 <code>VirtualHeightDecalMaterials</code> / <code>VHMPivotZ</code> 的任何引用。即该配置段目前<strong>没有对应的代码消费方</strong>（可能是尚未落地的功能，或代码在其它未同步的分支）。<strong>结论：以源码为准，当前该配置不生效。</strong></p>
+
+<h2 id="s10"><span class="num">九</span>已做的优化总结</h2>
+
+<h3>9.1 Epic 原始设计的优化点</h3>
+
+<table><thead><tr>
+<th>#</th>
+<th>优化</th>
+<th>为什么有效</th>
+<th>位置</th>
+</tr></thead><tbody>
+<tr><td>1</td><td><strong>几何量由 VT 驻留量驱动</strong>，而非固定网格</td><td>磁盘/显存只有 N 页，GPU 就只画 N 个 quad —— 几何复杂度与地形总规模解耦</td><td>全程</td></tr>
+<tr><td>2</td><td><strong>MinMax 金字塔做保守剔除</strong></td><td>一个 quad 是否可见只需 2 个 float 的 AABB，O(1) 判定，不必采整块高度</td><td><span class="ref">VirtualHeightfieldMesh.ush:173-179</span>、<span class="ref">VirtualHeightfieldMesh.ush:188-205</span></td></tr>
+<tr><td>3</td><td><strong>无顶点/索引缓冲的实例化</strong></td><td>顶点由 <code>SV_VertexID</code> 现场算，索引缓冲全局共享一份；每实例仅 16 字节</td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.ush:7</span>、<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:128-129</span></td></tr>
+<tr><td>4</td><td><strong>CDLOD 顶点 morph</strong></td><td>消除 LOD 切换的几何跳变（popping），不需要额外过渡网格</td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.ush:86-101</span></td></tr>
+<tr><td>5</td><td><strong>持久波工作队列</strong>（V1）</td><td>遍历工作量未知也能一次 dispatch 跑完，无需 CPU 回读</td><td><span class="ref">VirtualHeightfieldMesh.usf:137</span></td></tr>
+<tr><td>6</td><td><strong><code>DrawIndexedInstancedIndirect</code></strong></td><td>CPU 完全不知道实例数，无同步点，可完美并行/异步计算</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1024</span></td></tr>
+<tr><td>7</td><td><strong>VS 内实时算 LOD（含冻结视图支持）</strong></td><td>不必把逐实例 LOD 从 CPU 传下来；顺带支持 FreezeRendering</td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.ush:170-191</span></td></tr>
+<tr><td>8</td><td><strong>视锥平面预变换到 UV 空间</strong></td><td>每帧每视图只变换 5 个平面，而不是每 quad 变换一次</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2527-2537</span></td></tr>
+</tbody></table>
+
+<h3>9.2 本仓库（Shiyu 等）新增的优化</h3>
+
+<table><thead><tr>
+<th>#</th>
+<th>优化</th>
+<th>收益</th>
+<th>位置</th>
+</tr></thead><tbody>
+<tr><td>1</td><td><strong>V3 起点播种 <code>MaxLevel-3</code></strong>（8×8 = 64 个根 quad，Morton trick 一行生成）</td><td>省掉最粗 3 轮的完整 dispatch + 遍历</td><td><span class="ref">VirtualHeightfieldMesh3.usf:600-632</span></td></tr>
+<tr><td>2</td><td><strong><code>APPLY_LQT_OPTIM</code>：直接算组内活跃线程数</strong></td><td>替代逐线程 <code>InterlockedMax</code>，减少原子争用</td><td><span class="ref">VirtualHeightfieldMesh3.usf:294-296</span></td></tr>
+<tr><td>3</td><td><strong>反馈写入按组合并</strong>（<code>InterlockedAdd</code> 一次/组 + 组内偏移写）</td><td>全局原子操作数降到 1/32</td><td><span class="ref">VirtualHeightfieldMesh3.usf:411</span>、<span class="ref">VirtualHeightfieldMesh3.usf:419-426</span></td></tr>
+<tr><td>4</td><td><strong>VT 反馈全帧合并成一次提交</strong></td><td>V1 是每个 MainView 一次；V3 所有 work 共用一个 buffer 最后一次提交</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2855-2862</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2963-2971</span></td></tr>
+<tr><td>5</td><td><strong>Mask 分流 + 双 IndirectDraw</strong></td><td>剔除在 CS 里做，避免 PS 阶段的 discard/alpha test（移动端 TBDR 上 discard 会破坏 HSR）</td><td><span class="ref">VirtualHeightfieldMesh3.usf:509-519</span>；<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1083</span></td></tr>
+<tr><td>6</td><td><strong>双缓冲 Args/Quad 缓冲</strong>（<code>ArgsBuffer[2]</code> / <code>SubdivideQuadBuffer[2]</code>）</td><td>读写分离，避免同一 pass 内 Read-After-Write 冲突</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1861-1872</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2221-2236</span></td></tr>
+<tr><td>7</td><td><strong>One-Pass 持久线程 + 提前退出</strong></td><td>省 N 次 dispatch；尾部用 <code>NumActiveForOnePassStep</code> 主动收敛，避免空转</td><td><span class="ref">VirtualHeightfieldMesh3.usf:755-762</span></td></tr>
+<tr><td>8</td><td><strong>RT 缓冲池跨帧复用 + 4 帧老化</strong></td><td>避免每帧重建 GPU 缓冲</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:636-657</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:730-744</span></td></tr>
+<tr><td>9</td><td><strong>WorkDesc 排序批处理</strong></td><td>同 Proxy/View 复用 volatile 缓冲与 UB 填充</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:569-580</span></td></tr>
+<tr><td>10</td><td><strong><code>ExtSubdivisionLevel</code>：几何细于纹理</strong></td><td>同物理页可服务多个几何 quad，提升近景几何精度而不增加 VT 内存</td><td><span class="ref">VirtualHeightfieldMesh3.usf:86-88</span></td></tr>
+<tr><td>11</td><td><strong>全局 LOD 调参 CVar</strong></td><td>策划/TA 可不改资产全局调 LOD 分布</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:138-152</span></td></tr>
+<tr><td>12</td><td><strong><code>r.VHM.UseAsyncCompute=0</code>（工程配置）</strong></td><td>修 AsyncCompute 下的 VHM 闪烁</td><td><span class="ref">DefaultEngine.ini:324</span></td></tr>
+</tbody></table>
+
+<h3>9.3 性能观测手段（本仓库自带）</h3>
+
+<p><code>r.VHM.StatEnable=1</code>（需 <code>VHM_ENABLE_STAT=1</code> 重新编译；该宏在 <span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:176-181</span>，本工作区已打开为 1，见 <span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:179-180</span>）后，可读回：</p>
+
+<table class="kv"><thead><tr>
+<th>Stat</th>
+<th>含义</th>
+</tr></thead><tbody>
+<tr><td><code>VHM.BeforeCullInstances</code></td><td>剔除前实例总数</td></tr>
+<tr><td><code>VHM.DrawInstances-ALL</code></td><td>剔除后绘制实例数</td></tr>
+<tr><td><code>VHM.DrawInstances-Opacity</code> / <code>-Mask</code></td><td>主材质 / 洞材质各自的实例数</td></tr>
+<tr><td><code>VHM.DrawInstances-LOD0..9</code></td><td>各 LOD 层的实例分布（看 LOD 分布是否合理）</td></tr>
+<tr><td><code>VHM.DrawTriangles</code></td><td><code>实例数 × NumInstanceVertexSide² × 6 / 3</code></td></tr>
+</tbody></table>
+
+<div class="callout warn"><div class="h">注意</div><p style="margin:0"><strong>行号基线说明</strong>：本文档中 <span class="ref">VirtualHeightfieldMeshSceneProxy.cpp</span> 的行号对齐的是<strong>本工作区的当前版本（3053 行）</strong>——该文件第 179-180 行被本地加了一行 <code>// [ZXB]</code> 注释并打开 <code>VHM_ENABLE_STAT</code>，使第 176 行之后的代码整体下移 1 行。若你读的是 depot 版本（3052 行），则第 176 行之后的行号需各减 1。</p></div>
+
+<p>实现：CS 用 <code>InterlockedAdd(RWStatBuffer[...])</code> 累计（<span class="ref">VirtualHeightfieldMesh3.usf:574-592</span>），<code>AddEnqueueCopyPass</code> 拷到 readback 缓冲，<code>CollectStat()</code> 在 <code>BeginFrame</code> 读取（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2978-3047</span>）。</p>
+
+<h2 id="s11"><span class="num">十</span>已知问题与待人工确认</h2>
+
+<h3>10.1 ⚠️ <code>UnPackMinMaxHeight</code> 与 <code>PackMinMax</code> 互不可逆（Min/Max 互换）</h3>
+
+<p>这是<strong>纯本地源码即可复现</strong>的不一致，建议优先确认：</p>
+
+<table><thead><tr>
+<th>端</th>
+<th>文件:行</th>
+<th>表达式</th>
+</tr></thead><tbody>
+<tr><td>打包</td><td><span class="ref">HeightfieldMinMaxRender.usf:12-21</span></td><td><code>.x=Max&gt;&gt;8, .y=Min&amp;0xff, .z=Min&gt;&gt;8, .w=Max&amp;0xff</code></td></tr>
+<tr><td>逆运算（正确）</td><td><span class="ref">HeightfieldMinMaxRender.usf:23-29</span></td><td><code>UnPackedScaled = (</code>.z&lt;&lt;8|<code>.y</code>, <code>.x&lt;&lt;8|</code>.w<code>)</code> → <strong>(Min, Max)</strong></td></tr>
+<tr><td>解包（<strong>不一致</strong>）</td><td><span class="ref">VirtualHeightfieldMesh.ush:173-179</span></td><td><code>UnPackedScaled = (</code>.x&lt;&lt;8|<code>.y</code>, <code>.z&lt;&lt;8|</code>.w<code>)</code></td></tr>
+</tbody></table>
+
+<p><strong>数值验证</strong>（Min=0.25, Max=0.75）：</p>
+
+<pre>PackMinMax:  MinU=0x3FFF(16383), MaxU=0xBFFF(49151)
+             → RGBA8 = (191, 255, 63, 255)
+
+UnPackMinMaxHeight:  (191&lt;&lt;8|255, 63&lt;&lt;8|255) = (49151, 16383) = (0.75001, 0.25000)
+                     ↑ 返回的是 (≈Max, ≈Min)  ← 与函数名/调用方期望相反
+
+UnPackMinMax（.usf）: (63&lt;&lt;8|255, 191&lt;&lt;8|255) = (16383, 49151) = (0.25000, 0.75001)  ✅ 正确</pre>
+
+<p><strong>影响面</strong>：<code>UnPackMinMaxHeight</code> 的 3 个调用点全部把返回值当作 <code>(Min, Max)</code> 用：</p>
+
+<ul><li><span class="ref">VirtualHeightfieldMesh3.usf:252-254</span>：<code>UVMin.z = MinMaxHeight.x</code>、<code>UVMax.z = MinMaxHeight.y</code></li><li><span class="ref">VirtualHeightfieldMesh.usf:200-202</span>、<span class="ref">VirtualHeightfieldMesh.usf:384-386</span>：同上</li></ul>
+
+<p>即 AABB 的 Z 区间被<strong>反转</strong>（zmin ≈ Max &gt; zmax ≈ Min）。<code>UVCenter</code> 仍然正确（中点对称），但 <code>UVExtern.z</code> 变成负值，导致 <code>PlaneTestAABB</code>（<span class="ref">VirtualHeightfieldMesh.ush:200</span>）测试的是 <strong>Z 方向镜像的那个角</strong>——剔除判定在与视锥平面 Z 分量相关的方向上会被反转。</p>
+
+<p><strong>待确认</strong>：(a) 这是否是引入通道打乱时漏改的遗漏；(b) 实际影响是"多剔除"（地形缺块）还是"少剔除"（浪费），需实测（可对比 <code>VHM.DrawInstances-ALL</code> 与到视锥边界的距离）。</p>
+
+<div class="callout"><p style="margin:0">如确认是缺陷，最小修复是把 <span class="ref">VirtualHeightfieldMesh.ush:176</span> 改为 <code>.z &lt;&lt; 8 | .y</code>（第一个）与 <code>.x &lt;&lt; 8 | .w</code>（第二个），与 <span class="ref">HeightfieldMinMaxRender.usf:26</span> 对齐。</p></div>
+
+<h3>10.2 其它观察</h3>
+
+<table><thead><tr>
+<th>项</th>
+<th>说明</th>
+<th>位置</th>
+</tr></thead><tbody>
+<tr><td><span class="ref">VHM_CollectQuad.usf</span> 是<strong>死文件</strong></td><td>全插件 <code>Source/</code> 与 <code>IMPLEMENT_GLOBAL_SHADER</code> 列表中均无引用（另有 <code>CollectQuadsPerLayerCS</code> 但无注册点）</td><td><span class="ref">Shaders/Private/VHM_CollectQuad.usf</span></td></tr>
+<tr><td>V3 无遮挡剔除</td><td><code>bOccludeCull = false</code> 硬编码</td><td><span class="ref">VirtualHeightfieldMesh3.usf:237</span></td></tr>
+<tr><td>V3 视锥测试盒偏大 2 倍</td><td>传全长而非半长，方向保守（少剔除、不漏画）</td><td><span class="ref">VirtualHeightfieldMesh3.usf:256</span></td></tr>
+<tr><td>V1 中 <code>UV[8]</code> 的 Z 分量全部用 <code>MinMaxHeight.x</code></td><td>但仅 <code>.xy</code> 被使用（距离计算），Z 无实际作用，<strong>非缺陷</strong></td><td><span class="ref">VirtualHeightfieldMesh.usf:205-225</span></td></tr>
+<tr><td>容量掩码是"回绕覆盖"而非"丢弃"</td><td><code>&amp; BufferSizeMask</code> 溢出时会覆盖已有数据，容量必须开够</td><td><span class="ref">VirtualHeightfieldMesh3.usf:448</span>、<span class="ref">VirtualHeightfieldMesh3.usf:453</span></td></tr>
+<tr><td>V3 的 <code>HeightMinMaxTexture</code> 采样层级用 <code>TextureLevel</code></td><td>与 V1 的 <code>TextureLevel + MinMaxLevelOffset</code> 不同</td><td><span class="ref">VirtualHeightfieldMesh3.usf:252</span> vs <span class="ref">VirtualHeightfieldMesh.usf:199-200</span></td></tr>
+<tr><td>洞实例缓冲容量只有主缓冲的 1/4</td><td><code>MaxRenderItems * InstanceSize / 4</code>，注释"hold instance just little"</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1802</span></td></tr>
+</tbody></table>
+
+<h2 id="s12"><span class="num">十一</span>CVar 速查表</h2>
+
+<table><thead><tr>
+<th>CVar</th>
+<th>默认</th>
+<th>作用</th>
+<th>位置</th>
+</tr></thead><tbody>
+<tr><td><code>r.VHM.Enable</code></td><td>0</td><td>总开关（运行时会被 Nanite 逻辑自动改写）</td><td><span class="ref">VirtualHeightfieldMeshEnable.cpp:16-21</span></td></tr>
+<tr><td><code>r.VHM.Visualize</code></td><td>1</td><td>调试用可视化开关</td><td><span class="ref">VirtualHeightfieldMeshEnable.cpp:25-31</span></td></tr>
+<tr><td><code>r.VHM.EnableExtSubdivisionLevel</code></td><td>0</td><td>允许几何细于纹理</td><td><span class="ref">VirtualHeightfieldMeshEnable.cpp:33-38</span></td></tr>
+<tr><td><code>r.VHM.Version</code></td><td><strong>3</strong></td><td>1=V1 流水线，2=已废弃，其它=V3</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:117-122</span></td></tr>
+<tr><td><code>r.VHM.UseAsyncCompute</code></td><td>1（工程改 <strong>0</strong>）</td><td>计算 pass 走 AsyncCompute</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:46-52</span></td></tr>
+<tr><td><code>r.VHM.NumActiveForOnePassStep</code></td><td>640</td><td>One-Pass 尾部收敛阈值</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:167-173</span></td></tr>
+<tr><td><code>r.VHM.WithOnePass</code></td><td>0</td><td>启用 One-Pass 持久线程遍历</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:154-160</span></td></tr>
+<tr><td><code>r.VHM.DisableCull</code></td><td>0</td><td>关闭剔除（调试）</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:131-136</span></td></tr>
+<tr><td><code>r.VHM.CloseMorphVertexForDebug</code></td><td>0</td><td>关闭顶点 morph</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:124-129</span></td></tr>
+<tr><td><code>r.VHM.LodScale</code></td><td>1.0</td><td>全局 LOD 缩放</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:62-67</span></td></tr>
+<tr><td><code>r.VHM.AddLodDistribution</code></td><td>0（工程 <strong>-0.3</strong>）</td><td>LOD 分布全局偏移</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:138-144</span></td></tr>
+<tr><td><code>r.VHM.AddLod0LevelBias</code></td><td>0（工程 <strong>2</strong>）</td><td>Lod0 层级偏置</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:146-152</span></td></tr>
+<tr><td><code>r.VHM.EnableViewLodFactor</code></td><td>0</td><td>是否乘 <code>View.LODDistanceFactor</code>（默认关，防 FOV 双计）</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:73-80</span></td></tr>
+<tr><td><code>r.VHM.Occlusion</code></td><td>1</td><td>硬件遮挡查询（V1 生效）</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:82-87</span></td></tr>
+<tr><td><code>r.VHM.MaxRenderInstances</code></td><td>65536（工程 <strong>262144</strong>）</td><td>实例/quad 缓冲容量</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:89-94</span></td></tr>
+<tr><td><code>r.VHM.MaxFeedbackItems</code></td><td>40960（工程 <strong>81920</strong>）</td><td>VT 反馈缓冲容量</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:96-101</span></td></tr>
+<tr><td><code>r.VHM.MaxPersistentQueueItems</code></td><td>65536（工程 <strong>262144</strong>）</td><td>工作队列容量（<strong>必须是 2 的幂</strong>，用掩码取模）</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:103-108</span></td></tr>
+<tr><td><code>r.VHM.CollectPassWavefronts</code></td><td>16</td><td>One-Pass 的 wavefront 数</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:110-115</span></td></tr>
+<tr><td><code>r.VHM.StatEnable</code></td><td>0</td><td>GPU Stat 采集（需 <code>VHM_ENABLE_STAT=1</code> 编译）</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:206-211</span></td></tr>
+<tr><td><code>r.VHM.CaptureBuildTexture</code></td><td>0</td><td>构建时挂 RenderDoc 捕获</td><td><span class="ref">HeightfieldMinMaxTextureBuild.cpp:22-28</span></td></tr>
+</tbody></table>
+
+<h2 id="s13"><span class="num">十二</span>网络资料勘误</h2>
+
+<p>按 skill 要求，对检索到的公开资料逐条与本地源码交叉比对。</p>
+
+<table><thead><tr>
+<th>#</th>
+<th>网络说法</th>
+<th>本地核实结果</th>
+</tr></thead><tbody>
+<tr><td>1</td><td>"VHM 依赖 WorldHeight 类型的 RVT"</td><td>✅ <strong>准确</strong>。代码硬性判定：<code>RuntimeVirtualTexture-&gt;GetMaterialType() == ERuntimeVirtualTextureMaterialType::WorldHeight</code>，不满足则完全不创建 VF（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:870</span>）</td></tr>
+<tr><td>2</td><td>"VHM 在顶点着色器采样 height RVT 置换几何"</td><td>✅ <strong>准确</strong>。<code>VHM.HeightTexture.SampleLevel(...)</code> 在 VS 内完成（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:208-214</span>）</td></tr>
+<tr><td>3</td><td>"Mesh 生成基于 GPU Driven Pipeline，构建 Indirect Args 后以 Instance 绘制"</td><td>✅ <strong>准确</strong>。见 §4、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1024</span></td></tr>
+<tr><td>4</td><td>"提供 quad-tree primitive，只做 Z 轴位移、无碰撞；碰撞由 Landscape 提供"</td><td>✅ <strong>准确</strong>。<code>WorldNormal = float3(0,0,1)</code>；插件无任何碰撞代码；俯视投影由 <code>UVToWorld</code> 决定</td></tr>
+<tr><td>5</td><td>"VHM 需在项目设置开启 virtual texture support"</td><td>✅ <strong>准确</strong>。运行时判定含 <code>UseVirtualTexturing(InFeatureLevel)</code>（<span class="ref">VirtualHeightfieldMeshEnable.cpp:132</span>）</td></tr>
+<tr><td>6</td><td>"官方说法将替代传统 landscape rendering"</td><td>⚠️ <strong>属旧版本口径</strong>。本仓库（GR 分叉）已改为 <strong>VHM 与 Nanite 按平台互斥</strong>，SM5 及以下走 VHM、SM6 走 Nanite（<span class="ref">VirtualHeightfieldMeshEnable.cpp:44-68</span>）</td></tr>
+<tr><td>7</td><td>论坛帖："UE 5.8 VHM 的 LOD popping 是因为 <span class="ref">VirtualHeightfieldMesh.usf</span> 未同步 <code>VirtualTextureFeedbackBias</code>"</td><td>❌ <strong>对本仓库不适用</strong>。本仓为 <strong>UE 5.5.4</strong>（<code>Engine/Build/Build.version</code>，CL 1128341），<span class="ref">Engine/Shaders/Shared/VirtualTextureDefinitions.h</span> <strong>不存在</strong>，<code>VirtualTextureFeedbackBias</code> <strong>全仓无定义</strong>。因此这里用 <code>LevelPlusOne = SampleTextureLevel + 1</code>（<span class="ref">VirtualHeightfieldMesh3.usf:213</span>）是<strong>正确</strong>的，不是 bug。<strong>若日后同步到 5.8+ 引擎，此处必须一并处理。</strong></td></tr>
+<tr><td>8</td><td>"VHM 在 4.26 推出，5.0.3 仍为 Experimental"</td><td>✅ 与本地一致。<code>VirtualHeightfieldMesh.uplugin</code> 中 <code>"IsExperimentalVersion": true</code>、<code>"EnabledByDefault": false</code></td></tr>
+<tr><td>9</td><td>"四叉树用 indirection texture 烘焙、动态调整 sector 大小"</td><td>❌ <strong>张冠李戴</strong>。该描述来自 <em>Advances in Real-Time Rendering 2023</em>（ATVI 的《Large Scale Terrain Rendering》），讲的是该商用引擎自己的方案，<strong>不是 UE VHM</strong>。UE VHM <strong>没有</strong> indirection texture 的逐帧 delta 更新机制；它是<strong>每帧重新遍历 RVT 页表纹理</strong>（<code>Texture2D&lt;uint&gt;</code>）现场构建四叉树。本仓的 <code>VirtualToPhysicalUV</code>（<span class="ref">VirtualHeightfieldMesh.ush:142-155</span>）是标准的 VT 页表寻址，与 ATVI 方案不同源。</td></tr>
+<tr><td>10</td><td>部分中文博文称 VHM 内有"LRU/free/locked 页链表、每帧算四叉树 delta"</td><td>❌ <strong>不成立</strong>。这些是 <strong>UE 通用 Virtual Texture 系统</strong>（<code>Engine/Source/Runtime/Renderer/Private/VT/</code>）的机制，VHM <strong>只是消费者</strong>，自身代码里没有任何页表管理/淘汰逻辑。VHM 只做两件事：读页表、写反馈（<code>RecordFeedback</code>，<span class="ref">VirtualHeightfieldMesh3.usf:202-221</span>）。</td></tr>
+<tr><td>11</td><td>各类文章提到的 <code>r.VHM.*</code> CVar</td><td>⚠️ <strong>需以本仓为准</strong>。本仓比公开资料多出 <code>r.VHM.Version</code>、<code>r.VHM.WithOnePass</code>、<code>r.VHM.NumActiveForOnePassStep</code>、<code>r.VHM.DisableCull</code>、<code>r.VHM.AddLodDistribution</code>、<code>r.VHM.AddLod0LevelBias</code>、<code>r.VHM.Visualize</code>、<code>r.VHM.EnableExtSubdivisionLevel</code>、<code>r.VHM.StatEnable</code> 等<strong>自研 CVar</strong>，公开文档里不会有。</td></tr>
+</tbody></table>
+
+<h2 id="s14"><span class="num">十三</span>一页总结</h2>
+
+<pre>                      ┌──────── 每帧 ────────┐
+   RVT 页表纹理 ─────► │  FillLevel4QuadCS    │ 播种 64 个 MaxLevel-3 的 quad（MortonDecode(tid)）
+   (Texture2D&lt;uint&gt;)   │         ↓            │
+                       │ CollectSubdivide CS  │ ×(MaxLevel-3+1) 轮：距离 LOD 判细分
+                       │  距离&lt;层级? 分4子 : 收叶子 │
+                       │         ↓            │
+                       │ CullQuads&amp;GenInst CS │ 视锥+Mask 剔除 → 分主/洞两批实例
+                       │         ↓            │
+                       │ IndirectArgsBuffer   │ [0..4]=主材质批次, [5..9]=洞材质批次
+                       └──────────┬───────────┘
+                                  ↓ DrawIndexedInstancedIndirect ×2
+   ┌──────────── VS（无顶点缓冲，顶点由 SV_VertexID 生成）────────────┐
+   │ VertexCoord = (VID % GRID, VID / GRID)  →  LocalUV               │
+   │ 读 InstanceBuffer[IID] → Pos / Level / PhysicalAddress           │
+   │ 查页表 → 物理UV → 采高度 ×2 mip → lerp  → MorphVertex(CDLOD)     │
+   │ LocalPos = mul(float3(NormalizedPos, Height, 1), UVToLocal)      │
+   └──────────────────────────────────────────────────────────────────┘</pre>
+
+<p><strong>三句话记住 VHM</strong>：</p>
+
+<ol><li><strong>几何来源是页表，不是 Mesh</strong>——画什么由 VT 已驻留的页决定。</li><li><strong>LOD 是"边遍历边细分"</strong>——从 64 个粗 quad 出发，够近就分裂，判据只有 <code>MinDistanceLod &lt; Level</code>。</li><li><strong>CPU 只出参数，GPU 决定一切</strong>——实例数、剔除、LOD 全在 CS 里定，CPU 侧只有一次 <code>SubmitWork</code> 提交 pass 链。</li></ol>
+
+<p><strong>本仓库要特别留意的三点</strong>：</p>
+
+<ul><li>VHM 在移动端是 <strong>Nanite 的替代</strong>，<span class="ref">VirtualHeightfieldMeshEnable.cpp:51-53</span> 的 ZXB 补丁是"SM5 不禁用 VHM"的关键。</li><li><strong>Mask/Hole 是自研能力</strong>，公开资料里没有；它是移动端避免 <code>discard</code> 而做的 CS 侧分流设计。</li><li>§10.1 的 <strong>MinMax 解包互换</strong>是本地可复现的不一致，建议实测确认影响面。</li></ul>
+
+<h2 id="s15"><span class="num">十四</span>参考</h2>
+
+<ul><li>本地源码：<code>D:\GR_DevTest\UE5EA\Engine\Plugins\Experimental\VirtualHeightfieldMesh\</code>（UE 5.5.4 / CL 1128341，<code>//GR/DevTest/UE5EA/...</code>）</li><li>[UVirtualHeightfieldMeshComponent — Epic 官方 API 文档](https://dev.epicgames.com/documentation/unreal-engine/API/Plugins/VirtualHeightfieldMesh/UVirtualHeightfieldMeshComponent)</li><li>[UHeightfieldMinMaxTexture — Epic 官方 API 文档](https://dev.epicgames.com/documentation/unreal-engine/API/Plugins/VirtualHeightfieldMesh/UHeightfieldMinMaxTexture)</li><li>[UE 5.8: VirtualHeightfieldMesh terrain LOD popping — cause and fix（Epic 开发者社区）](https://forums.unrealengine.com/t/ue-5-8-virtualheightfieldmesh-terrain-lod-popping-cause-and-fix/2737099)（<strong>注意：仅适用于 5.8+，本仓 5.5.4 不适用</strong>，见 §12 第 7 条）</li><li>[UE5 VirtualHeightfieldMesh 简述（知乎）](https://zhuanlan.zhihu.com/p/575398476)</li><li>[Virtual Texture for everything（知乎）](https://zhuanlan.zhihu.com/p/567526654)</li><li>[Advances in Real-Time Rendering 2023 — Large Scale Terrain Rendering（ATVI）](https://advances.realtimerendering.com/s2023/Etienne(ATVI)-Large%20Scale%20Terrain%20Rendering%20with%20notes%20(Advances%202023).pdf)（<strong>与 UE VHM 非同一方案</strong>，见 §12 第 9 条）</li></ul>
+
+<p><em>文档生成时间：2026-09-23</em> <em>核对基线：<code>UE5EA</code> UE 5.5.4 / CL 1128341 @ P4 workspace <code>DJANGOZHAN-PCFW_GR_DevTest</code></em></p>
+
+<footer>
+  生成于 2026-09-23　·　核对基线 UE 5.5.4 / CL 1128341 @ P4 workspace <code>DJANGOZHAN-PCFW_GR_DevTest</code><br>
+  引用校验：19 文件 / 156 处，0 越界 · 0 简写 · 0 未定位；内容双断言 49 条。
+</footer>
+
+</div>
+</body>
+</html>

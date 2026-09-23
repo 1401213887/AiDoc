@@ -104,7 +104,7 @@
     <li><a href="#s5">SOA 布局：SSBO 路径的地址算术</a></li>
     <li><a href="#s6">上传链路：CPU → GPU</a></li>
     <li><a href="#s7">合批原理：从 StateBucket 到 Indirect Draw</a></li>
-    <li><a href="#s8">InstanceCulling 原理</a></li>
+    <li><a href="#s8">InstanceCulling 深度剖析（流程 / Buffer / Shader / 合批 / 平台差异）</a></li>
     <li><a href="#s9">PC vs Mobile 差异总表</a></li>
     <li><a href="#s10">本分叉（GR）定制清单</a></li>
     <li><a href="#s11">网络资料勘误</a></li>
@@ -146,7 +146,7 @@
 </tr>
 <tr>
   <td>InstanceCulling 干什么</td>
-  <td>在 GPU 上对「实例」做视锥 + HZB 遮挡剔除，把结果紧凑化写进 <code>InstanceIdsBuffer</code>，并直接产出 Indirect Draw 参数。CPU 只准备 Draw 命令模板，不碰逐实例数据。</td>
+  <td>在 GPU 上对「实例」做视锥 + HZB 遮挡剔除，把结果紧凑化写进 <code>InstanceIdsBuffer</code>，并直接产出 Indirect Draw 参数。CPU 只准备 Draw 命令模板，不碰逐实例数据。<b>本章已扩写为 24 小节</b>：完整执行流程、16 条 buffer 的申请、逐 shader 逻辑、PC/Mobile 差异总表，见 §8.2 起的四阶段划分。</td>
   <td><span class="ref">BuildInstanceDrawCommands.usf:395-479</span></td>
 </tr>
 <tr>
@@ -1192,7 +1192,7 @@ FRDGBuffer* ResizeStructuredBufferIfNeeded(FRDGBuilder&amp; GraphBuilder, TRefCo
   <tr><td><b>② 批大小拆分</b></td><td>把一条 draw 的实例按 UBO 容量切成多批，重发 draw</td><td><code>PLATFORM_MAX_UNIFORM_BUFFER_RANGE / stride</code> <span class="ref">InstanceCullingContext.cpp:1631-1632</span></td></tr>
   </tbody>
   </table>
-  ① 是「让 draw 变少」，② 是「让 draw 变多」。同名「合批」，方向相反。
+  ① 是「让 draw 变少」，② 是「让 draw 变多」。同名「合批」，方向相反。<br><br><b>本章讲的是「是什么」，完整的六层链路（StateBucketId 怎么算 / 排序怎么决定相邻 / 折叠判据 / 实例数记账 / 三个同名开关哪个是活的）见 §8.25。</b>
 </div>
 
 <h3>7.1 第一层：StateBucket —— 相同状态的去重</h3>
@@ -1263,114 +1263,1605 @@ END_GLOBAL_SHADER_PARAMETER_STRUCT()</pre>
 <p>PC 上该结构仍会创建，但因为没有 UBO 上限压力，走的不是这条切批路径。</p>
 
 <!-- ============================================================ -->
-<h2 id="s8"><span class="num">08</span>InstanceCulling 原理</h2>
-
+<h2 id="s8"><span class="num">08</span>InstanceCulling 深度剖析</h2>
 <h3>8.1 它解决的问题</h3>
 <p>InitViews 阶段 CPU 已经做过一次剔除（视锥 / 距离 / 遮挡），但那只针对「整个 Primitive」。一旦一个 Primitive 带几千个实例（HISM 植被），<b>Primitive 级剔除的粒度就不够了</b>——框住整片森林的包围盒一定与视锥相交，全部实例都会被提交，白白绘制。</p>
 <p>InstanceCulling 把剔除粒度下沉到<b>实例级</b>，并且整个计算在 GPU 上并行完成，CPU 不参与逐实例判断。</p>
 
-<h3>8.2 一次剔除包含哪几个 dispatch</h3>
+
+<h3>8.2 四个阶段：一次剔除到底发生了什么</h3>
+
+<div class="callout">
+  <div class="h">先把阶段划分说清楚 —— 后面每一节都挂在这四步上</div>
+  <table style="margin:8px 0">
+  <thead><tr><th style="width:10%">阶段</th><th style="width:30%">函数</th><th style="width:60%">做什么</th></tr></thead>
+  <tbody>
+  <tr><td><b>① 收集</b></td><td><code>SetupDrawCommands</code><br><span class="ref">InstanceCullingContext.cpp:1568</span></td><td><b>CPU</b>。扫可见 MeshDrawCommand，合并同状态项，按批上限切分，把工作项塞进 LoadBalancer，产出 5 个 CPU 数组</td></tr>
+  <tr><td><b>② 上传</b></td><td><code>BuildRenderingCommands</code><br><span class="ref">InstanceCullingContext.cpp:737</span></td><td><b>CPU + GPU</b>。把 5 个数组变成 RDG buffer，创建输出 buffer，下发 3~5 类 dispatch</td></tr>
+  <tr><td><b>③ 剔除</b></td><td>主 CS + Compaction CS<br><span class="ref">BuildInstanceDrawCommands.usf:337</span></td><td><b>GPU</b>。逐实例判可见，原子累加写 indirect args，写实例 ID</td></tr>
+  <tr><td><b>④ 提交</b></td><td><code>SubmitDrawCommands</code><br><span class="ref">InstanceCullingContext.cpp:1840</span></td><td><b>CPU/RHI</b>。把数组翻译成 RHI 调用，实例数由 GPU 写的 indirect args 决定</td></tr>
+  </tbody>
+  </table>
+  ①②④ 在同一线程顺序执行；③ 是异步的 —— ① 只准备数据，③ 在 GPU 上跑，④ 提交时并不等待 ③ 的结果（实例数由 RHI 从 indirect args 直接读）。
+</div>
+
+<h3>8.3 阶段①：SetupDrawCommands —— 从可见命令到工作项</h3>
+
+<p>这一节讲「执行」，与之配套的「凭什么能合」在 §8.25。</p>
+<p><b>入口签名</b>（<span class="ref">InstanceCullingContext.cpp:1568-1575</span>）：</p>
+<pre><span class="c">// InstanceCullingContext.cpp:1568-1575（逐字符照录）</span>
+void FInstanceCullingContext::SetupDrawCommands(
+	FMeshCommandOneFrameArray&amp; VisibleMeshDrawCommandsInOut,
+	bool bInCompactIdenticalCommands,
+	const FScene *Scene,
+	<span class="c">// Stats</span>
+	int32&amp; MaxInstances,
+	int32&amp; VisibleMeshDrawCommandsNum,
+	int32&amp; NewPassVisibleMeshDrawCommandsNum)</pre>
+<p><b>关键约束：<code>VisibleMeshDrawCommandsInOut</code> 只会变短</b>（引擎自己的注释，<span class="ref">InstanceCullingContext.cpp:1566</span>）。合并掉的下标会被后面的项前移填补，末尾 <code>SetNum</code> 截断。</p>
+
+<h4>第 0 步：两个前置判定</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:1582-1594（逐字符照录）</span>
+#if 1 <span class="c">// GR ADD</span>
+	static const auto CVarHZBOcclusion = IConsoleManager::Get().FindConsoleVariable(TEXT("r.HZBOcclusion"));
+	static const auto CVarHZBIndirectDraw = IConsoleManager::Get().FindConsoleVariable(TEXT("r.HZB.IndirectDraw"));
+	const bool bForceGenericProcessing = (CVarHZBOcclusion &amp;&amp; CVarHZBOcclusion-&gt;GetInt() != 0) &amp;&amp; (CVarHZBIndirectDraw &amp;&amp; CVarHZBIndirectDraw-&gt;GetInt() != 0);
+#else
+	const bool bForceGenericProcessing = false;
+#endif
+	const bool bMultiView = ViewIds.Num() &gt; 1 &amp;&amp; !(ViewIds.Num() == 2 &amp;&amp; InstanceCullingMode == EInstanceCullingMode::Stereo);
+	if (bMultiView || bForceGenericProcessing)
+	{
+		<span class="c">// multi-view defaults to culled path to make cube-maps more efficient</span>
+		SingleInstanceProcessingMode = EBatchProcessingMode::Generic;
+	}</pre>
+<ul>
+<li><b><span class='tag t-fork'>GR</span> 自研改写</b>：<code>#if 1 // GR ADD</code> 包裹，把上游硬编码的 <code>bForceGenericProcessing = false</code>（保留在 <code>#else</code>，<span class="ref">InstanceCullingContext.cpp:1587</span>）改成「<code>r.HZBOcclusion</code> 与 <code>r.HZB.IndirectDraw</code> 同时非 0 时为真」。</li>
+<li>多视图（cubemap 等）强制走 Generic：<code>bMultiView</code> 判定见 <span class="ref">InstanceCullingContext.cpp:1589</span>（Stereo 模式的 2 视图不算 multi-view）。</li>
+</ul>
+
+<h4>第 1 步：清空并准备 LoadBalancer</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:1598-1615（逐字符照录）</span>
+	ResetCommands(VisibleMeshDrawCommandsInOut.Num());
+	for (auto&amp; LoadBalancer : LoadBalancers)
+	{
+		if (LoadBalancer == nullptr)
+		{
+			LoadBalancer = new FInstanceProcessingGPULoadBalancer;
+		}
+#if DO_CHECK
+		if (InstanceCullingMode == EInstanceCullingMode::Stereo)
+		{
+			check(ViewIds.Num() == 2);
+		}
+		else
+		{
+			check(LoadBalancer-&gt;IsEmpty());
+		}
+#endif
+	}</pre>
+<p><code>ResetCommands</code>（<span class="ref">InstanceCullingContext.cpp:240-252</span>）清空 5 个数组 + 3 个压缩数组，并把 <code>TotalInstances</code> 归零。</p>
+<pre><span class="c">// InstanceCullingContext.cpp:240-252（逐字符照录）</span>
+void FInstanceCullingContext::ResetCommands(int32 MaxNumCommands)
+{
+	IndirectArgs.Empty(MaxNumCommands);
+	MeshDrawCommandInfos.Empty(MaxNumCommands);
+	DrawCommandDescs.Empty(MaxNumCommands);
+	InstanceIdOffsets.Empty(MaxNumCommands);
+	PayloadData.Empty(MaxNumCommands);
+	TotalInstances = 0U;
+
+	DrawCommandCompactionData.Empty(MaxNumCommands);
+	CompactionBlockDataIndices.Reset();
+	NumCompactionInstances = 0U;
+}</pre>
+
+<h4>第 2 步：算三个批上限常量</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:1625-1632（逐字符照录）</span>
+	const int32 NumDrawCommandsIn = VisibleMeshDrawCommandsInOut.Num();
+	int32 NumDrawCommandsOut = 0;
+	uint32 CurrentIndirectArgsOffset = 0U;
+	const int32 NumViews = ViewIds.Num();
+	const bool bAlwaysUseIndirectDraws = (SingleInstanceProcessingMode != EBatchProcessingMode::UnCulled);
+	const bool bOrderPreservationEnabled = IsInstanceOrderPreservationEnabled();
+	const uint32 MaxGenericBatchSize = bUsesUniformBufferView ? PLATFORM_MAX_UNIFORM_BUFFER_RANGE / UniformViewInstanceStride[0] : MAX_uint32;
+	const uint32 MaxPrimitiveBatchSize = bUsesUniformBufferView ? PLATFORM_MAX_UNIFORM_BUFFER_RANGE / UniformViewInstanceStride[1] : MAX_uint32;</pre>
+<p><code>bUsesUniformBufferView</code> 在构造函数里由 <span class="ref">InstanceCullingContext.cpp:206</span> 赋值（= <code>PlatformGPUSceneUsesUniformBufferView(ShaderPlatform)</code>）。<b>PC 上 <code>MaxBatchSize</code> 是 <code>MAX_uint32</code>，即永不拆分</b> —— 这是 §7.2 那条「16 KB 约束」的源头。</p>
+
+<h4>第 3 步：主循环 —— 合并判定</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:1652-1660（逐字符照录）</span>
+		<span class="c">// ISM Dynamic Instancing:[yinnhaowang]:[MODIFY]:[BEGIN]</span>
+		static const auto ICVarISMDynamicInstancing = IConsoleManager::Get().FindConsoleVariable(TEXT("r.InstancedStaticMeshes.DynamicInstancing"));
+		const bool bISMDynamicInstancing = ICVarISMDynamicInstancing &amp;&amp; ICVarISMDynamicInstancing-&gt;GetInt() &gt; 0;
+		<span class="c">// If GPU lod enabled, the draw command generated by ISM may have different culling payload flag, we would like to enable batching between such draw commands and the corresponding gpu culling flag need to cover all batched commands</span>
+		<span class="c">// e.g. One command is set with MinScreenSizeCull and other command is set with MaxScreenSizeCull, if these two command has same rendering state, we can combine them with a new command set with EMeshDrawCommandCullingPayloadFlags::All.</span>
+		<span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[MODIFY] Do not batch draw commands with different bUseISMDitheredLOD</span>
+		const bool bCanCompactCurrentCommand = bCompactIdenticalCommands &amp;&amp; CurrentStateBucketId != -1 &amp;&amp; VisibleMeshDrawCommand.StateBucketId == CurrentStateBucketId &amp;&amp; (bISMDynamicInstancing ? true : VisibleMeshDrawCommand.CullingPayloadFlags == CurrentCullingPayloadFlags);
+		<span class="c">//if (bCanCompactCurrentCommand)</span>
+		if (bCompactIdenticalCommands &amp;&amp; CurrentStateBucketId != -1 &amp;&amp; VisibleMeshDrawCommand.StateBucketId == CurrentStateBucketId &amp;&amp; VisibleMeshDrawCommand.CullingPayloadFlags == CurrentCullingPayloadFlags &amp;&amp; VisibleMeshDrawCommand.bUseISMDitheredLOD == CurrentISMDitheredLOD)</pre>
+<p>命中合并时（<span class="ref">InstanceCullingContext.cpp:1662-1687</span>）：丢弃当前命令，<code>CurrentAutoInstanceCount++</code>，若前一条不是 indirect 则把它的实例数 +1。</p>
+<pre><span class="c">// InstanceCullingContext.cpp:1662-1671（逐字符照录）</span>
+			<span class="c">// Drop since previous covers for this</span>
+
+			CurrentAutoInstanceCount++;
+			MaxInstances = FMath::Max&lt;int32&gt;(CurrentAutoInstanceCount, MaxInstances);
+
+			FMeshDrawCommandInfo&amp; RESTRICT DrawCmd = MeshDrawCommandInfos.Last();
+			if (DrawCmd.bUseIndirect == 0)
+			{
+				DrawCmd.IndirectArgsOffsetOrNumInstances += 1;
+			}</pre>
+<div class="callout warn">
+  <div class="h">源码现状：这里有一处 dead code</div>
+  <code>bCanCompactCurrentCommand</code>（<span class="ref">InstanceCullingContext.cpp:1658</span>）被算出后，紧跟的 <code>//if (bCanCompactCurrentCommand)</code> 是<b>被注释掉的</b>（<span class="ref">InstanceCullingContext.cpp:1659</span>），实际生效的是 :1660 的旧条件。→ <code>r.InstancedStaticMeshes.DynamicInstancing</code>（<span class="ref">InstanceCullingContext.cpp:1653</span>）<b>当前读到但不生效</b>。另外 :1674-1683 那块「合并 culling flag」的逻辑整块被 <code>/* */</code> 注释掉。
+</div>
+
+<h4>第 4 步：未命中合并时的分配</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:1688-1696（逐字符照录）</span>
+		else
+		{
+			<span class="c">// Reset auto-instance count (only needed for logging)</span>
+			CurrentAutoInstanceCount = 1;
+
+			<span class="c">// kept 1:1 with the retained (not compacted) mesh draw commands, implicitly clears num instances</span>
+			FMeshDrawCommandInfo&amp; RESTRICT DrawCmd = MeshDrawCommandInfos.AddZeroed_GetRef();
+			DrawCmd.NumBatches = 1;
+			DrawCmd.BatchDataStride = PLATFORM_MAX_UNIFORM_BUFFER_RANGE;</pre>
+<p><code>FMeshDrawCommandInfo</code> 与保留的命令<b>严格 1:1</b>（所以可以直接用 <code>SubmitDrawCommands</code> 的 draw 下标索引），末尾有 <code>checkf</code> 强校验（<span class="ref">InstanceCullingContext.cpp:1830</span>）：</p>
+<pre><span class="c">// InstanceCullingContext.cpp:1829-1837（逐字符照录）</span>
+	check(bInCompactIdenticalCommands || NumDrawCommandsIn == NumDrawCommandsOut);
+	checkf(NumDrawCommandsOut == MeshDrawCommandInfos.Num(), TEXT("There must be a 1:1 mapping between MeshDrawCommandInfos and mesh draw commands, as this assumption is made in SubmitDrawCommands."));
+
+	<span class="c">// Setup instancing stats for logging.</span>
+	VisibleMeshDrawCommandsNum = VisibleMeshDrawCommandsInOut.Num();
+	NewPassVisibleMeshDrawCommandsNum = NumDrawCommandsOut;
+
+	<span class="c">// Resize array post-compaction of dynamic instances</span>
+	VisibleMeshDrawCommandsInOut.SetNum(NumDrawCommandsOut, EAllowShrinking::No);</pre>
+
+<h4>第 5 步：产出 5 个 CPU 数组</h4>
+<p>循环体末尾同时写入三个数组（<span class="ref">InstanceCullingContext.cpp:1716-1728</span>）：</p>
+<pre><span class="c">// InstanceCullingContext.cpp:1716-1728（逐字符照录）</span>
+				if (bUseIndirectDraw)
+				{
+ 					DrawCmd.IndirectArgsOffsetOrNumInstances = CurrentIndirectArgsOffset * FInstanceCullingContext::IndirectArgsNumWords * sizeof(uint32);
+				}
+				else
+				{
+					DrawCmd.IndirectArgsOffsetOrNumInstances = 1;
+				}
+
+				const uint32 CurrentNumDraws = InstanceIdOffsets.Num();
+				<span class="c">// drawcall specific offset into per-instance buffer</span>
+				DrawCmd.InstanceDataByteOffset = StepInstanceDataOffsetBytes(CurrentNumDraws);
+				InstanceIdOffsets.Emplace(GetInstanceIdNumElements());</pre>
 <table>
-<thead><tr><th>#</th><th>Dispatch</th><th>作用</th><th>证据</th></tr></thead>
+<thead><tr><th style="width:24%">数组</th><th style="width:16%">索引</th><th>含义</th></tr></thead>
 <tbody>
-<tr><td>1</td><td>清 CompactionBlockCounts</td><td>仅在「保持实例顺序」开启时</td><td><span class="ref">InstanceCullingContext.cpp:829</span></td></tr>
-<tr><td>2</td><td>ClearIndirectArgInstanceCount</td><td>把 indirect args 的 InstanceCount 清零（规避某些主机 replay 问题）</td><td><span class="ref">InstanceCullingContext.cpp:882</span></td></tr>
-<tr><td>3</td><td><b>主剔除 CS</b>（每个非空 LoadBalancer 一个）</td><td>逐实例可见性判断 + 原子累加 + 写实例 ID</td><td><span class="ref">InstanceCullingContext.cpp:952-986</span></td></tr>
-<tr><td>4</td><td>Compaction Phase 1</td><td>block 级前缀和</td><td><span class="ref">InstanceCullingContext.cpp:1002-1008</span></td></tr>
-<tr><td>5</td><td>Compaction Phase 2</td><td>按原始顺序紧凑写回</td><td><span class="ref">InstanceCullingContext.cpp:1025-1031</span></td></tr>
+<tr><td><code>MeshDrawCommandInfos</code></td><td>draw 序号</td><td>每条保留命令一条：<code>bUseIndirect</code> / <code>IndirectArgsOffsetOrNumInstances</code> / <code>InstanceDataByteOffset</code> / <code>NumBatches</code> / <code>BatchDataStride</code>。<b>纯 CPU 用，不上传</b></td></tr>
+<tr><td><code>IndirectArgs</code></td><td>indirect 槽</td><td><code>FRHIDrawIndexedIndirectParameters</code>（5 个 word），<code>InstanceCount</code> 初始 0</td></tr>
+<tr><td><code>DrawCommandDescs</code></td><td>indirect 槽</td><td>打包的 draw 描述（WPO / LOD / 屏幕尺寸），见 §8.9</td></tr>
+<tr><td><code>InstanceIdOffsets</code></td><td>indirect 槽</td><td>该 draw 在输出缓冲里的起始元素偏移（<b>前缀和</b>，见 §8.13）</td></tr>
+<tr><td><code>PayloadData</code></td><td>LoadBalancer payload</td><td>仅保序时写入（见 §8.9）</td></tr>
+</tbody>
+</table>
+<p><code>IndirectArgsOffsetOrNumInstances</code> 的二选一语义（<span class="ref">InstanceCullingContext.cpp:1716-1723</span>）：indirect 时存<b>字节偏移</b>，非 indirect 时存<b>实例数</b>。</p>
+
+<h3>8.4 批拆分算法：<code>AddInstancesToDrawCommand</code> 的三段结构</h3>
+
+<p>有两个重载。<b>不带 <code>MaxBatchSize</code> 的那个是真正往 LoadBalancer 塞工作项的</b>（<span class="ref">InstanceCullingContext.cpp:316-346</span>）：</p>
+<pre><span class="c">// InstanceCullingContext.cpp:316-346（逐字符照录）</span>
+void FInstanceCullingContext::AddInstancesToDrawCommand(uint32 IndirectArgsOffset, int32 InstanceDataOffset, uint32 RunOffset, uint32 NumInstances, EInstanceFlags InstanceFlags, uint32 AdditionalCustomCullingFlags)
+{
+	checkSlow(InstanceDataOffset &gt;= 0);
+
+	const bool bDynamicInstanceDataOffset = EnumHasAnyFlags(InstanceFlags, EInstanceFlags::DynamicInstanceDataOffset);
+	const bool bPreserveInstanceOrder = EnumHasAnyFlags(InstanceFlags, EInstanceFlags::PreserveInstanceOrder);
+	const bool bForceInstanceCulling = EnumHasAnyFlags(InstanceFlags, EInstanceFlags::ForceInstanceCulling);	
+
+	uint32 Payload = (bDynamicInstanceDataOffset ? INSTANCE_CULLING_DYNAMIC_INSTANCE_DATA_OFFSET_BIT_MASK : 0U);
+	if (bPreserveInstanceOrder)
+	{
+		checkSlow(!EnumHasAnyFlags(Flags, EInstanceCullingFlags::NoInstanceOrderPreservation)); <span class="c">// this should have already been handled</span>
+
+		<span class="c">// We need to provide full payload data for these instances</span>
+		<span class="c">// NOTE: The extended payload data flag is in the lowest bit instead of the highest because the payload is not a full dword, see FInstanceCullingLoadBalancerBase::PackItem</span>
+		Payload |= (INSTANCE_CULLING_PRESERVE_INSTANCE_ORDER_BIT_MASK | (uint32(PayloadData.Num()) &lt;&lt; INSTANCE_CULLING_PAYLOAD_NUM_COMMON_BITS));
+		PayloadData.Emplace(bDynamicInstanceDataOffset, IndirectArgsOffset, InstanceDataOffset, RunOffset, DrawCommandCompactionData.Num());
+	}
+	else
+	{
+		<span class="c">// Conserve space by packing the relevant payload information into the dword</span>
+		Payload |= (IndirectArgsOffset &lt;&lt; INSTANCE_CULLING_PAYLOAD_NUM_COMMON_BITS);
+	}
+
+	<span class="c">// We special-case the single-instance (i.e., regular primitives) as they don't need culling (again), except where explicitly specified.</span>
+	<span class="c">// In actual fact this is not 100% true because dynamic path primitives may not have been culled.</span>
+	EBatchProcessingMode Mode = (NumInstances == 1 &amp;&amp; !bForceInstanceCulling) ? SingleInstanceProcessingMode : EBatchProcessingMode::Generic;
+	<span class="c">// ImposterProxy System:[yinnhaowang]:[MODIFY]</span>
+	LoadBalancers[uint32(Mode)]-&gt;Add(uint32(InstanceDataOffset), NumInstances, Payload, AdditionalCustomCullingFlags);
+	TotalInstances += NumInstances;
+}</pre>
+<table>
+<thead><tr><th style="width:22%">环节</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>Payload 组装</td><td><b>两条互斥路径</b>：保序时存 <code>PayloadData</code> 数组下标（须置 bit0 标志）；否则直接把 <code>IndirectArgsOffset</code> 左移 <code>INSTANCE_CULLING_PAYLOAD_NUM_COMMON_BITS</code> 塞进 payload，<b>省掉一次间接寻址</b></td></tr>
+<tr><td>管线选择</td><td><code>(NumInstances == 1 && !bForceInstanceCulling) ? SingleInstanceProcessingMode : Generic</code> —— 单实例默认走 UnCulled（CPU 已剔过）</td></tr>
+<tr><td>入队</td><td><code>LoadBalancers[Mode]->Add(InstanceDataOffset, NumInstances, Payload, AdditionalCustomCullingFlags)</code>，同时 <code>TotalInstances += NumInstances</code></td></tr>
+</tbody>
+</table>
+<p>引擎注释解释了 bit0 为何在最低位而不是最高位（<span class="ref">InstanceCullingContext.cpp:330</span>）：<code>// the payload is not a full dword, see FInstanceCullingLoadBalancerBase::PackItem</code>。</p>
+
+<h4>带 <code>MaxBatchSize</code> 的版本：三段（<span class="ref">InstanceCullingContext.cpp:349-402</span>）</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:349-402（逐字符照录）</span>
+void FInstanceCullingContext::AddInstancesToDrawCommand(uint32 IndirectArgsOffset, int32 InstanceDataOffset, uint32 RunOffset, uint32 NumInstances, EInstanceFlags InstanceFlags, uint32 MaxBatchSize, uint32 AdditionalCustomCullingFlags)
+{
+	<span class="c">// Batching is disabled or first run of instances fit into batch size</span>
+	if (MaxBatchSize == MAX_uint32 || (NumInstances &lt;= MaxBatchSize &amp;&amp; RunOffset == 0))
+	{
+		<span class="c">// ImposterProxy System:[yinnhaowang]:[MODIFY]</span>
+		AddInstancesToDrawCommand(IndirectArgsOffset, InstanceDataOffset, RunOffset, NumInstances, InstanceFlags, AdditionalCustomCullingFlags);
+		return;
+	}
+			
+	<span class="c">// In case we are adding more than one instance run </span>
+	<span class="c">// we will need to append instances to a last batch until its full</span>
+	if (RunOffset &gt; 0 &amp;&amp; NumInstances &gt; 0)
+	{
+		uint32 NumInstancesInBatch = RunOffset % MaxBatchSize;
+		if (NumInstancesInBatch &gt; 0)
+		{
+			NumInstancesInBatch = FMath::Min(MaxBatchSize - NumInstancesInBatch, NumInstances);
+			<span class="c">// appending to a last batch</span>
+			IndirectArgsOffset = (IndirectArgs.Num() - 1);
+			<span class="c">// ImposterProxy System:[yinnhaowang]:[MODIFY]</span>
+			AddInstancesToDrawCommand(IndirectArgsOffset, InstanceDataOffset, RunOffset, NumInstancesInBatch, InstanceFlags, AdditionalCustomCullingFlags);
+			InstanceDataOffset += NumInstancesInBatch;
+			NumInstances -= NumInstancesInBatch;
+		}
+	}
+
+	<span class="c">// Split rest of the instances into batches</span>
+	if (NumInstances &gt; 0)
+	{
+		uint32 NumBatches = FMath::DivideAndRoundUp(NumInstances, MaxBatchSize);
+		FMeshDrawCommandInfo&amp; RESTRICT DrawCmd = MeshDrawCommandInfos.Last();
+		FRHIDrawIndexedIndirectParameters LastIndirectArgs = IndirectArgs.Last();
+		uint32 LastCommandDesc = DrawCommandDescs.Last();
+		uint32 NumViews = ViewIds.Num();
+
+		for (uint32 BatchIdx = 0; BatchIdx &lt; NumBatches; BatchIdx++)
+		{
+			uint32 NumInstancesInBatch = FMath::Min(MaxBatchSize, NumInstances);
+
+			if (RunOffset &gt; 0 || BatchIdx != 0)
+			{
+				DrawCommandDescs.Add(LastCommandDesc);
+				IndirectArgsOffset = IndirectArgs.Add(LastIndirectArgs);
+				InstanceIdOffsets.Add(GetInstanceIdNumElements());
+				DrawCmd.NumBatches++;
+			}
+			<span class="c">// ImposterProxy System:[yinnhaowang]:[MODIFY]</span>
+			AddInstancesToDrawCommand(IndirectArgsOffset, InstanceDataOffset, RunOffset, NumInstancesInBatch, InstanceFlags, AdditionalCustomCullingFlags);
+			InstanceDataOffset += NumInstancesInBatch;
+			NumInstances -= NumInstancesInBatch;
+		}
+	}
+}</pre>
+<ol>
+<li><b>快路径</b>（:352）：<code>MaxBatchSize == MAX_uint32 || (NumInstances &lt;= MaxBatchSize &amp;&amp; RunOffset == 0)</code> → 直接透传。<b>PC 永远走这条</b>。</li>
+<li><b>填满上一批</b>（:361-374）：<code>NumInstancesInBatch = RunOffset % MaxBatchSize</code>，若 &gt; 0 则 <code>IndirectArgsOffset = (IndirectArgs.Num() - 1)</code> —— <b>追加到最后一条计划</b>，把上一条的残余空间填满。</li>
+<li><b>切分</b>（:377-401）：<code>NumBatches = DivideAndRoundUp(NumInstances, MaxBatchSize)</code>；每个额外批<b>复制上一条的 <code>DrawCommandDescs</code> / <code>IndirectArgs</code></b>，追加 <code>InstanceIdOffsets</code>，并 <code>DrawCmd.NumBatches++</code>。</li>
+</ol>
+<div class="callout">
+  <div class="h">为什么「填满上一批」这一步是必要的</div>
+  一个 Primitive 的实例可能被上一次调用拆到一半。若不回填，上一批会留下空洞 —— 而 UBO 窗口是按 stride 连续排布的，<b>空洞会让后续所有实例的偏移算错</b>。所以必须先补满，再从整批边界开始切。
+</div>
+
+<h4>Runs 版本（<span class="ref">InstanceCullingContext.cpp:405-418</span>）</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:405-418（逐字符照录）</span>
+void FInstanceCullingContext::AddInstanceRunsToDrawCommand(uint32 IndirectArgsOffset, int32 InstanceDataOffset, const uint32* Runs, uint32 NumRuns, EInstanceFlags InstanceFlags, uint32 MaxBatchSize, uint32 AdditionalCustomCullingFlags)
+{
+	<span class="c">// Add items to current generic batch as they are instanced for sure.</span>
+	uint32 NumInstancesInRuns = 0;
+	for (uint32 Index = 0; Index &lt; NumRuns; ++Index)
+	{
+		uint32 RunStart = Runs[Index * 2];
+		uint32 RunEndIncl = Runs[Index * 2 + 1];
+		uint32 NumInstances = (RunEndIncl + 1U) - RunStart;
+		<span class="c">// ImposterProxy System:[yinnhaowang]:[MODIFY]</span>
+		AddInstancesToDrawCommand(IndirectArgsOffset, InstanceDataOffset + RunStart, NumInstancesInRuns, NumInstances, InstanceFlags | EInstanceFlags::ForceInstanceCulling, MaxBatchSize, AdditionalCustomCullingFlags);
+		NumInstancesInRuns += NumInstances;
+	}
+}</pre>
+<p><code>Runs[]</code> 成对存储 <code>RunStart</code> / <code>RunEndIncl</code> —— <b>闭区间</b>（:413 的 <code>(RunEndIncl + 1U) - RunStart</code>）。这条路径<b>强制带 <code>EInstanceFlags::ForceInstanceCulling</code></b>（:415），因为 ISM 的实例范围必然需要剔除。</p>
+
+<h4>间接参数槽的分配（<span class="ref">InstanceCullingContext.cpp:260-288</span>）</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:260-288（逐字符照录）</span>
+uint32 FInstanceCullingContext::AllocateIndirectArgs(const FMeshDrawCommand *MeshDrawCommand)
+{
+	const uint32 NumPrimitives = MeshDrawCommand-&gt;NumPrimitives;
+	if (ensure(MeshDrawCommand-&gt;PrimitiveType &lt; PT_Num))
+	{
+		<span class="c">// default to PT_TriangleList &amp; PT_RectList</span>
+		uint32 NumVerticesOrIndices = NumPrimitives * 3U;
+		switch (MeshDrawCommand-&gt;PrimitiveType)
+		{
+		case PT_QuadList:
+			NumVerticesOrIndices = NumPrimitives * 4U;
+			break;
+		case PT_TriangleStrip:
+			NumVerticesOrIndices = NumPrimitives + 2U;
+			break;
+		case PT_LineList:
+			NumVerticesOrIndices = NumPrimitives * 2U;
+			break;
+		case PT_PointList:
+			NumVerticesOrIndices = NumPrimitives;
+			break;
+		default:
+			break;
+		}
+
+		return IndirectArgs.Emplace(FRHIDrawIndexedIndirectParameters{ NumVerticesOrIndices, 0U, MeshDrawCommand-&gt;FirstIndex, int32(MeshDrawCommand-&gt;VertexParams.BaseVertexIndex), 0U });
+	}
+	return 0U;
+}</pre>
+<table class="kv">
+<thead><tr><th>PrimitiveType</th><th>索引数</th></tr></thead>
+<tbody>
+<tr><td>默认 / <code>PT_TriangleList</code></td><td><code>NumPrimitives * 3</code></td></tr>
+<tr><td><code>PT_QuadList</code></td><td><code>NumPrimitives * 4</code></td></tr>
+<tr><td><code>PT_TriangleStrip</code></td><td><code>NumPrimitives + 2</code></td></tr>
+<tr><td><code>PT_LineList</code></td><td><code>NumPrimitives * 2</code></td></tr>
+<tr><td><code>PT_PointList</code></td><td><code>NumPrimitives</code></td></tr>
+</tbody>
+</table>
+<p>结构体 5 个成员依次是 <code>IndexCountPerInstance / InstanceCount / StartIndexLocation / BaseVertexLocation / StartInstanceLocation</code>，构造时 <code>InstanceCount = 0</code>，留给剔除 CS 原子累加。</p>
+
+<h3>8.5 阶段②：Buffer 申请 —— 一共 16 条（12 条常规 + 4 条 Imposter）</h3>
+
+<p>全部发生在 <code>BuildRenderingCommandsInternal</code>（<span class="ref">InstanceCullingContext.cpp:737</span>）。先看三条<b>提前返回路径</b>——它们决定了「什么时候一条 buffer 都不建」：</p>
+<pre><span class="c">// InstanceCullingContext.cpp:759-783（逐字符照录）</span>
+	if (AsyncProcessingMode != EAsyncProcessingMode::Synchronous &amp;&amp; InstanceCullingManager &amp;&amp; InstanceCullingManager-&gt;IsDeferredCullingActive() &amp;&amp; (InstanceCullingMode == EInstanceCullingMode::Normal))
+	{
+		FInstanceCullingDeferredContext *DeferredContext = InstanceCullingManager-&gt;DeferredContext;
+
+		<span class="c">// If this is true, then RDG Execute or Drain has been called, and no further contexts can be deferred. </span>
+		if (!DeferredContext-&gt;bProcessed)
+		{
+			InstanceCullingDrawParams-&gt;DrawIndirectArgsBuffer = DeferredContext-&gt;DrawIndirectArgsBuffer;
+			InstanceCullingDrawParams-&gt;InstanceIdOffsetBuffer = DeferredContext-&gt;InstanceDataBuffer;
+			InstanceCullingDrawParams-&gt;InstanceCulling = DeferredContext-&gt;UniformBuffer;
+			InstanceCullingDrawParams-&gt;BatchedPrimitive = DeferredContext-&gt;BatchedPrimitive;
+			DeferredContext-&gt;AddBatch(GraphBuilder, this, InstanceCullingDrawParams);
+		}
+		return;
+	}
+	WaitForSetupTask();
+
+	if (!HasCullingCommands())
+	{
+		if (InstanceCullingManager)
+		{
+			InstanceCullingDrawParams-&gt;InstanceCulling = InstanceCullingManager-&gt;GetDummyInstanceCullingUniformBuffer();
+		}
+		return;
+	}</pre>
+<table>
+<thead><tr><th style="width:30%">提前返回</th><th style="width:14%">条件</th><th>后果</th></tr></thead>
+<tbody>
+<tr><td><b>延迟剔除</b> <span class="ref">InstanceCullingContext.cpp:759-773</span></td><td>manager 处于 deferred 且非同步模式</td><td>只填 <code>InstanceCullingDrawParams</code> 四个字段，把活交给 <code>DeferredContext-&gt;AddBatch()</code>，<b>本函数直接 return</b></td></tr>
+<tr><td><b>无剔除命令</b> <span class="ref">InstanceCullingContext.cpp:776-783</span></td><td><code>!HasCullingCommands()</code>，即 <code>TotalInstances == 0</code></td><td>只塞一个 dummy uniform buffer，<b>不建 buffer、不发 pass</b></td></tr>
+</tbody>
+</table>
+<p><code>HasCullingCommands()</code> 就是 <code>TotalInstances &gt; 0</code>（<span class="ref">InstanceCullingContext.cpp:732-735</span>）。</p>
+
+<h4>常规 12 条</h4>
+<table>
+<thead><tr><th style="width:4%">#</th><th style="width:30%">名称</th><th style="width:34%">Desc / 大小</th><th style="width:16%">条件</th><th style="width:16%">行号</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>InstanceCulling.Compaction.TempInstanceIdsBuffer</code></td><td><code>StructuredDesc(4, max(NumCompactionInstances,1))</code></td><td rowspan="3">保序开启</td><td><span class="ref">InstanceCullingContext.cpp:808</span></td></tr>
+<tr><td>2</td><td><code>InstanceCulling.Compaction.BlockInstanceCounts</code></td><td><code>StructuredDesc(4, max(NumCompactionBlocks,1))</code></td><td><span class="ref">InstanceCullingContext.cpp:810</span></td></tr>
+<tr><td>3</td><td><code>InstanceCulling.DrawCommandCompactionData</code></td><td><code>CreateStructuredBuffer(DrawCommandCompactionData)</code></td><td><span class="ref">InstanceCullingContext.cpp:816</span></td></tr>
+<tr><td>4</td><td><code>InstanceCulling.ViewIds</code></td><td><code>CreateStructuredBuffer(ViewIds)</code></td><td>总是</td><td><span class="ref">InstanceCullingContext.cpp:835</span></td></tr>
+<tr><td>5</td><td><code>InstanceCulling.InstanceIdsBuffer</code></td><td><b>平台分叉</b>，见下</td><td>总是</td><td><span class="ref">InstanceCullingContext.cpp:837-838</span></td></tr>
+<tr><td>6</td><td><code>InstanceCulling.InstanceLODsBuffer</code></td><td>同 5</td><td>总是（<span class="tag t-fork">GR</span> 自加）</td><td><span class="ref">InstanceCullingContext.cpp:842</span></td></tr>
+<tr><td>7</td><td><code>InstanceCulling.DrawCommandDescs</code></td><td><code>CreateStructuredBuffer(DrawCommandDescs)</code></td><td>总是</td><td><span class="ref">InstanceCullingContext.cpp:848</span></td></tr>
+<tr><td>8</td><td><code>InstanceCulling.PayloadData</code></td><td><code>CreateStructuredBuffer(PayloadData)</code></td><td>总是</td><td><span class="ref">InstanceCullingContext.cpp:850</span></td></tr>
+<tr><td>9</td><td><code>InstanceCulling.DrawIndirectArgsBuffer</code></td><td><code>CreateIndirectDesc(5 * IndirectArgs.Num())</code></td><td>总是</td><td><span class="ref">InstanceCullingContext.cpp:875-878</span></td></tr>
+<tr><td>10</td><td><code>InstanceCulling.InstanceIdOffsetBuffer</code></td><td><code>CreateBufferDesc(4, InstanceIdOffsets.Num())</code></td><td>总是</td><td><span class="ref">InstanceCullingContext.cpp:885</span></td></tr>
+<tr><td>11</td><td><code>InstanceCulling.Compaction.BlockDestInstanceOffsets</code></td><td><code>StructuredDesc(4, NumCompactionBlocks)</code></td><td rowspan="2">保序 &amp;&amp; NumCompactionBlocks&gt;0</td><td><span class="ref">InstanceCullingContext.cpp:990</span></td></tr>
+<tr><td>12</td><td><code>InstanceCulling.Compaction.BlockDrawCommandIndices</code></td><td><code>CreateStructuredBuffer(CompactionBlockDataIndices)</code></td><td><span class="ref">InstanceCullingContext.cpp:1013</span></td></tr>
+</tbody>
+</table>
+<p>另有 4 条 Imposter buffer（<span class="ref">InstanceCullingContext.cpp:888-907</span>），由 <code>ENABLE_IMPOSTER_SHADER_PARAMETER</code> 门控，<b>该宏在本仓库默认为 0</b>（<span class="ref">InstanceCullingContext.cpp:25-27</span>，注释 <i>"disable imposter shader parameter, modified by lukesren"</i>），所以这块默认不编译。</p>
+
+<h4>★ 平台分叉：<code>InstanceIdsBuffer</code> 的 Desc 完全不同</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:683-711（逐字符照录）</span>
+static uint32 GetInstanceIdBufferSize(EShaderPlatform ShaderPlatform, uint32 NumInstanceElements)
+{
+	if (PlatformGPUSceneUsesUniformBufferView(ShaderPlatform))
+	{
+		<span class="c">// Add an additional max range slack to a buffer size, so when binding last element we still have a full UBO range</span>
+		NumInstanceElements += (PLATFORM_MAX_UNIFORM_BUFFER_RANGE / 16u);
+		return NumInstanceElements;
+	}
+	else
+	{
+		<span class="c">// Desktop uses StructuredBuffer&lt;uint&gt; NumElements==NumInstances</span>
+		return NumInstanceElements;
+	}
+}
+
+static FRDGBufferDesc CreateInstanceIdBufferDesc(EShaderPlatform ShaderPlatform, uint32 NumInstanceElements)
+{
+	if (PlatformGPUSceneUsesUniformBufferView(ShaderPlatform))
+	{
+		<span class="c">// float4</span>
+		FRDGBufferDesc Desc = FRDGBufferDesc::CreateStructuredDesc(16u, NumInstanceElements);
+		Desc.Usage |= EBufferUsageFlags::UniformBuffer;
+		return Desc;
+	}
+	else
+	{
+		return FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumInstanceElements);
+	}
+}</pre>
+<table>
+<thead><tr><th style="width:16%"></th><th style="width:42%"><span class="tag t-pc">PC</span></th><th style="width:42%"><span class="tag t-mob">Mobile</span></th></tr></thead>
+<tbody>
+<tr><td>元素宽</td><td><code>sizeof(uint32)</code> = <b>4 字节</b></td><td><b>16 字节</b>（一个 float4）</td></tr>
+<tr><td>元素数</td><td><code>NumInstanceElements</code></td><td><code>NumInstanceElements + 1024</code></td></tr>
+<tr><td>Usage</td><td>默认</td><td>额外加 <code>EBufferUsageFlags::UniformBuffer</code></td></tr>
+</tbody>
+</table>
+<p>那多出来的 1024 个元素 = <code>PLATFORM_MAX_UNIFORM_BUFFER_RANGE / 16u</code> = 16384/16，引擎注释给了理由：</p>
+<pre><span class="c">// InstanceCullingContext.cpp:687-687</span>
+		<span class="c">// Add an additional max range slack to a buffer size, so when binding last element we still have a full UBO range</span></pre>
+<p><b>「绑到最后一个元素时，仍然要有一个完整的 UBO range 可读」</b> —— 这正是 §7.2 批上限 64/32 存在的同一个原因，只是体现在 buffer 尺寸上。<span class="ref">InstanceCullingContext.cpp:838</span></p>
+
+<h4>★ 两处「隐藏的复用」</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:1054-1059（逐字符照录）</span>
+	if (PlatformGPUSceneUsesUniformBufferView(ShaderPlatform))
+	{
+		FBatchedPrimitiveParameters* BatchedPrimitiveParameters = GraphBuilder.AllocParameters&lt;FBatchedPrimitiveParameters&gt;();
+		BatchedPrimitiveParameters-&gt;Data = GraphBuilder.CreateSRV(InstanceIdsBuffer);
+		InstanceCullingDrawParams-&gt;BatchedPrimitive = GraphBuilder.CreateUniformBuffer(BatchedPrimitiveParameters);
+	}</pre>
+<p><b><code>FBatchedPrimitiveParameters::Data</code> 指向的就是 <code>InstanceIdsBuffer</code> 本体</b>，不是另一份数据。（这点在 §9.11 从 UBO 窗口角度讲过，这里是它的 C++ 来源。）</p>
+<pre><span class="c">// InstanceCullingContext.cpp:1040-1049（逐字符照录）</span>
+	<span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[ADD]</span>
+	if (PlatformGPUSceneUsesUniformBufferView(ShaderPlatform))
+	{
+		FRDGBufferRef DummyBuffer = GSystemTextures.GetDefaultStructuredBuffer(GraphBuilder, 4);
+		UniformParameters-&gt;InstanceLODsBuffer = GraphBuilder.CreateSRV(DummyBuffer);
+	}
+	else
+	{
+		UniformParameters-&gt;InstanceLODsBuffer = GraphBuilder.CreateSRV(InstanceLODsBuffer);
+	}</pre>
+<p><b>移动端的 <code>InstanceLODsBuffer</code> 被换成 dummy</b> —— ISM dithered LOD 在移动端失效的直接原因。（buffer 本身仍然创建了，只是不绑给着色器。）</p>
+
+<h4>缓冲区的上传时机</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:874-886（逐字符照录）</span>
+	<span class="c">// Create buffer for indirect args and upload draw arg data, also clears the instance to zero</span>
+	FRDGBufferDesc IndirectArgsDesc = FRDGBufferDesc::CreateIndirectDesc(IndirectArgsNumWords * IndirectArgs.Num());
+	IndirectArgsDesc.Usage = EBufferUsageFlags(IndirectArgsDesc.Usage | BUF_MultiGPUGraphIgnore);
+
+	FRDGBufferRef DrawIndirectArgsRDG = GraphBuilder.CreateBuffer(IndirectArgsDesc, TEXT("InstanceCulling.DrawIndirectArgsBuffer"));
+	GraphBuilder.QueueBufferUpload(DrawIndirectArgsRDG, IndirectArgs.GetData(), IndirectArgs.GetTypeSize() * IndirectArgs.Num());
+
+	<span class="c">// Note: we redundantly clear the instance counts here as there is some issue with replays on certain consoles.</span>
+	AddClearIndirectArgInstanceCountPass(GraphBuilder, ShaderMap, DrawIndirectArgsRDG);
+
+	<span class="c">// not using structured buffer as we have to get at it as a vertex buffer </span>
+	FRDGBufferRef InstanceIdOffsetBufferRDG = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), InstanceIdOffsets.Num()), TEXT("InstanceCulling.InstanceIdOffsetBuffer"));
+	GraphBuilder.QueueBufferUpload(InstanceIdOffsetBufferRDG, InstanceIdOffsets.GetData(), InstanceIdOffsets.GetTypeSize() * InstanceIdOffsets.Num());</pre>
+<p>注意 <code>InstanceIdOffsetBuffer</code> 用的是 <code>CreateBufferDesc</code> 而非 <code>CreateStructuredDesc</code>，<b>因为它要当顶点流用</b> —— 引擎注释写得很直白（<span class="ref">InstanceCullingContext.cpp:884</span>）：<code>// not using structured buffer as we have to get at it as a vertex buffer</code>。</p>
+
+<h3>8.6 阶段②续：Pass 下发清单</h3>
+
+<table>
+<thead><tr><th style="width:4%">序</th><th style="width:30%">Pass</th><th style="width:28%">group count</th><th style="width:18%">条件</th><th style="width:20%">行号</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>AddClearUAVPass(CompactionBlockCountsUAV, 0)</code></td><td>—（清 UAV）</td><td rowspan="2">保序 &amp;&amp; NumCompactionBlocks&gt;0</td><td><span class="ref">InstanceCullingContext.cpp:829</span></td></tr>
+<tr><td>2</td><td><code>AddClearIndirectArgInstanceCountPass</code></td><td>有回调</td><td><span class="ref">InstanceCullingContext.cpp:882</span></td></tr>
+<tr><td>3</td><td><b><code>CullInstances(Generic)</code></b><br><b><code>CullInstances(UnCulled)</code></b></td><td><code>LoadBalancer-&gt;GetWrappedCsGroupCount()</code></td><td>每个非空 LoadBalancer 一个</td><td><span class="ref">InstanceCullingContext.cpp:952-986</span></td></tr>
+<tr><td>4</td><td><code>Instance Compaction Phase 1</code></td><td><code>GetGroupCountWrapped(DrawCommandCompactionData.Num())</code></td><td rowspan="2">保序 &amp;&amp; NumCompactionBlocks&gt;0</td><td><span class="ref">InstanceCullingContext.cpp:988-1009</span></td></tr>
+<tr><td>5</td><td><code>Instance Compaction Phase 2</code></td><td><code>GetGroupCountWrapped(NumCompactionBlocks)</code></td><td><span class="ref">InstanceCullingContext.cpp:1011-1032</span></td></tr>
+</tbody>
+</table>
+<p><b>所以一次剔除是 2~5 类 dispatch</b>：第 3 类最多 2 个（Generic + UnCulled），其余各最多 1 个。</p>
+
+<h4>主 CS 的完整下发代码</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:952-986（逐字符照录）</span>
+	for (uint32 Mode = 0U; Mode &lt; uint32(EBatchProcessingMode::Num); ++Mode)
+	{
+		FInstanceProcessingGPULoadBalancer* LoadBalancer = LoadBalancers[Mode];
+		if (!LoadBalancer-&gt;IsEmpty())
+		{
+			FBuildInstanceIdBufferAndCommandsFromPrimitiveIdsCs::FParameters* PassParameters = GraphBuilder.AllocParameters&lt;FBuildInstanceIdBufferAndCommandsFromPrimitiveIdsCs::FParameters&gt;();
+			*PassParameters = PassParametersTmp;
+			<span class="c">// Upload data etc</span>
+			auto GPUData = LoadBalancer-&gt;Upload(GraphBuilder);
+			GPUData.GetShaderParameters(GraphBuilder, PassParameters-&gt;LoadBalancerParameters);
+			PassParameters-&gt;CurrentBatchProcessingMode = Mode;
+
+			<span class="c">// UnCulled bucket is used for a single instance mode</span>
+			check(EBatchProcessingMode(Mode) != EBatchProcessingMode::UnCulled || LoadBalancer-&gt;HasSingleInstanceItemsOnly());
+
+			FBuildInstanceIdBufferAndCommandsFromPrimitiveIdsCs::FPermutationDomain PermutationVector;
+			PermutationVector.Set&lt;FBuildInstanceIdBufferAndCommandsFromPrimitiveIdsCs::FSingleInstanceModeDim&gt;(EBatchProcessingMode(Mode) == EBatchProcessingMode::UnCulled);
+			PermutationVector.Set&lt;FBuildInstanceIdBufferAndCommandsFromPrimitiveIdsCs::FCullInstancesDim&gt;(bCullInstances &amp;&amp; EBatchProcessingMode(Mode) != EBatchProcessingMode::UnCulled);
+			PermutationVector.Set&lt;FBuildInstanceIdBufferAndCommandsFromPrimitiveIdsCs::FAllowWPODisableDim&gt;(bAllowWPODisable);
+			PermutationVector.Set&lt;FBuildInstanceIdBufferAndCommandsFromPrimitiveIdsCs::FOcclusionCullInstancesDim&gt;(bOcclusionCullInstances);
+			PermutationVector.Set&lt;FBuildInstanceIdBufferAndCommandsFromPrimitiveIdsCs::FStereoModeDim&gt;(InstanceCullingMode == EInstanceCullingMode::Stereo);
+			PermutationVector.Set&lt;FBuildInstanceIdBufferAndCommandsFromPrimitiveIdsCs::FBatchedDim&gt;(false);
+			PermutationVector.Set&lt;FBuildInstanceIdBufferAndCommandsFromPrimitiveIdsCs::FInstanceCompactionDim&gt;(bOrderPreservationEnabled);
+
+			auto ComputeShader = ShaderMap-&gt;GetShader&lt;FBuildInstanceIdBufferAndCommandsFromPrimitiveIdsCs&gt;(PermutationVector);
+
+			FComputeShaderUtils::AddPass(
+				GraphBuilder,
+				RDG_EVENT_NAME("CullInstances(%s)", BatchProcessingModeStr[Mode]),
+				ComputeShader,
+				PassParameters,
+				LoadBalancer-&gt;GetWrappedCsGroupCount()
+			);
+		}
+	}</pre>
+<p>特别注意：<code>PassParametersTmp</code> 是<b>所有 LoadBalancer 共用的一份模板</b>（<code>*PassParameters = PassParametersTmp;</code> 每个 Mode 拷一份），只有 <code>CurrentBatchProcessingMode</code> 和 LoadBalancer 参数不同。</p>
+
+<h4>7 个 permutation 维度</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:513-522（逐字符照录）</span>
+	<span class="c">// GPUCULL_TODO: remove once buffer is somehow unified</span>
+	class FSingleInstanceModeDim : SHADER_PERMUTATION_BOOL("SINGLE_INSTANCE_MODE");
+	class FCullInstancesDim : SHADER_PERMUTATION_BOOL("CULL_INSTANCES");
+	class FAllowWPODisableDim : SHADER_PERMUTATION_BOOL("ALLOW_WPO_DISABLE");
+	class FOcclusionCullInstancesDim : SHADER_PERMUTATION_BOOL("OCCLUSION_CULL_INSTANCES");
+	class FStereoModeDim : SHADER_PERMUTATION_BOOL("STEREO_CULLING_MODE");
+	class FBatchedDim : SHADER_PERMUTATION_BOOL("ENABLE_BATCH_MODE");
+	class FInstanceCompactionDim : SHADER_PERMUTATION_BOOL("ENABLE_INSTANCE_COMPACTION");
+
+	using FPermutationDomain = TShaderPermutationDomain&lt;FSingleInstanceModeDim, FCullInstancesDim, FAllowWPODisableDim, FOcclusionCullInstancesDim, FStereoModeDim, FBatchedDim, FInstanceCompactionDim&gt;;</pre>
+<table class="kv">
+<thead><tr><th>维度</th><th>宏名</th><th>置真条件</th></tr></thead>
+<tbody>
+<tr><td><code>FSingleInstanceModeDim</code></td><td><code>SINGLE_INSTANCE_MODE</code></td><td><code>Mode == UnCulled</code></td></tr>
+<tr><td><code>FCullInstancesDim</code></td><td><code>CULL_INSTANCES</code></td><td><code>bCullInstances &amp;&amp; Mode != UnCulled</code></td></tr>
+<tr><td><code>FAllowWPODisableDim</code></td><td><code>ALLOW_WPO_DISABLE</code></td><td><code>InstanceCullingManager != nullptr</code></td></tr>
+<tr><td><code>FOcclusionCullInstancesDim</code></td><td><code>OCCLUSION_CULL_INSTANCES</code></td><td><code>PrevHZB.IsValid() &amp;&amp; IsOcclusionCullingEnabled()</code></td></tr>
+<tr><td><code>FStereoModeDim</code></td><td><code>STEREO_CULLING_MODE</code></td><td><code>InstanceCullingMode == Stereo</code></td></tr>
+<tr><td><code>FBatchedDim</code></td><td><code>ENABLE_BATCH_MODE</code></td><td>此处<b>硬编码 false</b>；延迟剔除路径才置真</td></tr>
+<tr><td><code>FInstanceCompactionDim</code></td><td><code>ENABLE_INSTANCE_COMPACTION</code></td><td><code>bOrderPreservationEnabled</code></td></tr>
 </tbody>
 </table>
 
-<h3>8.3 主剔除 CS 的完整流程</h3>
-<div class="fig">
-<svg viewBox="0 0 1080 520" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
-  <defs>
-    <marker id="a2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
-      <path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/>
-    </marker>
-  </defs>
-  <text x="20" y="26" font-size="13.5" font-weight="700" fill="#1a1d21">InstanceCullBuildInstanceIdBufferCS 主流程</text>
-  <text x="20" y="46" font-size="11.5" fill="#7a828a">BuildInstanceDrawCommands.usf:336 起</text>
+<h4>★ 编译期分支：移动端不编译 compaction 变体</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:524-547（逐字符照录）</span>
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters&amp; Parameters)
+	{
+		if (!UseGPUScene(Parameters.Platform))
+		{
+			return false;
+		}
+		
+		const FPermutationDomain PermutationVector(Parameters.PermutationId);
+		
+		<span class="c">// Currently, instance compaction is not supported on mobile platforms</span>
+		if (PermutationVector.Get&lt;FInstanceCompactionDim&gt;() &amp;&amp; IsMobilePlatform(Parameters.Platform))
+		{
+			return false;
+		}
 
-  <rect x="40" y="62" width="300" height="44" rx="7" fill="#fff" stroke="#9db8dd"/>
-  <text x="190" y="82" font-size="12" fill="#1a1d21" text-anchor="middle">① 定位本 group 的工作</text>
-  <text x="190" y="98" font-size="10.5" fill="#7a828a" text-anchor="middle">LoadBatchInfo / 越界提前退出</text>
+		<span class="c">// Current behavior is that instance culling coerces the WPO disable distance check, so don't compile permutations</span>
+		<span class="c">// that include the former and exclude the latter</span>
+		if (PermutationVector.Get&lt;FCullInstancesDim&gt;() &amp;&amp; !PermutationVector.Get&lt;FAllowWPODisableDim&gt;())
+		{
+			return false;
+		}
 
-  <rect x="40" y="122" width="300" height="52" rx="7" fill="#fff" stroke="#9db8dd"/>
-  <text x="190" y="142" font-size="12" fill="#1a1d21" text-anchor="middle">② 解出 Item 与 InstanceId</text>
-  <text x="190" y="158" font-size="10.5" fill="#7a828a" text-anchor="middle">Item.InstanceDataOffset + LocalItemIndex</text>
-  <text x="190" y="170" font-size="10.5" fill="#7a828a" text-anchor="middle">（+ 动态实例偏移）</text>
+		return true;
+	}</pre>
+<p>另有 compaction shader 自己的闸门（<span class="ref">InstanceCullingContext.cpp:434-438</span>）：</p>
+<pre><span class="c">// InstanceCullingContext.cpp:434-438（逐字符照录）</span>
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters&amp; Parameters)
+	{
+		<span class="c">// Currently compaction isn't supported on mobile</span>
+		return UseGPUScene(Parameters.Platform) &amp;&amp; GetMaxSupportedFeatureLevel(Parameters.Platform) &gt; ERHIFeatureLevel::ES3_1;
+	}</pre>
 
-  <rect x="40" y="190" width="300" height="44" rx="7" fill="#fff" stroke="#9db8dd"/>
-  <text x="190" y="210" font-size="12" fill="#1a1d21" text-anchor="middle">③ 解 Payload → IndirectArgIndex</text>
-  <text x="190" y="226" font-size="10.5" fill="#7a828a" text-anchor="middle">定位「这是第几条 draw 的工作」</text>
+<h4>常量注入（<code>ModifyCompilationEnvironment</code>）</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:563-582（逐字符照录）</span>
+		OutEnvironment.SetDefine(TEXT("INDIRECT_ARGS_NUM_WORDS"), FInstanceCullingContext::IndirectArgsNumWords);
+		OutEnvironment.SetDefine(TEXT("USE_GLOBAL_GPU_SCENE_DATA"), 1);
+		OutEnvironment.SetDefine(TEXT("USE_GLOBAL_GPU_LIGHTMAP_DATA"), 1);
+		OutEnvironment.SetDefine(TEXT("NANITE_MULTI_VIEW"), 1);
+		OutEnvironment.SetDefine(TEXT("PRIM_ID_DYNAMIC_FLAG"), GPrimIDDynamicFlag);
+		OutEnvironment.SetDefine(TEXT("COMPACTION_BLOCK_NUM_INSTANCES"), FCompactVisibleInstancesBaseCs::CompactionBlockNumInstances);
 
-  <rect x="40" y="250" width="300" height="44" rx="7" fill="#fff8ef" stroke="#e2a15c"/>
-  <text x="190" y="270" font-size="12" fill="#1a1d21" text-anchor="middle">④ 读 InstanceIdOffsetBuffer</text>
-  <text x="190" y="286" font-size="10.5" fill="#a06a2c" text-anchor="middle">[Payload.IndirectArgIndex]</text>
+		OutEnvironment.SetDefine(TEXT("BATCH_PROCESSING_MODE_GENERIC"), uint32(EBatchProcessingMode::Generic));
+		OutEnvironment.SetDefine(TEXT("BATCH_PROCESSING_MODE_UNCULLED"), uint32(EBatchProcessingMode::UnCulled));
+		OutEnvironment.SetDefine(TEXT("BATCH_PROCESSING_MODE_NUM"), uint32(EBatchProcessingMode::Num));
+		
+		const FPermutationDomain PermutationVector(Parameters.PermutationId);
+		EBatchProcessingMode ProcessingMode = (PermutationVector.Get&lt;FSingleInstanceModeDim&gt;() ? EBatchProcessingMode::UnCulled : EBatchProcessingMode::Generic);
+		OutEnvironment.SetDefine(TEXT("INSTANCE_DATA_STRIDE_ELEMENTS"), GetInstanceDataStrideElements(Parameters.Platform, ProcessingMode));
 
-  <rect x="40" y="310" width="300" height="52" rx="7" fill="#fff" stroke="#9db8dd"/>
-  <text x="190" y="330" font-size="12" fill="#1a1d21" text-anchor="middle">⑤ 取场景数据</text>
-  <text x="190" y="346" font-size="10.5" fill="#7a828a" text-anchor="middle">GetInstanceSceneData(InstanceId, SOAStride)</text>
-  <text x="190" y="358" font-size="10.5" fill="#7a828a" text-anchor="middle">GetPrimitiveData(PrimitiveId)</text>
+		static const auto CVarPrimitiveHasTileOffsetData = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.PrimitiveHasTileOffsetData"));
+		const bool bPrimitiveHasTileOffsetData = CVarPrimitiveHasTileOffsetData-&gt;GetValueOnAnyThread() != 0;
+		OutEnvironment.SetDefine(TEXT("PRIMITIVE_HAS_TILEOFFSET_DATA"), bPrimitiveHasTileOffsetData ? 1 : 0);
+		OutEnvironment.SetDefine(TEXT("PRIMITIVE_DATA_USE_TEXTURE"), PRIMITIVE_DATA_USE_TEXTURE); <span class="c">// [Fix GPU Crash: GPUScene Pagefault] -- ADD @Beiyu</span>
+		OutEnvironment.SetDefine(TEXT("ENABLE_IMPOSTER_SHADER_PARAMETER"), ENABLE_IMPOSTER_SHADER_PARAMETER); <span class="c">// modified by lukesren</span></pre>
+<p>其中 <code>INSTANCE_DATA_STRIDE_ELEMENTS = GetInstanceDataStrideElements(Platform, ProcessingMode)</code> —— <b>同一个 shader 在两种模式下 stride 不同</b>：PC 模式恒为 1（uint 元素），UBO 模式为 <code>UniformViewInstanceStride[Mode] / 16</code>（float4 元素，即 16 或 32）。</p>
+<pre><span class="c">// InstanceCullingContext.cpp:132-144（逐字符照录）</span>
+static uint32 GetInstanceDataStrideElements(EShaderPlatform ShaderPlatform, EBatchProcessingMode Mode)
+{
+	if (PlatformGPUSceneUsesUniformBufferView(ShaderPlatform))
+	{
+		<span class="c">// float4 elements, stride depends on whether we writing instances or primitives</span>
+		return FInstanceCullingContext::UniformViewInstanceStride[static_cast&lt;uint32&gt;(Mode)] / 16u;
+	}
+	else
+	{ 
+		<span class="c">// one uint element per-instance</span>
+		return 1u;
+	}
+}</pre>
 
-  <rect x="400" y="62" width="320" height="300" rx="7" fill="#eef7f1" stroke="#8fc9a8"/>
-  <text x="560" y="86" font-size="12.5" font-weight="600" fill="#1f6b41" text-anchor="middle">⑥ IsInstanceVisible 判定链</text>
-  <text x="420" y="112" font-size="11" fill="#3d6b52">ValidInstance（Id 有效 且 未 HIDDEN）</text>
-  <text x="420" y="134" font-size="11" fill="#3d6b52">↓ 零 bounds 兜底</text>
-  <text x="420" y="156" font-size="11" fill="#3d6b52">↓ 距离（Min/Max DrawDistance）</text>
-  <text x="420" y="178" font-size="11" fill="#3d6b52">↓ 屏幕尺寸（Min/MaxScreenSize）</text>
-  <text x="420" y="200" font-size="11" fill="#3d6b52">↓ GlobalClipPlane</text>
-  <text x="420" y="222" font-size="11" fill="#c0392b">↓ BlueCircleCulling　【GR 自研】</text>
-  <text x="420" y="244" font-size="11" fill="#c0392b">↓ ProbabilisticInstanceCulling　【GR 自研】</text>
-  <text x="420" y="266" font-size="11" fill="#3d6b52">↓ 视锥 BoxCullFrustum</text>
-  <text x="420" y="288" font-size="11" fill="#3d6b52">↓ HZB 遮挡 IsVisibleHZB</text>
-  <text x="420" y="310" font-size="11" fill="#3d6b52">↓ 逐实例 OcclusionQuery 位掩码</text>
-  <text x="420" y="336" font-size="10.5" fill="#7a828a">任一步失败即跳出，不写任何输出</text>
+<h3>8.7 阶段④：SubmitDrawCommands —— 把数组翻译成 RHI 调用</h3>
 
-  <rect x="765" y="62" width="285" height="140" rx="7" fill="#dbe8fb" stroke="#7ba4dd"/>
-  <text x="907" y="86" font-size="12.5" font-weight="600" fill="#1f3a63" text-anchor="middle">⑦ 可见 → 写 indirect args</text>
-  <text x="907" y="112" font-size="10.5" fill="#2f6feb" text-anchor="middle">InterlockedAdd(</text>
-  <text x="907" y="128" font-size="10.5" fill="#2f6feb" text-anchor="middle">DrawIndirectArgsBufferOut[</text>
-  <text x="907" y="144" font-size="10.5" fill="#2f6feb" text-anchor="middle">ArgIndex * 5 + 1], 1U, OutputOffset)</text>
-  <text x="907" y="170" font-size="10.5" fill="#1f6b41" text-anchor="middle">原子递增 InstanceCount，</text>
-  <text x="907" y="186" font-size="10.5" fill="#1f6b41" text-anchor="middle">同时拿到本次写入槽位</text>
+<p>签名（<span class="ref">InstanceCullingContext.cpp:1840-1847</span>）带 <code>StartIndex</code> / <code>NumMeshDrawCommands</code>，<b>支持按区间并行提交</b>。</p>
+<pre><span class="c">// InstanceCullingContext.cpp:1855-1871（逐字符照录）</span>
+	if (IsEnabled())
+	{
+		SCOPED_NAMED_EVENT_F(TEXT("DrawVisibleMeshCommandsAnyThreadTask(%s)"), FColor::Turquoise, PassType &lt; EMeshPass::Num ? GetMeshPassName(PassType) : TEXT("Num"));
 
-  <rect x="765" y="216" width="285" height="146" rx="7" fill="#dbe8fb" stroke="#7ba4dd"/>
-  <text x="907" y="240" font-size="12.5" font-weight="600" fill="#1f3a63" text-anchor="middle">⑧ 写实例 ID</text>
-  <text x="907" y="266" font-size="10.5" fill="#2f6feb" text-anchor="middle">WriteInstance(</text>
-  <text x="907" y="282" font-size="10.5" fill="#2f6feb" text-anchor="middle">InstanceDataOutputOffset</text>
-  <text x="907" y="298" font-size="10.5" fill="#2f6feb" text-anchor="middle">+ OutputOffset * STRIDE, …)</text>
-  <text x="907" y="326" font-size="10.5" fill="#1f6b41" text-anchor="middle">打包 InstanceId / CullingFlags /</text>
-  <text x="907" y="342" font-size="10.5" fill="#1f6b41" text-anchor="middle">ViewIndex 成一个 uint</text>
+		check(MeshDrawCommandInfos.Num() &gt;= (StartIndex + NumMeshDrawCommands));
+				
+		FMeshDrawCommandSceneArgs SceneArgs;
+		SceneArgs.PrimitiveIdsBuffer = OverrideArgs.InstanceBuffer;
+		if (IsUniformBufferStaticSlotValid(BatchedPrimitiveSlot))
+		{
+			<span class="c">// UniformBufferView suplies instance data through global UB binding</span>
+			SceneArgs.PrimitiveIdsBuffer = nullptr;
+			SceneArgs.BatchedPrimitiveSlot = BatchedPrimitiveSlot;
+		}
+							
+		FMeshDrawCommandStateCache StateCache;
+		INC_DWORD_STAT_BY(STAT_MeshDrawCalls, NumMeshDrawCommands);</pre>
+<p><b>关键分叉</b>（:1862-1868）：</p>
+<pre><span class="c">// InstanceCullingContext.cpp:1861-1868（逐字符照录）</span>
+		FMeshDrawCommandSceneArgs SceneArgs;
+		SceneArgs.PrimitiveIdsBuffer = OverrideArgs.InstanceBuffer;
+		if (IsUniformBufferStaticSlotValid(BatchedPrimitiveSlot))
+		{
+			<span class="c">// UniformBufferView suplies instance data through global UB binding</span>
+			SceneArgs.PrimitiveIdsBuffer = nullptr;
+			SceneArgs.BatchedPrimitiveSlot = BatchedPrimitiveSlot;
+		}</pre>
+<p>即 <b>UBV 平台把 <code>PrimitiveIdsBuffer</code> 置空、改用静态 uniform buffer slot</b> —— 静态 slot 是 <code>"BatchedPrimitive"</code>，在构造函数里通过 <code>GetUniformBufferViewStaticSlot</code> 查得（<span class="ref">InstanceCullingContext.cpp:121-130</span>）。</p>
 
-  <line x1="190" y1="106" x2="190" y2="120" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
-  <line x1="190" y1="174" x2="190" y2="188" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
-  <line x1="190" y1="234" x2="190" y2="248" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
-  <line x1="190" y1="294" x2="190" y2="308" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
-  <line x1="340" y1="336" x2="398" y2="240" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
-  <line x1="720" y1="180" x2="763" y2="140" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
-  <line x1="720" y1="230" x2="763" y2="270" stroke="#5a6672" stroke-width="1.6" marker-end="url(#a2)"/>
+<h4>逐 draw 提交与批重发</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:1895-1918（逐字符照录）</span>
+			uint32 InstanceFactor = InInstanceFactor;
+			SceneArgs.IndirectArgsByteOffset = 0u;
+			SceneArgs.IndirectArgsBuffer = nullptr;
+			if (DrawCommandInfo.bUseIndirect)
+			{
+				SceneArgs.IndirectArgsByteOffset = OverrideArgs.IndirectArgsByteOffset + DrawCommandInfo.IndirectArgsOffsetOrNumInstances;
+				SceneArgs.IndirectArgsBuffer = OverrideArgs.IndirectArgsBuffer;
+			}
+			else
+			{
+				<span class="c">// TODO: need a better way to override number of instances</span>
+				InstanceFactor = InInstanceFactor * DrawCommandInfo.IndirectArgsOffsetOrNumInstances;
+			}
+			
+			SceneArgs.PrimitiveIdOffset = OverrideArgs.InstanceDataByteOffset + DrawCommandInfo.InstanceDataByteOffset;
+			if (FMeshDrawCommand::SubmitDraw(*VisibleMeshDrawCommand.MeshDrawCommand, GraphicsMinimalPipelineStateSet, SceneArgs, InstanceFactor, RHICmdList, StateCache))
+			{
+				<span class="c">// If MDC was split to a more than one batch, submit them without changing state</span>
+				for (uint32 BatchIdx = 1; BatchIdx &lt; DrawCommandInfo.NumBatches; ++BatchIdx)
+				{
+					SceneArgs.PrimitiveIdOffset += DrawCommandInfo.BatchDataStride;
+					SceneArgs.IndirectArgsByteOffset += sizeof(FRHIDrawIndexedIndirectParameters);
+					FMeshDrawCommand::SubmitDrawEnd(*VisibleMeshDrawCommand.MeshDrawCommand, SceneArgs, InstanceFactor, RHICmdList);
+				}</pre>
+<table>
+<thead><tr><th style="width:26%">环节</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>indirect 分支</td><td><code>SceneArgs.IndirectArgsByteOffset = OverrideArgs.IndirectArgsByteOffset + DrawCommandInfo.IndirectArgsOffsetOrNumInstances</code>；buffer 用 <code>OverrideArgs.IndirectArgsBuffer</code></td></tr>
+<tr><td>非 indirect 分支</td><td><code>InstanceFactor = InInstanceFactor * DrawCommandInfo.IndirectArgsOffsetOrNumInstances</code> —— 此时该字段是<b>实例数</b></td></tr>
+<tr><td>PrimitiveId 偏移</td><td><code>SceneArgs.PrimitiveIdOffset = OverrideArgs.InstanceDataByteOffset + DrawCommandInfo.InstanceDataByteOffset</code></td></tr>
+<tr><td><b>批重发</b></td><td><code>SubmitDraw</code> 返回 true 后，从 <code>BatchIdx = 1</code> 起<b>不重设状态、只改偏移</b>：<code>PrimitiveIdOffset += BatchDataStride</code>、<code>IndirectArgsByteOffset += sizeof(FRHIDrawIndexedIndirectParameters)</code>，再 <code>SubmitDrawEnd</code></td></tr>
+</tbody>
+</table>
+<p><code>BatchDataStride</code> 在 <span class="ref">InstanceCullingContext.cpp:1696</span> 被初始化为 <code>PLATFORM_MAX_UNIFORM_BUFFER_RANGE</code> —— <b>每一批恰好占满 16 KB，靠偏移滑动复用同一个 CB</b>。这就是 §7.3 那条的 C++ 落点。</p>
 
-  <rect x="40" y="392" width="1010" height="106" rx="8" fill="#fdf8e8" stroke="#e0cf9a"/>
-  <text x="60" y="416" font-size="12" font-weight="600" fill="#8a6d1f">为什么用 InterlockedAdd 而不是前缀和？</text>
-  <text x="60" y="440" font-size="11.5" fill="#4a5158">剔除是逐实例并行、结果数量未知的——「第 k 个可见实例写到哪个槽位」事先无法知道。</text>
-  <text x="60" y="460" font-size="11.5" fill="#4a5158">原子加把「计数」和「占位」合并成一次操作，避免了先数一遍再写一遍的两趟开销。</text>
-  <text x="60" y="482" font-size="11.5" fill="#4a5158">代价是写入顺序不确定；若必须保持实例原序，才需要 §8.4 的两阶段紧凑化。</text>
-</svg>
-<div class="cap">图 4 · 主剔除 CS 的执行流程（数据源 <span class="ref">BuildInstanceDrawCommands.usf:336-481</span>）</div>
+<h3>8.8 Shader：LoadBalancer 如何把变长工作装进 64 线程组</h3>
+
+<p><b>要解决的问题</b>：一条 draw 可能 1 个实例，另一条 10000 个。若「一条 draw 一个 group」，前者浪费 63 个线程、后者装不下。</p>
+<p><b>解法</b>：把一个 group 切成若干「item」，每个 item 是一段实例区间，<b>所有 item 的实例数之和恰好填满 64</b>。</p>
+
+<h4>CPU 侧的切分（<code>InstanceCullingLoadBalancer.h:130-171</code>）</h4>
+<pre><span class="c">// InstanceCullingLoadBalancer.h:138-171（逐字符照录）</span>
+	void Add(uint32 InstanceDataOffset, uint32 NumInstanceDataEntries, uint32 Payload, uint32 AdditionalCustomCullingFlags = 0)
+	{
+		uint32 InstancesAdded = 0;
+		while (InstancesAdded &lt; NumInstanceDataEntries)
+		{
+			uint32 MaxInstancesThisBatch = ThreadGroupSize - CurrentBatchPrefixSum;
+
+			if (MaxInstancesThisBatch &gt; 0)
+			{
+				const uint32 NumInstancesThisItem = FMath::Min(MaxInstancesThisBatch, NumInstanceDataEntries - InstancesAdded);
+
+				Items.Add(PackItem(InstanceDataOffset + InstancesAdded, NumInstancesThisItem, Payload, CurrentBatchPrefixSum, AdditionalCustomCullingFlags));
+				if (CurrentBatchNumItems * PrefixBits &lt; sizeof(CurrentBatchPackedPrefixSum) * 8U)
+				{
+					CurrentBatchPackedPrefixSum |= CurrentBatchPackedPrefixSum &lt;&lt; (PrefixBits * CurrentBatchNumItems);
+				}
+				CurrentBatchNumItems += 1U;
+				InstancesAdded += NumInstancesThisItem;
+				CurrentBatchPrefixSum += NumInstancesThisItem;
+
+			}
+
+			<span class="c">// Flush batch if it is not possible to add any more items (for one of the reasons)</span>
+			if (MaxInstancesThisBatch &lt;= 0U || CurrentBatchPrefixSum &gt;= ThreadGroupSize)
+			{
+				Batches.Add(PackBatch(CurrentBatchFirstItem, CurrentBatchNumItems));
+				CurrentBatchFirstItem = uint32(Items.Num());
+				CurrentBatchPrefixSum = 0u;
+				CurrentBatchNumItems = 0U;
+				CurrentBatchPackedPrefixSum = 0U;
+			}
+		}
+		TotalInstances += InstancesAdded;
+	}</pre>
+<p><code>MaxInstancesItemBits = PrefixBits + 1 = 7</code>（<span class="ref">InstanceCullingLoadBalancer.h:41</span>），多出的那一位专门给「单个 item 独占整组 64」这个边界（注释见 <span class="ref">InstanceCullingLoadBalancer.h:60</span>）。</p>
+<pre><span class="c">// InstanceCullingLoadBalancer.h:34-43（逐字符照录）</span>
+	static constexpr uint32 ThreadGroupSize = 64U;
+
+	<span class="c">// Number of bits needed for prefix sum storage</span>
+	static constexpr uint32 PrefixBits = 6U;<span class="c">//ILog2Const(uint32(ThreadGroupSize));</span>
+	static_assert((1U &lt;&lt; PrefixBits) == ThreadGroupSize, "ThreadGroupSize and PrefixBits must be kept in sync");
+	static constexpr uint32 PrefixBitMask = (1U &lt;&lt; PrefixBits) - 1U;
+
+	static constexpr uint32 NumInstancesItemBits = PrefixBits + 1U;
+	static constexpr uint32 NumInstancesItemMask = (1U &lt;&lt; NumInstancesItemBits) - 1U;
+</pre>
+
+<h4>打包格式</h4>
+<pre><span class="c">// InstanceCullingLoadBalancer.h:45-85（逐字符照录）</span>
+	struct FPackedBatch
+	{
+		uint32 FirstItem_NumItems;
+	};
+
+	FPackedBatch PackBatch(uint32 FirstItem, uint32 NumItems)
+	{
+		checkSlow(NumItems &lt; (1U &lt;&lt; NumInstancesItemBits));
+		checkSlow(FirstItem &lt; (1U &lt;&lt; (32U - NumInstancesItemBits)));
+
+		return FPackedBatch{ (FirstItem &lt;&lt; NumInstancesItemBits) | (NumItems &amp; NumInstancesItemMask) };
+	}
+
+	struct FPackedItem
+	{
+		<span class="c">// packed 32-NumInstancesItemBits:NumInstancesItemBits - need one more bit for the case where one item has ThreadGroupSize work to do</span>
+		uint32 InstanceDataOffset_NumInstances;
+		<span class="c">// packed 32-PrefixBits:PrefixBits</span>
+		uint32 Payload_BatchPrefixOffset;
+		<span class="c">// ImposterProxy System:[yinnhaowang]:[ADD]:[BEGIN]</span>
+		<span class="c">// Added one 32bits int field for custom usage.</span>
+		<span class="c">// Currently only the lowest one bit is actually used to mark whether the culled instance should write instance id for imposter proxy rendering.</span>
+		uint32 AdditionalCustomCullingFlags;
+		<span class="c">// ImposterProxy System:[yinnhaowang]:[ADD]:[END]</span>
+	};
+	<span class="c">// ImposterProxy System:[yinnhaowang]:[MODIFY]:[BEGIN]</span>
+	FPackedItem PackItem(uint32 InstanceDataOffset, uint32 NumInstances, uint32 Payload, uint32 BatchPrefixSum, uint32 AdditionalCustomCullingFlags)
+	{
+		checkSlow(NumInstances &lt; (1U &lt;&lt; NumInstancesItemBits));
+		checkSlow(InstanceDataOffset &lt; (1U &lt;&lt; (32U - NumInstancesItemBits)));
+		checkSlow(BatchPrefixSum &lt; (1U &lt;&lt; PrefixBits));
+		checkSlow(Payload &lt; (1U &lt;&lt; (32U - PrefixBits)));
+
+		return FPackedItem
+		{
+			(InstanceDataOffset &lt;&lt; NumInstancesItemBits) | (NumInstances &amp; NumInstancesItemMask),
+			(Payload &lt;&lt; PrefixBits) | (BatchPrefixSum &amp; PrefixBitMask),
+			AdditionalCustomCullingFlags
+		};
+	}
+	<span class="c">// ImposterProxy System:[yinnhaowang]:[MODIFY]:[END]</span></pre>
+<p>解包在 shader 侧：</p>
+<pre><span class="c">// InstanceCullingLoadBalancer.ush:50-85（逐字符照录）</span>
+FInstanceBatch UnpackBatch(FPackedInstanceBatch PackedBatch, uint ItemDataOffset)
+{
+	FInstanceBatch Result;
+	Result.FirstItem = ItemDataOffset + (PackedBatch.FirstItem_NumItems &gt;&gt; NUM_INSTANCES_ITEM_BITS);
+	Result.NumItems = PackedBatch.FirstItem_NumItems &amp; NUM_INSTANCES_ITEM_MASK;
+
+	return Result;
+}
+
+struct FInstanceBatchItem
+{
+	uint InstanceDataOffset;
+	uint NumInstances;
+	uint Payload;
+	uint BatchPrefixOffset;
+	<span class="c">// Imposter Proxy System:[yinnhaowang]:[ADD]</span>
+	bool bWriteImposterProxyInstanceId;
+	<span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[ADD]</span>
+	bool bUseISMDitheredLOD;
+};
+
+FInstanceBatchItem UnpackItem(FPackedInstanceBatchItem PackedItem)
+{
+	FInstanceBatchItem Result;
+
+	Result.InstanceDataOffset = PackedItem.InstanceDataOffset_NumInstances &gt;&gt; NUM_INSTANCES_ITEM_BITS;
+	Result.NumInstances = PackedItem.InstanceDataOffset_NumInstances &amp; NUM_INSTANCES_ITEM_MASK;
+	Result.Payload = PackedItem.Payload_BatchPrefixOffset &gt;&gt; PREFIX_BITS;
+	Result.BatchPrefixOffset = PackedItem.Payload_BatchPrefixOffset &amp; PREFIX_BIT_MASK;
+	<span class="c">// Imposter Proxy System:[yinnhaowang]:[ADD]</span>
+	Result.bWriteImposterProxyInstanceId = (PackedItem.AdditionalCustomCullingFlags &amp; CUSTOM_INSTANCE_CULLING_FLAG_WRITE_IMPOSTER_INSTANCE_ID)&gt;0;
+	<span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[ADD]</span>
+	Result.bUseISMDitheredLOD = (PackedItem.AdditionalCustomCullingFlags &amp; CUSTOM_INSTANCE_CULLING_FLAG_ISM_DITHERED_LOD) &gt; 0;
+	
+	return Result;
+}</pre>
+
+<h4>三条分发路径（<code>InstanceCullingLoadBalancer_Setup</code>）</h4>
+<table>
+<thead><tr><th style="width:6%">#</th><th style="width:30%">路径</th><th style="width:26%">条件</th><th>做法</th><th style="width:14%">行号</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>LOAD_BALANCER_SINGLE_INSTANCE_MODE</code></td><td>编译期宏</td><td><code>GroupThreadIndex</code> 直接当 item 下标</td><td><span class="ref">InstanceCullingLoadBalancer.ush:196-202</span></td></tr>
+<tr><td>2</td><td>1:1 快路径</td><td><code>GroupBatch.NumItems == NUM_THREADS_PER_GROUP</code></td><td>跳过前缀和，线程号即 item 号（有 <code>checkSlow</code> 校验）</td><td><span class="ref">InstanceCullingLoadBalancer.ush:206-214</span></td></tr>
+<tr><td>3</td><td>通用路径</td><td>其余</td><td><code>NumItems &lt; 4</code> 线性搜索，否则 <code>PrefixMax</code> / wave 版</td><td><span class="ref">InstanceCullingLoadBalancer.ush:216-262</span></td></tr>
+</tbody>
+</table>
+<pre><span class="c">// InstanceCullingLoadBalancer.ush:237-268（逐字符照录）</span>
+	uint WorkItemIndex = 0U;
+	if (GroupBatch.NumItems &lt; 4U)
+	{
+		<span class="c">// Distribute using linear search (no syncs requires like the prefix max op)</span>
+		for (int Index = int(GroupBatch.NumItems) - 1; Index &gt;= 0; --Index)
+		{
+			<span class="c">// TODO: pack the offset data into a single dword and store in group batch? 6x5 bits can fit and would be far more efficient that all the shared mumbojumbo</span>
+			FInstanceBatchItem WorkItem = Items[Index];
+			if (GroupThreadIndex &gt;= WorkItem.BatchPrefixOffset)
+			{
+				WorkItemIndex = uint(Index);
+				break;
+			}
+		}
+	}
+	else
+	{
+#if USE_WAVE_BIT_PREFIX_WORK_DISTRIBUTION
+		<span class="c">// Ballot based boundary search for when wave ops are available.</span>
+		bool bIsBoundary = WorkBoundary[GroupThreadIndex];
+		WorkItemIndex = WavePrefixCountBits(bIsBoundary);
+#else
+		<span class="c">// Distribute the index to the other threads that should work on the same item</span>
+		WorkItemIndex = PrefixMax(GroupThreadIndex);
+#endif
+	}
+
+	Setup.WorkItemIndex = WorkItemIndex;
+	Setup.Item = Items[WorkItemIndex];
+	<span class="c">// Work out who I am in expansion of  the item in range [0,WorkItem.Count], may be negative when no work at end of batch</span>
+	Setup.LocalItemIndex = int(GroupThreadIndex - Setup.Item.BatchPrefixOffset);
+	Setup.bValid = Setup.LocalItemIndex &gt;= 0 &amp;&amp; Setup.LocalItemIndex &lt; int(Setup.Item.NumInstances);</pre>
+<p><code>USE_WAVE_BIT_PREFIX_WORK_DISTRIBUTION</code> 在本仓库被置为<b> 0</b>（<span class="ref">InstanceCullingLoadBalancer.ush:9-12</span>），即走 groupshared 版本而非 wave 版本：</p>
+<pre><span class="c">// InstanceCullingLoadBalancer.ush:9-12（逐字符照录）</span>
+#if COMPILER_SUPPORTS_WAVE_VOTE
+	<span class="c">// TODO: Need to also check that wave width == thread group size (or implement workaround for other wave sizes)</span>
+#define USE_WAVE_BIT_PREFIX_WORK_DISTRIBUTION 0
+#endif</pre>
+
+<h4>Setup 到 InstanceId 的换算</h4>
+<pre><span class="c">// InstanceCullingSetup.ush:21-43（逐字符照录）</span>
+FInstanceCullingSetup LoadInstanceCullingSetup(uint3 GroupId, uint GroupThreadIndex, uint InDynamicInstanceIdOffset, uint InDynamicInstanceIdMax, uint ItemDataOffset)
+{
+	FInstanceCullingSetup Result = (FInstanceCullingSetup)0;
+
+	Result.InstanceWorkSetup = InstanceCullingLoadBalancer_Setup(GroupId, GroupThreadIndex, ItemDataOffset);
+
+	if (!Result.InstanceWorkSetup.bValid)
+	{
+		return Result;
+	}
+
+	Result.bValid = true;
+	Result.InstanceId = Result.InstanceWorkSetup.Item.InstanceDataOffset + uint(Result.InstanceWorkSetup.LocalItemIndex);
+	<span class="c">// Check dynamic flag to offset the instance ID</span>
+	if (IsDynamicInstanceDataOffset(Result.InstanceWorkSetup.Item.Payload))
+	{
+		Result.InstanceId += InDynamicInstanceIdOffset;
+		checkSlow(InstanceId &lt; InDynamicInstanceIdMax || (InDynamicInstanceIdOffset == 0 &amp;&amp; InDynamicInstanceIdMax == 0));
+		Result.bIsDynamic = true;
+	}
+
+	return Result;
+}</pre>
+<p><b>核心一行</b>：<code>Result.InstanceId = Item.InstanceDataOffset + LocalItemIndex</code>（:33）。动态实例再补 <code>InDynamicInstanceIdOffset</code>（:35-40）。</p>
+
+<h3>8.9 Shader：Payload 的两种打包与解包</h3>
+
+<p>LoadBalancer 每个 item 只带一个 <code>uint Payload</code>（<code>PackedItem.Payload_BatchPrefixOffset</code> 的高 26 位，<span class="ref">InstanceCullingLoadBalancer.h:63</span>）。这点空间要装下「这条工作项属于哪条 draw、要不要保序、实例从哪开始」，所以引擎做了两种打包：</p>
+
+<h4>紧凑模式（默认，不保序）</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:334-338（逐字符照录）</span>
+	else
+	{
+		<span class="c">// Conserve space by packing the relevant payload information into the dword</span>
+		Payload |= (IndirectArgsOffset &lt;&lt; INSTANCE_CULLING_PAYLOAD_NUM_COMMON_BITS);
+	}</pre>
+<p>位布局（<code>INSTANCE_CULLING_PAYLOAD_NUM_COMMON_BITS = 2</code>，<span class="ref">Engine/Shaders/Shared/InstanceCullingDefinitions.h:8</span>）：</p>
+<table class="kv">
+<thead><tr><th>位</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td>bit0</td><td><code>INSTANCE_CULLING_PRESERVE_INSTANCE_ORDER_BIT_MASK</code>（保序标志）</td></tr>
+<tr><td>bit1</td><td><code>INSTANCE_CULLING_DYNAMIC_INSTANCE_DATA_OFFSET_BIT_MASK</code>（动态实例标志）</td></tr>
+<tr><td>bit2+</td><td><code>IndirectArgsOffset</code>（<b>直接就是 draw 序号，省一次查表</b>）</td></tr>
+</tbody>
+</table>
+
+<h4>扩展模式（保序时）</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:325-332（逐字符照录）</span>
+	if (bPreserveInstanceOrder)
+	{
+		checkSlow(!EnumHasAnyFlags(Flags, EInstanceCullingFlags::NoInstanceOrderPreservation)); <span class="c">// this should have already been handled</span>
+
+		<span class="c">// We need to provide full payload data for these instances</span>
+		<span class="c">// NOTE: The extended payload data flag is in the lowest bit instead of the highest because the payload is not a full dword, see FInstanceCullingLoadBalancerBase::PackItem</span>
+		Payload |= (INSTANCE_CULLING_PRESERVE_INSTANCE_ORDER_BIT_MASK | (uint32(PayloadData.Num()) &lt;&lt; INSTANCE_CULLING_PAYLOAD_NUM_COMMON_BITS));
+		PayloadData.Emplace(bDynamicInstanceDataOffset, IndirectArgsOffset, InstanceDataOffset, RunOffset, DrawCommandCompactionData.Num());</pre>
+<p>此时 payload 的 bit2+ 存的是 <code>PayloadData</code> 数组下标，真正内容在独立 buffer 里：</p>
+<pre><span class="c">// InstanceCullingContext.h:283-304（逐字符照录）</span>
+	struct FPayloadData
+	{
+		uint32 bDynamicInstanceDataOffset_IndirectArgsIndex;
+		uint32 InstanceDataOffset;
+		uint32 RunInstanceOffset;
+		uint32 CompactionDataIndex;
+
+		FPayloadData() = default;
+		FPayloadData(
+			bool bInDynamicInstanceDataOffset,
+			uint32 InIndirectArgsIndex,
+			uint32 InInstanceDataOffset,
+			uint32 InRunInstanceOffset,
+			uint32 InCompactionDataIndex)
+			: bDynamicInstanceDataOffset_IndirectArgsIndex(InIndirectArgsIndex | (bInDynamicInstanceDataOffset ? (1u &lt;&lt; 31u) : 0u))
+			, InstanceDataOffset(InInstanceDataOffset)
+			, RunInstanceOffset(InRunInstanceOffset)
+			, CompactionDataIndex(InCompactionDataIndex)
+		{
+			checkSlow(InIndirectArgsIndex &lt; (1u &lt;&lt; 31u));
+		}
+	};</pre>
+<p>shader 侧解包（<span class="ref">InstanceCullingCommon.ush:154-180</span>）：</p>
+<pre><span class="c">// InstanceCullingCommon.ush:148-180（逐字符照录）</span>
+/**
+ * Retrieves the instance culling payload data. When instance compaction is not needed to preserve instance order, much of the
+ * instance culling payload need not take up space, so it is compacted into the 26-bit payload provided by the load balancer.
+ * Otherwise, the first bit of the load balancer's payload is set, and the remaining 25 bits are used to index into the payload
+ * structured buffer.
+ */
+FInstanceCullingPayload LoadInstanceCullingPayload(uint WorkItemPayload, FContextBatchInfo BatchInfo)
+{
+	FInstanceCullingPayload Output;
+
+	Output.bDynamicInstanceDataOffset = IsDynamicInstanceDataOffset(WorkItemPayload);
+
+#if ENABLE_EXTENDED_INSTANCE_CULLING_PAYLOADS
+	BRANCH
+	if (IsExtendedInstanceCullingPayload(WorkItemPayload))
+	{
+		Output = UnpackInstanceCullingPayload(InstanceCullingPayloads[BatchInfo.PayloadOffset + (WorkItemPayload &gt;&gt; INSTANCE_CULLING_PAYLOAD_NUM_COMMON_BITS)]);
+		Output.IndirectArgIndex += BatchInfo.IndirectArgOffset;
+		Output.CompactionDataIndex += BatchInfo.CompactionDataOffset;
+		return Output;
+	}
+#else
+	<span class="c">// Ensure that the payload is not extended</span>
+	checkSlow(!IsExtendedInstanceCullingPayload(WorkItemPayload));
+#endif
+
+	Output.IndirectArgIndex = BatchInfo.IndirectArgOffset + (WorkItemPayload &gt;&gt; INSTANCE_CULLING_PAYLOAD_NUM_COMMON_BITS);
+	Output.InstanceDataOffset = 0xFFFFFFFFU;
+	Output.RunInstanceOffset = 0xFFFFFFFFU;
+	Output.CompactionDataIndex = 0xFFFFFFFFU;
+
+	return Output;
+}</pre>
+<p>注意紧凑模式下 <b>三个字段直接填哨兵 <code>0xFFFFFFFF</code></b>（:175-177），而不是留 0 —— 因为 0 是合法的偏移值。</p>
+
+<h4>draw 描述的位域</h4>
+<pre><span class="c">// InstanceCullingCommon.ush:25-34（逐字符照录）</span>
+FDrawCommandDesc UnpackDrawCommandDesc(uint PackedData)
+{
+	FDrawCommandDesc Desc;
+	Desc.bMaterialUsesWorldPositionOffset = (PackedData &amp; 1U) != 0;
+	Desc.bMaterialAlwaysEvaluatesWorldPositionOffset = ((PackedData &gt;&gt; 1U) &amp; 1U) != 0;
+	Desc.MeshLODIndex = (PackedData &gt;&gt; 2U) &amp; 0xFU;
+	Desc.MinScreenSize = (float)((PackedData &gt;&gt; 6U) &amp; 0xFFFU) / (float)(1 &lt;&lt; 9);
+	Desc.MaxScreenSize = (float)((PackedData &gt;&gt; 18U) &amp; 0xFFFU) / (float)(1 &lt;&lt; 9);
+	return Desc;
+}</pre>
+<table class="kv">
+<thead><tr><th>位</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td>bit0</td><td><code>bMaterialUsesWorldPositionOffset</code></td></tr>
+<tr><td>bit1</td><td><code>bMaterialAlwaysEvaluatesWorldPositionOffset</code></td></tr>
+<tr><td>bit2-5</td><td><code>MeshLODIndex</code>（4 bit）</td></tr>
+<tr><td>bit6-17</td><td><code>MinScreenSize</code>（12 bit，解包时 ÷512）</td></tr>
+<tr><td>bit18-29</td><td><code>MaxScreenSize</code>（12 bit，÷512）</td></tr>
+</tbody>
+</table>
+<p>打包端 <span class="ref">InstanceCullingContext.cpp:94-109</span>：注意屏幕尺寸只有带了对应的 <code>CullingPayloadFlags</code> 才写入，否则这两位保持 0。</p>
+<pre><span class="c">// InstanceCullingContext.cpp:94-109（逐字符照录）</span>
+static uint32 PackDrawCommandDesc(bool bMaterialUsesWorldPositionOffset, bool bMaterialAlwaysEvaluatesWorldPositionOffset, FMeshDrawCommandCullingPayload CullingPayload, EMeshDrawCommandCullingPayloadFlags CullingPayloadFlags)
+{
+	<span class="c">// See UnpackDrawCommandDesc() in shader code.</span>
+	uint32 PackedData = bMaterialUsesWorldPositionOffset ? 1U : 0U;
+	PackedData |= bMaterialAlwaysEvaluatesWorldPositionOffset ? 2U : 0U;
+	PackedData |= CullingPayload.LodIndex &lt;&lt; 2;
+	if (EnumHasAnyFlags(CullingPayloadFlags, EMeshDrawCommandCullingPayloadFlags::MinScreenSizeCull))
+	{
+		PackedData |= CullingPayload.MinScreenSize &lt;&lt; 6;
+	}
+	if (EnumHasAnyFlags(CullingPayloadFlags, EMeshDrawCommandCullingPayloadFlags::MaxScreenSizeCull))
+	{
+		PackedData |= CullingPayload.MaxScreenSize &lt;&lt; 18;
+	}
+	return PackedData;
+}</pre>
+
+<h4>BatchInfo：延迟剔除时的两级间接</h4>
+<pre><span class="c">// InstanceCullingCommon.ush:81-97（逐字符照录）</span>
+FContextBatchInfo LoadBatchInfo(uint GroupIndex)
+{
+	FContextBatchInfoPacked ContextBatchInfoPacked = BatchInfos[BatchInds[GroupIndex]];
+	FContextBatchInfo ContextBatchInfo;
+	ContextBatchInfo.IndirectArgOffset = ContextBatchInfoPacked.IndirectArgOffset;
+	ContextBatchInfo.InstanceDataWriteOffset = ContextBatchInfoPacked.InstanceDataWriteOffset;
+	ContextBatchInfo.PayloadOffset = ContextBatchInfoPacked.PayloadOffset;
+	ContextBatchInfo.CompactionDataOffset = ContextBatchInfoPacked.CompactionDataOffset;
+	ContextBatchInfo.ViewIdsOffset = ContextBatchInfoPacked.ViewIdsOffset;
+	ContextBatchInfo.NumViewIds = ContextBatchInfoPacked.NumViewIds_bAllowOcclusionCulling &gt;&gt; 1u;
+	ContextBatchInfo.bAllowOcclusionCulling = (ContextBatchInfoPacked.NumViewIds_bAllowOcclusionCulling &amp; 1u) != 0u;
+	ContextBatchInfo.DynamicInstanceIdOffset = ContextBatchInfoPacked.DynamicInstanceIdOffset;
+	ContextBatchInfo.DynamicInstanceIdMax = ContextBatchInfoPacked.DynamicInstanceIdMax;
+	ContextBatchInfo.ItemDataOffset0 = ContextBatchInfoPacked.ItemDataOffset0;
+	ContextBatchInfo.ItemDataOffset1 = ContextBatchInfoPacked.ItemDataOffset1;
+	return ContextBatchInfo;
+}</pre>
+<p><code>BatchInfos[BatchInds[GroupIndex]]</code> —— <b>先查索引再查内容</b>，这样多个 group 可以共享同一份 BatchInfo。</p>
+<p><b>一处 Adreno workaround</b>（<span class="ref">InstanceCullingCommon.ush:46-49</span>、<span class="ref">InstanceCullingCommon.ush:63-66</span>）：</p>
+<pre><span class="c">// InstanceCullingCommon.ush:46-49（逐字符照录）</span>
+	<span class="c">// Must be equal to ItemDataOffset[BATCH_PROCESSING_MODE_NUM]</span>
+	<span class="c">// Not using array here to avoid GL shader compiler bug on Adreno devices</span>
+	uint ItemDataOffset0;
+	uint ItemDataOffset1;</pre>
+<p>注释原文：<i>Not using array here to avoid GL shader compiler bug on Adreno devices</i> —— 用 <code>ItemDataOffset0</code> / <code>ItemDataOffset1</code> 两个独立字段替代数组。</p>
+
+<h3>8.10 Shader：主剔除 CS 的完整流程</h3>
+
+<p>入口 <code>InstanceCullBuildInstanceIdBufferCS</code>（<span class="ref">BuildInstanceDrawCommands.usf:337</span>），<code>[numthreads(NUM_THREADS_PER_GROUP,1,1)]</code> = 64 线程。</p>
+<pre><span class="c">// BuildInstanceDrawCommands.usf:336-374（逐字符照录）</span>
+[numthreads(NUM_THREADS_PER_GROUP, 1, 1)]
+void InstanceCullBuildInstanceIdBufferCS(uint3 GroupId : SV_GroupID, int GroupThreadIndex : SV_GroupIndex)
+{
+	uint DispatchGroupId = GetUnWrappedDispatchGroupId(GroupId);
+
+	if (DispatchGroupId &gt;= InstanceCullingLoadBalancer_GetNumBatches())
+	{
+		return;
+	}
+
+#if ENABLE_BATCH_MODE
+	<span class="c">// Load Instance culling context batch info, indirection per group</span>
+	FContextBatchInfo BatchInfo = LoadBatchInfo(DispatchGroupId);
+#else <span class="c">// !ENABLE_BATCH_MODE</span>
+	<span class="c">// Single Instance culling context batch in the call, set up batch from the kernel parameters</span>
+	FContextBatchInfo BatchInfo = (FContextBatchInfo)0;
+	BatchInfo.NumViewIds = NumViewIds;
+	BatchInfo.DynamicInstanceIdOffset = DynamicInstanceIdOffset;
+	BatchInfo.DynamicInstanceIdMax = DynamicInstanceIdMax;
+	<span class="c">// Note: for the unbatched case, the permutation will control HZB test, so we set to true</span>
+	BatchInfo.bAllowOcclusionCulling = true;
+#endif <span class="c">// ENABLE_BATCH_MODE</span>
+
+	FInstanceCullingSetup InstanceCullingSetup = LoadInstanceCullingSetup(GroupId, GroupThreadIndex, BatchInfo.DynamicInstanceIdOffset, BatchInfo.DynamicInstanceIdMax, GetItemDataOffset(BatchInfo, CurrentBatchProcessingMode));
+
+	FInstanceWorkSetup WorkSetup = InstanceCullingSetup.InstanceWorkSetup;
+
+	if (!WorkSetup.bValid)
+	{
+		return;
+	}
+
+	uint InstanceId = InstanceCullingSetup.InstanceId;
+
+	<span class="c">// Extract the draw command payload</span>
+	const FInstanceCullingPayload Payload = LoadInstanceCullingPayload(WorkSetup.Item.Payload, BatchInfo);
+
+	<span class="c">// Load auxiliary per-instanced-draw command info</span>
+	const FDrawCommandDesc DrawCommandDesc = UnpackDrawCommandDesc(DrawCommandDescs[Payload.IndirectArgIndex].Data);</pre>
+<table>
+<thead><tr><th style="width:4%">步</th><th style="width:34%">代码</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>①</td><td><code>GetUnWrappedDispatchGroupId(GroupId)</code> + 越界 return</td><td>group 数按 64 向上取整，尾部 group 直接丢弃</td></tr>
+<tr><td>②</td><td><code>ENABLE_BATCH_MODE</code> 二选一</td><td>非批模式下从 kernel 参数构造，且<b>硬编码 <code>bAllowOcclusionCulling = true</code></b>（:356）—— 因为此时遮挡剔除由 permutation 控制</td></tr>
+<tr><td>③</td><td><code>LoadInstanceCullingSetup(...)</code></td><td>解出 <code>LocalItemIndex</code> 与 <code>InstanceId</code>（见 §8.8）</td></tr>
+<tr><td>④</td><td><code>if (!WorkSetup.bValid) return;</code></td><td>一个 group 里没有工作的线程直接退出</td></tr>
+<tr><td>⑤</td><td><code>LoadInstanceCullingPayload(...)</code></td><td>见 §8.9</td></tr>
+<tr><td>⑥</td><td><code>UnpackDrawCommandDesc(DrawCommandDescs[Payload.IndirectArgIndex].Data)</code></td><td><b>注意索引是 <code>Payload.IndirectArgIndex</code>，不是线程号</b></td></tr>
+</tbody>
+</table>
+
+<h4>取数：三行决定一切</h4>
+<pre><span class="c">// BuildInstanceDrawCommands.usf:393-398（逐字符照录）</span>
+	<span class="c">// TODO: This must be read-modify-written when batching such that the final offset that is fed to the VS is correct.</span>
+	<span class="c">//       Then we don't need to add the batch offset (BatchInfo.InstanceDataWriteOffset)</span>
+	const uint InstanceDataOutputOffset = InstanceIdOffsetBuffer[Payload.IndirectArgIndex];
+
+	const FInstanceSceneData InstanceData = GetInstanceSceneData(InstanceId, InstanceSceneDataSOAStride);
+	const FPrimitiveSceneData PrimitiveData = GetPrimitiveData(InstanceData.PrimitiveId);</pre>
+<p><b><code>InstanceIdOffsetBuffer[Payload.IndirectArgIndex]</code></b> 的索引是<b>draw 序号（indirect 槽号）</b>，不是线程号也不是实例号 —— 每个属于同一条 draw 的线程读到的都是同一个基址，再各自加 <code>OutputOffset × STRIDE</code>。这是 §8.13 那条前缀和的消费点。</p>
+
+<h4>两个互斥的输出分支</h4>
+<pre><span class="c">// BuildInstanceDrawCommands.usf:424-457（逐字符照录）</span>
+#else <span class="c">// !STEREO_CULLING_MODE</span>
+
+	for (uint ViewIdIndex = 0; ViewIdIndex &lt; BatchInfo.NumViewIds; ++ViewIdIndex)
+	{
+		<span class="c">// Culling is disabled for multi-view</span>
+		uint CullingFlags = 0;
+		<span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[MODIFY]</span>
+		bool bVisible = IsInstanceVisible(PrimitiveData, InstanceData, InstanceId, BatchInfo.ViewIdsOffset + ViewIdIndex, BatchInfo.bAllowOcclusionCulling, WorkSetup.Item.bUseISMDitheredLOD, DrawCommandDesc, CullingFlags);
+
+		if (bVisible)
+		{
+			<span class="c">// Imposter Proxy System:[yinnhaowang]:[MODIFY]</span>
+			bVisible = WriteImposterInstanceVisible(PrimitiveData, InstanceData, InstanceId, BatchInfo.ViewIdsOffset + ViewIdIndex, BatchInfo.bAllowOcclusionCulling, DrawCommandDesc, WorkSetup.Item.bWriteImposterProxyInstanceId, CullingFlags);
+		}
+		
+		NumVisibleInstances += bVisible ? 1 : 0;
+		
+		BRANCH
+		if (bCompactInstances)
+		{
+			const uint OutputOffset = CompactOutputInstanceIndex * BatchInfo.NumViewIds + ViewIdIndex;
+			WriteInstanceForCompaction(CompactionData.SrcInstanceIdOffset + OutputOffset, bVisible, InstanceId, InstanceData, ViewIdIndex, CullingFlags);
+		}
+		else if (bVisible)
+		{
+			<span class="c">// TODO: if all items in the group-batch target the same draw args the more efficient warp-collective functions can be used</span>
+			<span class="c">//       detected as FInstanceBatch.NumItems == 1. Can switch dynamically or bin the items that fill a group and dispatch separately with permutation.</span>
+			<span class="c">// TODO: if the arg only has a single item, and culling is not enabled, then we can skip the atomics. Again do dynamically or separate permutation.</span>
+			uint OutputOffset;
+			InterlockedAdd(DrawIndirectArgsBufferOut[Payload.IndirectArgIndex * INDIRECT_ARGS_NUM_WORDS + 1], 1U, OutputOffset);
+			WriteInstance(InstanceDataOutputOffset + OutputOffset * INSTANCE_DATA_STRIDE_ELEMENTS, InstanceId, PrimitiveData, InstanceData, ViewIdIndex, CullingFlags, DrawCommandDesc.MeshLODIndex);
+		}
+	}
+#endif <span class="c">// STEREO_CULLING_MODE</span></pre>
+<table>
+<thead><tr><th style="width:16%">模式</th><th>行为</th></tr></thead>
+<tbody>
+<tr><td><code>STEREO_CULLING_MODE</code></td><td>一次判两个视图，<code>InterlockedAdd(..., 2U, ...)</code>，连写两个实例</td></tr>
+<tr><td>普通（含多视图）</td><td>对 <code>NumViewIds</code> 逐视图循环，每视图 <code>InterlockedAdd(..., 1U, ...)</code></td></tr>
+</tbody>
+</table>
+<p>注意普通分支里有一句注释（<span class="ref">BuildInstanceDrawCommands.usf:428</span>）：<code>// Culling is disabled for multi-view</code> —— 多视图共用同一份 <code>bVisible</code> 逻辑但每个视图独立判定。</p>
+
+<h4>可见实例的落位：<code>InterlockedAdd</code> 的返回值就是槽位</h4>
+<pre><span class="c">// BuildInstanceDrawCommands.usf:449-454（逐字符照录）</span>
+			<span class="c">// TODO: if all items in the group-batch target the same draw args the more efficient warp-collective functions can be used</span>
+			<span class="c">//       detected as FInstanceBatch.NumItems == 1. Can switch dynamically or bin the items that fill a group and dispatch separately with permutation.</span>
+			<span class="c">// TODO: if the arg only has a single item, and culling is not enabled, then we can skip the atomics. Again do dynamically or separate permutation.</span>
+			uint OutputOffset;
+			InterlockedAdd(DrawIndirectArgsBufferOut[Payload.IndirectArgIndex * INDIRECT_ARGS_NUM_WORDS + 1], 1U, OutputOffset);
+			WriteInstance(InstanceDataOutputOffset + OutputOffset * INSTANCE_DATA_STRIDE_ELEMENTS, InstanceId, PrimitiveData, InstanceData, ViewIdIndex, CullingFlags, DrawCommandDesc.MeshLODIndex);</pre>
+<p><b>为什么用原子加而不是前缀和</b>：剔除是逐实例并行、结果数量未知，「第 k 个可见实例写到哪」事先不可知。原子加把「计数」和「占位」合成一次操作，避免两趟。</p>
+<p>代价是<b>写入顺序不确定</b> —— 需要保序时才启用 §8.12 的两阶段紧凑化。</p>
+
+<h4>写入端的分支</h4>
+<pre><span class="c">// BuildInstanceDrawCommands.usf:96-121（逐字符照录）</span>
+#if PLATFORM_USES_PRIMITIVE_UBO
+#include "../SceneDataMobileWriter.ush" 
+
+void WriteDataUBO(RWStructuredBuffer&lt;float4&gt; Output, uint Offset, uint InstanceId, FPrimitiveSceneData PrimitiveData, FInstanceSceneData InstanceData, uint MeshLODIndex)
+{
+#if SINGLE_INSTANCE_MODE
+	WritePrimitiveDataUBO(Output, Offset, PrimitiveData, MeshLODIndex);
+#else
+	WriteInstanceDataUBO(Output, Offset, InstanceId, InstanceData, InstanceSceneDataSOAStride);
+#endif
+}
+#endif <span class="c">//PLATFORM_USES_PRIMITIVE_UBO</span>
+
+void WriteInstance(uint Offset, uint InstanceId, FPrimitiveSceneData PrimitiveData, FInstanceSceneData InstanceData, uint ViewIdIndex, uint CullingFlags, uint MeshLODIndex)
+{
+	checkSlow(InstanceId &lt; GPUSceneNumInstances);
+
+#if PLATFORM_USES_PRIMITIVE_UBO
+	WriteDataUBO(InstanceIdsBufferOutMobile, Offset, InstanceId, PrimitiveData, InstanceData, MeshLODIndex);
+#else
+	uint PackedId = PackInstanceCullingOutput(InstanceId, ViewIdIndex, CullingFlags);
+	checkStructuredBufferAccessSlow(InstanceIdsBufferOut, Offset);
+	InstanceIdsBufferOut[Offset] = PackedId;
+	InstanceLODsBufferOut[Offset] = MeshLODIndex; <span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[ADD]</span>
+#endif
+}</pre>
+<p><b>PC 写一个 packed uint；移动端写完整数据</b> —— 这就是 §8.18 那条差异的代码本体。</p>
+
+<h3>8.11 Shader：<code>IsInstanceVisible</code> 的完整判定链</h3>
+
+<pre><span class="c">// BuildInstanceDrawCommands.usf:149-260（逐字符照录）</span>
+bool IsInstanceVisible(FPrimitiveSceneData PrimitiveData, FInstanceSceneData InstanceData, uint InstanceId, uint ViewIdIndex, bool bAllowOcclusionCulling, bool bUseISMDitheredLOD, FDrawCommandDesc DrawCommandDesc, inout uint CullingFlags)
+{
+	CullingFlags = INSTANCE_CULLING_FLAGS_DEFAULT;
+
+#if CULL_INSTANCES
+	<span class="c">// Should not draw invalid instances, </span>
+	if (!InstanceData.ValidInstance)
+	{
+		return false;
+	}
+
+	<span class="c">// TODO: The test for dot(InstanceData.LocalBoundsExtent, InstanceData.LocalBoundsExtent) &lt;= 0.0f is just a workaround since the FDynamicMeshBuilder::GetMesh</span>
+	<span class="c">//       seems to just set empty bounds (and FLineBatcherSceneProxy pretends everything is at the origin). In the future these should compute reasonable bounds and </span>
+	<span class="c">//       this should be removed.</span>
+	if (dot(InstanceData.LocalBoundsExtent, InstanceData.LocalBoundsExtent) &lt;= 0.0f)
+	{
+		return true;
+	}
+#elif ALLOW_WPO_DISABLE
+	<span class="c">// When culling is disabled, we don't need to do anything if we don't have to evaluate WPO disable distance</span>
+	if ((PrimitiveData.Flags &amp; PRIMITIVE_SCENE_DATA_FLAG_WPO_DISABLE_DISTANCE) == 0)
+	{
+		return true;
+	}
+#endif
+
+#if CULL_INSTANCES || ALLOW_WPO_DISABLE
+	<span class="c">// TODO: remove this indirection and go straight to data index</span>
+	checkStructuredBufferAccessSlow(ViewIds, ViewIdIndex);
+
+	uint ViewDataIndex = ViewIds[ViewIdIndex].Data;
+
+	if (ViewDataIndex &lt; NumCullingViews)
+	{
+		FNaniteView NaniteView = GetNaniteView(ViewDataIndex);
+		FInstanceDynamicData DynamicData = CalculateInstanceDynamicData(NaniteView, InstanceData);
+
+		FBoxCull Cull;
+		Cull.Init(
+			NaniteView,
+			InstanceData.LocalBoundsCenter,
+			InstanceData.LocalBoundsExtent,
+			InstanceData.NonUniformScale,
+			DynamicData.LocalToTranslatedWorld,
+			DynamicData.PrevLocalToTranslatedWorld );
+
+#if !CULL_INSTANCES
+		Cull.bDistanceCull				= false;
+		Cull.bSkipDrawDistance			= true;
+		Cull.bSkipCullGlobalClipPlane	= true;
+#endif
+
+#if ALLOW_WPO_DISABLE
+		Cull.bSkipWPODisableDistance	|= DrawCommandDesc.bMaterialAlwaysEvaluatesWorldPositionOffset;
+#else
+		Cull.bSkipWPODisableDistance	= true;
+#endif
+
+		Cull.Distance( PrimitiveData );
+		if (!Cull.bEnableWPO)
+		{
+			CullingFlags &amp;= ~INSTANCE_CULLING_FLAG_EVALUATE_WPO;
+		}
+
+#if CULL_INSTANCES
+		<span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[MODIFY]</span>
+		Cull.ScreenSize(DrawCommandDesc.MinScreenSize, DrawCommandDesc.MaxScreenSize, bUseISMDitheredLOD);
+
+		Cull.GlobalClipPlane();
+
+		Cull.BlueCircleCulling(PrimitiveData); <span class="c">// ADD @shiyu</span>
+		
+		<span class="c">// Grass probabilistic culling:[yinnhaowang]:[ADD]</span>
+		Cull.ProbabilisticInstanceCulling(PrimitiveData, InstanceData);
+
+		BRANCH
+		if( Cull.bIsVisible )
+		{
+			Cull.Frustum();
+		}
+
+#if OCCLUSION_CULL_INSTANCES
+		BRANCH
+		if (Cull.bIsVisible &amp;&amp; bAllowOcclusionCulling)
+		{
+			const bool bPrevIsOrtho = IsOrthoProjection(NaniteView.PrevViewToClip);
+			FFrustumCullData PrevCull = BoxCullFrustum(InstanceData.LocalBoundsCenter, InstanceData.LocalBoundsExtent, DynamicData.PrevLocalToTranslatedWorld, NaniteView.PrevTranslatedWorldToClip, NaniteView.PrevViewToClip, bPrevIsOrtho, Cull.bNearClip, true);
+			BRANCH
+			if (PrevCull.bIsVisible &amp;&amp; !PrevCull.bCrossesNearPlane)
+			{
+				FScreenRect PrevRect = GetScreenRect( NaniteView.HZBTestViewRect, PrevCull, 4 );
+				Cull.bIsVisible = IsVisibleHZB( PrevRect, true );
+			}
+
+			BRANCH
+			if (NaniteView.InstanceOcclusionQueryMask &amp;&amp; Cull.bIsVisible)
+			{
+				if ((InstanceOcclusionQueryBuffer[InstanceId] &amp; NaniteView.InstanceOcclusionQueryMask) == 0)
+				{
+					Cull.bIsVisible = false;
+				}
+			}
+		}
+#endif <span class="c">// OCCLUSION_CULL_INSTANCES</span>
+#endif <span class="c">// CULL_INSTANCES</span>
+	
+		return Cull.bIsVisible;
+	}
+#endif <span class="c">// CULL_INSTANCES || ALLOW_WPO_DISABLE</span>
+
+	return true;
+}</pre>
+<h4>逐条拆解</h4>
+<table>
+<thead><tr><th style="width:4%">序</th><th style="width:30%">判据</th><th style="width:14%">生效条件</th><th style="width:12%">失败时</th><th>行号</th></tr></thead>
+<tbody>
+<tr><td>0</td><td><code>CullingFlags = INSTANCE_CULLING_FLAGS_DEFAULT</code></td><td>总是</td><td>—</td><td><span class="ref">BuildInstanceDrawCommands.usf:151</span></td></tr>
+<tr><td>1</td><td><code>!InstanceData.ValidInstance</code></td><td><code>CULL_INSTANCES</code></td><td><b>return false</b></td><td><span class="ref">BuildInstanceDrawCommands.usf:155-158</span></td></tr>
+<tr><td>2</td><td><code>dot(LocalBoundsExtent, LocalBoundsExtent) &lt;= 0</code></td><td><code>CULL_INSTANCES</code></td><td><b>return true</b>（兜底放行）</td><td><span class="ref">BuildInstanceDrawCommands.usf:163-166</span></td></tr>
+<tr><td>2'</td><td>缺 <code>WPO_DISABLE_DISTANCE</code> 标志</td><td><code>ALLOW_WPO_DISABLE</code> 且非 CULL</td><td><b>return true</b></td><td><span class="ref">BuildInstanceDrawCommands.usf:169-172</span></td></tr>
+<tr><td>3</td><td><code>ViewDataIndex &gt;= NumCullingViews</code></td><td>总是</td><td><b>return true</b>（越界兜底）</td><td><span class="ref">BuildInstanceDrawCommands.usf:181</span></td></tr>
+<tr><td>4</td><td><code>Cull.Init(...)</code> 建包围盒</td><td>总是</td><td>—</td><td><span class="ref">BuildInstanceDrawCommands.usf:186-193</span></td></tr>
+<tr><td>5</td><td><code>Cull.Distance(PrimitiveData)</code></td><td>总是</td><td>置 <code>CullingFlags</code> 的 WPO 位</td><td><span class="ref">BuildInstanceDrawCommands.usf:207-211</span></td></tr>
+<tr><td>6</td><td><code>Cull.ScreenSize(Min, Max, bUseISMDitheredLOD)</code></td><td><code>CULL_INSTANCES</code></td><td>—</td><td><span class="ref">BuildInstanceDrawCommands.usf:215</span></td></tr>
+<tr><td>7</td><td><code>Cull.GlobalClipPlane()</code></td><td><code>CULL_INSTANCES</code></td><td>—</td><td><span class="ref">BuildInstanceDrawCommands.usf:217</span></td></tr>
+<tr><td>8</td><td><b><code>Cull.BlueCircleCulling</code></b> <span class="tag t-fork">GR</span></td><td><code>CULL_INSTANCES</code></td><td>—</td><td><span class="ref">BuildInstanceDrawCommands.usf:219</span></td></tr>
+<tr><td>9</td><td><b><code>Cull.ProbabilisticInstanceCulling</code></b> <span class="tag t-fork">GR</span></td><td><code>CULL_INSTANCES</code></td><td>—</td><td><span class="ref">BuildInstanceDrawCommands.usf:222</span></td></tr>
+<tr><td>10</td><td><code>Cull.Frustum()</code></td><td><code>CULL_INSTANCES</code> 且前几项仍可见</td><td>—</td><td><span class="ref">BuildInstanceDrawCommands.usf:224-228</span></td></tr>
+<tr><td>11</td><td>上帧 HZB：<code>BoxCullFrustum</code> → <code>GetScreenRect(...,4)</code> → <code>IsVisibleHZB</code></td><td><code>OCCLUSION_CULL_INSTANCES</code> 且 <code>bAllowOcclusionCulling</code></td><td>置不可见</td><td><span class="ref">BuildInstanceDrawCommands.usf:230-241</span></td></tr>
+<tr><td>12</td><td>实例遮挡查询位掩码</td><td>同上，且 <code>InstanceOcclusionQueryMask != 0</code></td><td>置不可见</td><td><span class="ref">BuildInstanceDrawCommands.usf:243-250</span></td></tr>
+<tr><td>13</td><td><code>return Cull.bIsVisible</code></td><td>—</td><td>—</td><td><span class="ref">BuildInstanceDrawCommands.usf:255</span></td></tr>
+</tbody>
+</table>
+
+<div class="callout note">
+  <div class="h">两个容易忽略的点</div>
+  <b>① 第 2 步是「放行」不是「剔除」</b>。空包围盒的实例（动态网格 / 线段批次）无条件可见，注释解释了原因：<code>FDynamicMeshBuilder::GetMesh</code> 会设空包围盒（<span class="ref">BuildInstanceDrawCommands.usf:160-162</span>）。<br>
+  <b>② 第 12 步用 <code>InstanceId</code> 直接索引遮挡缓冲</b>，不是剔除后的紧凑下标 —— 所以该缓冲的尺寸必须按 <code>GPUScene 实例总数</code> 分配，而不是按可见实例数。
 </div>
 
-<h3>8.4 紧凑化（Compaction）：为什么需要、为什么移动端没有</h3>
-<p>原子加导致可见实例在输出缓冲里是<b>乱序</b>的。对绝大多数渲染没有影响，但对<b>需要保持实例绘制顺序</b>的材质（半透明叠加顺序等）就不行。此时启用两阶段紧凑化：Phase 1 算 block 前缀和，Phase 2 按原序写回 <span class="ref">InstanceCullingContext.cpp:1002-1031</span>。</p>
-<div class="callout warn">
-  <div class="h">移动端被硬性排除</div>
-  <pre style="margin:8px 0"><span class="c">// InstanceCullingContext.cpp:88-92 语义</span>
-IsInstanceOrderPreservationAllowed(ShaderPlatform) → CVar 开启 &amp;&amp; !IsMobilePlatform(ShaderPlatform)</pre>
-  CVar <code>r.InstanceCulling.AllowInstanceOrderPreservation</code> 默认 <code>1</code> <span class="ref">InstanceCullingContext.cpp:56-61</span>，但移动端无论怎么设都不生效。原因是紧凑化需要额外两趟 dispatch + 额外缓冲，对移动端带宽/功耗不划算。
-</div>
+<h4>HZB 测试的四个细节</h4>
+<pre><span class="c">// BuildInstanceDrawCommands.usf:232-241（逐字符照录）</span>
+		if (Cull.bIsVisible &amp;&amp; bAllowOcclusionCulling)
+		{
+			const bool bPrevIsOrtho = IsOrthoProjection(NaniteView.PrevViewToClip);
+			FFrustumCullData PrevCull = BoxCullFrustum(InstanceData.LocalBoundsCenter, InstanceData.LocalBoundsExtent, DynamicData.PrevLocalToTranslatedWorld, NaniteView.PrevTranslatedWorldToClip, NaniteView.PrevViewToClip, bPrevIsOrtho, Cull.bNearClip, true);
+			BRANCH
+			if (PrevCull.bIsVisible &amp;&amp; !PrevCull.bCrossesNearPlane)
+			{
+				FScreenRect PrevRect = GetScreenRect( NaniteView.HZBTestViewRect, PrevCull, 4 );
+				Cull.bIsVisible = IsVisibleHZB( PrevRect, true );
+			}</pre>
+<ul>
+<li>用的是<b>上帧</b>的矩阵（<code>NaniteView.PrevTranslatedWorldToClip</code>）和上帧的 HZB —— 即延迟一帧，这是它能与主渲染并行前提。</li>
+<li><code>!PrevCull.bCrossesNearPlane</code>：跨近裁剪面的实例不做 HZB 测试（无法可靠投影）。</li>
+<li><code>GetScreenRect(..., 4)</code> 的第四参 4 是<b>保守外扩的像素数</b>。</li>
+<li>两级门：<code>bIsVisible &amp;&amp; bAllowOcclusionCulling</code> 才进入 —— 后者来自 <code>BatchInfo</code>。</li>
+</ul>
 
-<h3>8.5 InstanceIdOffsetBuffer：一个 buffer 的三重身份</h3>
+<h3>8.12 Shader：紧凑化两阶段（Compaction）</h3>
+
+<p><b>为什么需要</b>：§8.10 的原子加让可见实例在输出缓冲里乱序。对半透明叠加等需要保持绘制顺序的材质不行，所以要在实例 ID 层面「挤出空洞、压缩成连续」。</p>
+<p><b>为什么分两阶段</b>：要先知道「每个 block 有多少可见实例」才能算目标偏移（Phase 1），然后才能搬（Phase 2）。</p>
+
+<h4>Phase 1：算 block 目标偏移（<code>CompactVisibleInstances.usf:34-81</code>）</h4>
+<pre><span class="c">// CompactVisibleInstances.usf:16-22（逐字符照录）</span>
+/**
+ * CalculateCompactBlockInstanceOffsets
+ *
+ * Compaction phase 1 - Generate output offsets of "blocks" of source instance IDs such that all valid IDs will be compacted for
+ * the draw comand. Each thread group in this dispatch aligns with a single draw command. It uses a hybrid of parallelization and
+ * serialization to calculate the compact output offsets in the instance ID buffer in a way that doesn't require multiple dispatches.
+ */</pre>
+<pre><span class="c">// CompactVisibleInstances.usf:34-81（逐字符照录）</span>
+[numthreads(NUM_THREADS_PER_GROUP, 1, 1)]
+void CalculateCompactBlockInstanceOffsetsCS(uint3 GroupId : SV_GroupID, uint GroupThreadIndex : SV_GroupIndex)
+{
+	const uint DrawCommandIndex = GetUnWrappedDispatchGroupId(GroupId);
+	const FDrawCommandCompactionData DrawCommandData = UnpackDrawCommandCompactionData(DrawCommandCompactionData[DrawCommandIndex]);
+	const uint BlockOffset = DrawCommandData.BlockOffset;
+	const uint NumBlocksInDrawCommand = GetCompactionBlockCount(DrawCommandData.NumInstances);
+	const uint NumWorkIterations = ((NumBlocksInDrawCommand - 1U) / NUM_THREADS_PER_GROUP) + 1U;
+
+	uint CurInstanceOffset = 0;
+	uint CurDrawCommandBlockIndex = 0;
+	for (uint IterIndex = 0; IterIndex &lt; NumWorkIterations; ++IterIndex)
+	{
+		const uint DrawCommandBlockIndex = CurDrawCommandBlockIndex + GroupThreadIndex;
+		const uint GlobalBlockIndex = DrawCommandData.BlockOffset + DrawCommandBlockIndex;
+
+		uint BlockInstanceDestCount = 0;
+		BRANCH
+		if (DrawCommandBlockIndex &lt; NumBlocksInDrawCommand)
+		{
+			BlockInstanceDestCount = BlockInstanceCounts[GlobalBlockIndex];
+		}
+
+		uint PrefixSum, GroupSum;
+	#if COMPACTION_USES_WAVE_OPS
+		PrefixSum = WavePrefixSum(BlockInstanceDestCount);
+		GroupSum = WaveActiveSum(BlockInstanceDestCount);
+	#else
+		PrefixSum = ThreadGroupPrefixSum(BlockInstanceDestCount, GroupThreadIndex, GroupSum);
+	#endif <span class="c">// COMPACTION_USES_WAVE_OPS</span>
+		
+		<span class="c">// Write out the instance offsets</span>
+		BRANCH
+		if (DrawCommandBlockIndex &lt; NumBlocksInDrawCommand)
+		{
+			BlockDestInstanceOffsetsOut[GlobalBlockIndex] = CurInstanceOffset + PrefixSum;
+		}
+
+		CurInstanceOffset += GroupSum;
+		CurDrawCommandBlockIndex += NUM_THREADS_PER_GROUP;
+	}
+
+	if (GroupThreadIndex == 0)
+	{
+		<span class="c">// Set the final indirect arg instance count</span>
+		DrawIndirectArgsBufferOut[DrawCommandData.IndirectArgIndex * INDIRECT_ARGS_NUM_WORDS + 1] = CurInstanceOffset;
+	}
+}</pre>
+<table class="kv">
+<thead><tr><th>点</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>线程组</td><td><code>NumThreadsPerGroup = 512</code>（<span class="ref">InstanceCullingContext.cpp:456</span>）</td></tr>
+<tr><td>group 语义</td><td><b>一个 group 对齐一条 draw command</b>（:37）</td></tr>
+<tr><td>串行迭代</td><td><code>NumWorkIterations = ((NumBlocksInDrawCommand - 1) / NUM_THREADS_PER_GROUP) + 1</code>（:41）—— block 多于线程时循环处理</td></tr>
+<tr><td>前缀和</td><td><code>ThreadGroupPrefixSum(BlockInstanceDestCount)</code>（:62），<code>COMPACTION_USES_WAVE_OPS</code> 在此仓库为 0</td></tr>
+<tr><td>收敛点</td><td><code>GroupThreadIndex == 0</code> 时<b>把最终实例数写回 indirect args</b>（:76-80）—— 这才是 Phase 2 之后 VS 实际看到的实例数</td></tr>
+</tbody>
+</table>
+
+<h4>Phase 2：按序搬移（<code>CompactVisibleInstances.usf:108-159</code>）</h4>
+<pre><span class="c">// CompactVisibleInstances.usf:108-159（逐字符照录）</span>
+[numthreads(NUM_THREADS_PER_GROUP, 1, 1)]
+void CompactVisibleInstances(uint3 GroupId : SV_GroupID, uint GroupThreadIndex : SV_GroupIndex)
+{
+	const uint GlobalBlockIndex = GetUnWrappedDispatchGroupId(GroupId);
+	const FDrawCommandCompactionData DrawCommandData = UnpackDrawCommandCompactionData(DrawCommandCompactionData[BlockDrawCommandIndices[GlobalBlockIndex]]);
+	const uint DrawCommandBlockIndex = GlobalBlockIndex - DrawCommandData.BlockOffset;
+	const uint MaxInstancesPerBlock = NUM_THREADS_PER_GROUP * DrawCommandData.NumViews;
+	const uint BlockSrcInstanceCount = min(DrawCommandData.NumInstances * DrawCommandData.NumViews - DrawCommandBlockIndex * MaxInstancesPerBlock, MaxInstancesPerBlock);
+	const uint BlockSrcInstanceOffset = DrawCommandData.SrcInstanceIdOffset + DrawCommandBlockIndex * MaxInstancesPerBlock;
+	const uint BlockDestInstanceOffset = DrawCommandData.DestInstanceIdOffset + BlockDestInstanceOffsets[GlobalBlockIndex];
+
+	<span class="c">// These are the relative offsets for the whole group from the start of the source and destination offsets for the block, respectively</span>
+	uint CurGroupSrcOffset = 0;
+	uint CurGroupDestOffset = 0;
+
+	while (CurGroupSrcOffset &lt; BlockSrcInstanceCount) <span class="c">// may loop as many times as NumViews</span>
+	{
+		uint InstanceId = 0xFFFFFFFFU;
+		
+		const uint BlockSrcInstanceIndex = CurGroupSrcOffset + GroupThreadIndex;
+		const uint GlobalSrcInstanceIndex = BlockSrcInstanceOffset + BlockSrcInstanceIndex;
+		BRANCH
+		if (BlockSrcInstanceIndex &lt; BlockSrcInstanceCount)
+		{
+			InstanceId = InstanceIdsBufferIn[GlobalSrcInstanceIndex];
+		}
+		
+		const bool bIsValidInstance = (InstanceId != 0xFFFFFFFFU);
+
+		<span class="c">// now calculate the index based on the valid index in the group</span>
+		uint PrefixSum, GroupSum;
+	#if COMPACTION_USES_WAVE_OPS
+		PrefixSum = WavePrefixCountBits(bIsValidInstance);
+		GroupSum = WaveActiveCountBits(bIsValidInstance);
+	#else
+		<span class="c">// NOTE: This must be called even by threads that won't output an InstanceId</span>
+		PrefixSum = ThreadGroupPrefixSum(bIsValidInstance ? 1U : 0U, GroupThreadIndex, GroupSum);
+	#endif <span class="c">// COMPACTION_USES_WAVE_OPS</span>
+
+		if (bIsValidInstance)
+		{
+			const uint BlockDestInstanceIndex = CurGroupDestOffset + PrefixSum;
+			const uint GlobalDestInstanceIndex = BlockDestInstanceOffset + BlockDestInstanceIndex;
+
+			<span class="c">// TODO: This currently doesn't support mobile, which outputs transform data into a vertex buffer</span>
+			InstanceIdsBufferOut[GlobalDestInstanceIndex] = InstanceId;
+		}
+
+		CurGroupSrcOffset += NUM_THREADS_PER_GROUP;
+		CurGroupDestOffset += GroupSum;
+	}	
+}</pre>
+<table class="kv">
+<thead><tr><th>点</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>线程组</td><td><code>NumThreadsPerGroup = COMPACTION_BLOCK_NUM_INSTANCES = 64</code>（<span class="ref">InstanceCullingContext.cpp:483</span>、<span class="ref">InstanceCullingContext.cpp:426</span>）</td></tr>
+<tr><td>group 语义</td><td><b>一个 group 对齐一个 block</b>（:111）</td></tr>
+<tr><td>block 大小</td><td><code>MaxInstancesPerBlock = NUM_THREADS_PER_GROUP * NumViews</code>（:114）—— <b>多视图时一个 block 装 N×64</b></td></tr>
+<tr><td>哨兵</td><td><code>0xFFFFFFFF</code> 表示该槽位无有效实例（:125、:135）</td></tr>
+<tr><td>前缀和</td><td><code>ThreadGroupPrefixSum(bIsValidInstance ? 1U : 0U, ...)</code>，注释强调<b>必须无条件调用</b>（:143-144），否则屏障会死锁</td></tr>
+</tbody>
+</table>
+<pre><span class="c">// InstanceCompactionCommon.ush:21-57（逐字符照录）</span>
+struct FPackedDrawCommandCompactionData
+{
+	uint NumInstances_NumViews;
+	uint BlockOffset;
+	uint IndirectArgIndex;
+	uint SrcInstanceIdOffset;
+	uint DestInstanceIdOffset;
+};
+
+struct FDrawCommandCompactionData
+{
+	/** The number of views for which the instances were written */
+	uint NumViews;
+	/** The total number of instances in the draw command */
+	uint NumInstances;
+	/** The offset of the first compaction "block" (group of N instances * NumViewIds) of the draw command */
+	uint BlockOffset;
+	/** The indirect argument index of the draw command */
+	uint IndirectArgIndex;
+	/** The offset of the input instance ID buffer for the start of the draw command before compaction */
+	uint SrcInstanceIdOffset;
+	/** The offset of the output instance ID buffer for the start of the draw command after compaction */
+	uint DestInstanceIdOffset;
+};
+
+FDrawCommandCompactionData UnpackDrawCommandCompactionData(FPackedDrawCommandCompactionData Data)
+{
+	FDrawCommandCompactionData Output;
+	Output.NumViews = Data.NumInstances_NumViews &amp; 0xFFU;
+	Output.NumInstances = Data.NumInstances_NumViews &gt;&gt; 8;
+	Output.BlockOffset = Data.BlockOffset;
+	Output.IndirectArgIndex = Data.IndirectArgIndex;
+	Output.SrcInstanceIdOffset = Data.SrcInstanceIdOffset;
+	Output.DestInstanceIdOffset = Data.DestInstanceIdOffset;
+
+	return Output;
+}</pre>
+
+<h4>移动端：三重闸门</h4>
+<table>
+<thead><tr><th style="width:10%">层</th><th style="width:34%">位置</th><th>判据</th></tr></thead>
+<tbody>
+<tr><td>编译期</td><td><span class="ref">InstanceCullingContext.cpp:434-438</span></td><td><code>GetMaxSupportedFeatureLevel(Platform) &gt; ERHIFeatureLevel::ES3_1</code></td></tr>
+<tr><td>编译期</td><td><span class="ref">InstanceCullingContext.cpp:533-537</span></td><td><code>!IsMobilePlatform(Platform)</code></td></tr>
+<tr><td>运行期</td><td><span class="ref">InstanceCullingContext.cpp:88-92</span></td><td><code>!IsMobilePlatform(ShaderPlatform)</code></td></tr>
+</tbody>
+</table>
+<p>→ 移动端<b>不可能</b>走 compaction，即使把 <code>r.InstanceCulling.AllowInstanceOrderPreservation</code> 设为 1。</p>
+<pre><span class="c">// InstanceCullingContext.cpp:254-258（逐字符照录）</span>
+bool FInstanceCullingContext::IsInstanceOrderPreservationEnabled() const
+{
+	<span class="c">// NOTE: Instance compaction is currently not enabled on mobile platforms</span>
+	return IsInstanceOrderPreservationAllowed(ShaderPlatform) &amp;&amp; !EnumHasAnyFlags(Flags, EInstanceCullingFlags::NoInstanceOrderPreservation);
+}</pre></p>
+
+
+<h3>8.13 InstanceIdOffsetBuffer：一个 buffer 的三重身份</h3>
 <p>这是整个 InstanceCulling 里最容易读错的一处。它的三个身份：</p>
 <table>
 <thead><tr><th>身份</th><th>形态</th><th>在哪</th></tr></thead>
@@ -1416,7 +2907,8 @@ GraphBuilder.QueueBufferUpload(InstanceIdOffsetBufferRDG, InstanceIdOffsets.GetD
   常规路径下它是 CPU 上传的 <span class="ref">InstanceCullingContext.cpp:885-886</span>；只有 VSM / 自研 MMH 路径才在 GPU 上写它（<code>InstanceIdOffsetBufferOut</code> 见于 <span class="ref">VirtualShadowMapArray.cpp:3190</span>、<span class="ref">MMHShadowDepthRendering.cpp:112</span>）。判据很简单：<b>看声明是 <code>Buffer</code> 还是 <code>RWBuffer</code></b>。
 </div>
 
-<h3>8.6 LoadBalancer：把变长工作装进定长线程组</h3>
+
+<h3>8.14 LoadBalancer：把变长工作装进定长线程组</h3>
 <p>问题：一条 draw 可能只有 1 个实例，另一条有 10000 个。若「一条 draw 一个 thread group」，前者浪费 63 个线程，后者装不下。</p>
 <p>LoadBalancer 的解法：把实例切成<b>恰好填满一个 64 线程 group 的工作单元</b>。</p>
 <ul>
@@ -1447,7 +2939,8 @@ GraphBuilder.QueueBufferUpload(InstanceIdOffsetBufferRDG, InstanceIdOffsets.GetD
   第三個字段 <code>AdditionalCustomCullingFlags</code> 是本分叉新增的 <span class="ref">InstanceCullingLoadBalancer.h:64-68</span>，它把 <code>FPackedItem</code> 从 8 字节撑到 <b>12 字节</b>。这是内存/带宽上的实打实成本，且与 C++ 侧强耦合（改一处必须改两处）。
 </div>
 
-<h3>8.7 两条剔除管线：Generic 与 UnCulled</h3>
+
+<h3>8.15 两条剔除管线：Generic 与 UnCulled</h3>
 <table>
 <thead><tr><th>模式</th><th>何时用</th><th>做什么</th></tr></thead>
 <tbody>
@@ -1462,7 +2955,8 @@ GraphBuilder.QueueBufferUpload(InstanceIdOffsetBufferRDG, InstanceIdOffsets.GetD
   <span class="ref">InstanceCullingContext.cpp:1582-1588</span> 的 <code>#if 1 // GR ADD</code> 包裹了一段改写：当 <code>r.HZBOcclusion != 0 &amp;&amp; r.HZB.IndirectDraw != 0</code> 时把单实例图元也赶进 Generic 管线。上游原版此处硬编码 <code>false</code>（保留在同处的 <code>#else</code> 分支）。这解释了为什么本项目的 HZB 相关行为与上游不同。
 </div>
 
-<h3>8.8 两套遮挡剔除：别混淆</h3>
+
+<h3>8.16 两套遮挡剔除：别混淆</h3>
 <table>
 <thead><tr><th></th><th>HZB 直接采样</th><th>逐实例软件 Occlusion Query</th></tr></thead>
 <tbody>
@@ -1475,16 +2969,18 @@ GraphBuilder.QueueBufferUpload(InstanceIdOffsetBufferRDG, InstanceIdOffsets.GetD
 </table>
 <p>注意 <code>r.InstanceCulling.OcclusionCull</code> 的<b>源码默认值是 <code>0</code></b> <span class="ref">InstanceCullingContext.cpp:43-47</span>，但引擎 ini 把它设成了 1 <span class="ref">BaseEngine.ini:3793</span>。查 CVar 默认值时要看 ini 的实际生效值，不能只看源码。</p>
 
-<h3>8.9 SceneCulling：下一代，但移动端用不到</h3>
+
+<h3>8.17 SceneCulling：下一代，但移动端用不到</h3>
 <pre><span class="c">// SceneCulling.cpp:272-275（逐字符照录）</span>
 <span class="k">static bool</span> UseSceneCulling(EShaderPlatform ShaderPlatform)
 {
     <span class="k">return</span> CVarSceneCulling.GetValueOnAnyThread() != 0 &amp;&amp; UseNanite(ShaderPlatform);
 }</pre>
-<p>SceneCulling 是比 InstanceCulling 更上层的<b>层级化 cell 剔除</b>（把空间切成 cell，先剔 cell 再剔实例），数据结构见 <code>FPackedCellHeader</code> / <code>FCellDraw</code> / <code>FViewDrawGroup</code> <span class="ref">SceneCullingDefinitions.h:24-92</span>。但它<b>硬依赖 Nanite</b>，而 Nanite 在 ES3.1 移动端不可用，所以本项目移动端走的仍然是 §8.1-8.8 的经典 InstanceCulling。看到「GPU 场景剔除」这个词时务必先分清是哪一层。</p>
+<p>SceneCulling 是比 InstanceCulling 更上层的<b>层级化 cell 剔除</b>（把空间切成 cell，先剔 cell 再剔实例），数据结构见 <code>FPackedCellHeader</code> / <code>FCellDraw</code> / <code>FViewDrawGroup</code> <span class="ref">SceneCullingDefinitions.h:24-92</span>。但它<b>硬依赖 Nanite</b>，而 Nanite 在 ES3.1 移动端不可用，所以本项目移动端走的仍然是本章讲的经典 InstanceCulling（§8.13–§8.18）。看到「GPU 场景剔除」这个词时务必先分清是哪一层。</p>
 
 
-<h3>8.10 移动端与 PC 的剔除输出形态完全不同</h3>
+
+<h3>8.18 移动端与 PC 的剔除输出形态完全不同</h3>
 <p>这是本轮核实中最容易被忽略的一条差异：<b>剔除 CS 在 PC 上写的是「打包后的 ID」，在移动端写的是「完整的 primitive/instance 数据」。</b></p>
 <pre><span class="c">// BuildInstanceDrawCommands.usf:109-121（逐字符照录）</span>
 void WriteInstance(uint Offset, uint InstanceId, FPrimitiveSceneData PrimitiveData, FInstanceSceneData InstanceData, uint ViewIdIndex, uint CullingFlags, uint MeshLODIndex)
@@ -1533,6 +3029,898 @@ void WriteDataUBO(RWStructuredBuffer&lt;float4&gt; Output, uint Offset, uint Ins
   移动端的 VS/PS 走的是 <code>PLATFORM_USES_PRIMITIVE_UBO</code> 路径（<span class="ref">SceneData.ush:40</span>），数据来源本身就是 UBO 而非 SSBO。
   既然 VS 不打算做「ID → SSBO 二次寻址」，剔除阶段就<b>顺手把实例数据搬到输出缓冲里</b>，让 VS 一次读取即可。<br>
   这条设计正是 §7.2 那两套 stride（256 B / 512 B）与批上限 <b>64 / 32</b> 的来源——输出缓冲要装的是数据本身，不是 ID，容量自然被 16 KB UBO 上限直接决定。
+</div>
+
+<!-- ============================================================ -->
+
+<h3>8.19 调用链：谁在用 InstanceCulling</h3>
+
+<table>
+<thead><tr><th style="width:34%">调用点</th><th style="width:22%">API</th><th>场景</th></tr></thead>
+<tbody>
+<tr><td><span class="ref">MeshDrawCommands.cpp:1296</span></td><td rowspan="4"><code>SetupDrawCommands</code></td><td>主 mesh pass（<code>Context.InstanceCullingContext</code>）</td></tr>
+<tr><td><span class="ref">SimpleMeshDrawCommandPass.cpp:46</span></td><td>简单 pass，<b><code>bCompactIdenticalCommands = true</code></b></td></tr>
+<tr><td><span class="ref">LumenSceneRendering.cpp:2126</span></td><td>Lumen 卡片（<code>false</code>）</td></tr>
+<tr><td><span class="ref">WaterInfoTextureRendering.cpp:924</span></td><td>水体（<code>false</code>）</td></tr>
+<tr><td><span class="ref">MeshDrawCommands.cpp:1770</span> / <span class="ref">MeshDrawCommands.cpp:1921</span></td><td rowspan="3"><code>SubmitDrawCommands</code></td><td>同步路径 / 任务路径</td></tr>
+<tr><td><span class="ref">SimpleMeshDrawCommandPass.cpp:72</span></td><td>简单 pass</td></tr>
+<tr><td><span class="ref">LumenSceneRendering.cpp:2295</span> / <span class="ref">WaterInfoTextureRendering.cpp:961</span></td><td>Lumen / 水体</td></tr>
+<tr><td><span class="ref">DeferredShadingRenderer.cpp:2135</span> / <span class="ref">DeferredShadingRenderer.cpp:3932</span></td><td rowspan="2"><code>BeginDeferredCulling</code></td><td><span class="tag t-pc">PC</span> Deferred 渲染器（两处）</td></tr>
+<tr><td><span class="ref">MobileShadingRenderer.cpp:958</span></td><td><span class="tag t-mob">Mobile</span> 移动端渲染器</td></tr>
+</tbody>
+</table>
+<p><b>移动端走的是同一套 <code>FInstanceCullingContext</code></b> —— 差异不在「用不用」，而在 buffer 形态、批上限、输出内容、compaction 可用性这些参数上。</p>
+
+<h3>8.20 InstanceCulling 的 PC vs Mobile 差异总表</h3>
+
+<div class="callout warn">
+  <div class="h">前提：移动端<b>用的是同一套 InstanceCulling</b></div>
+  <code>MobileShadingRenderer.cpp:958</code> 同样调 <code>InstanceCullingManager.BeginDeferredCulling</code>，走的是同一个 <code>FInstanceCullingContext</code>。
+  差异不在「用不用」，而在下面这 12 个参数上。
+</div>
+
+<table>
+<thead><tr><th style="width:18%">维度</th><th style="width:33%"><span class="tag t-pc">PC</span></th><th style="width:33%"><span class="tag t-mob">Mobile</span></th><th style="width:16%">证据</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>输出缓冲元素宽</b></td>
+  <td><code>sizeof(uint32)</code> = <b>4 字节</b></td>
+  <td><b>16 字节</b>（一个 float4）</td>
+  <td><span class="ref">InstanceCullingContext.cpp:698-711</span></td>
+</tr>
+<tr>
+  <td><b>输出缓冲冗余</b></td>
+  <td>无</td>
+  <td><b>+1024 个元素</b>（=16 KB/16）<br>注释：<i>"so when binding last element we still have a full UBO range"</i></td>
+  <td><span class="ref">InstanceCullingContext.cpp:683-696</span></td>
+</tr>
+<tr>
+  <td>输出缓冲 Usage</td>
+  <td>默认</td>
+  <td>额外 <code>EBufferUsageFlags::UniformBuffer</code></td>
+  <td><span class="ref">InstanceCullingContext.cpp:704</span></td>
+</tr>
+<tr>
+  <td><b>输出容量语义</b></td>
+  <td><code>TotalInstances × NumViews</code> <b>（按实例计数）</b></td>
+  <td><code>(Generic已分配×256 + UnCulled已分配×512) / 16 × NumViews</code> <b>（按整批字节数）</b></td>
+  <td><span class="ref">InstanceCullingContext.cpp:173-186</span></td>
+</tr>
+<tr>
+  <td>每 draw 的偏移步长</td>
+  <td><code>NumStepDraws × sizeof(uint32)</code>（逐 draw 递增）</td>
+  <td><code>(GenericStride + UnculledStride) × NumViews</code><br>注释：<i>"UniformBufferView path uses one instance step rate"</i></td>
+  <td><span class="ref">InstanceCullingContext.cpp:158-171</span></td>
+</tr>
+<tr>
+  <td>实例 ID 缓冲 stride</td>
+  <td><code>sizeof(uint32)</code> = 4</td>
+  <td><code>UniformViewInstanceStride[1]</code> = <b>512</b>（UnCulled）</td>
+  <td><span class="ref">InstanceCullingContext.cpp:146-156</span></td>
+</tr>
+<tr>
+  <td><b>单 draw 批上限</b></td>
+  <td><code>MAX_uint32</code>（<b>永不拆分</b>）</td>
+  <td><b>64</b>（Generic）/ <b>32</b>（UnCulled）</td>
+  <td><span class="ref">InstanceCullingContext.cpp:1631-1632</span></td>
+</tr>
+<tr>
+  <td><b>剔除输出内容</b></td>
+  <td>1 个 packed <code>uint</code><br>（bit0-23 InstanceId / bit24-27 CullingFlags / bit28-31 ViewIndex）</td>
+  <td><b>一整个实例的数据</b>（256B 或 512B）</td>
+  <td><span class="ref">BuildInstanceDrawCommands.usf:109-121</span><br><span class="ref">SceneData.ush:1359-1373</span></td>
+</tr>
+<tr>
+  <td><b>Instance 顺序保持<br>（Compaction）</b></td>
+  <td><b>支持</b>（两阶段紧凑化）</td>
+  <td><b>三重闸门禁用</b>：<br>① <code>GetMaxSupportedFeatureLevel &gt; ES3_1</code><br>② <code>!IsMobilePlatform</code>（permutation）<br>③ <code>!IsMobilePlatform</code>（运行期）</td>
+  <td><span class="ref">InstanceCullingContext.cpp:434-438</span><br><span class="ref">InstanceCullingContext.cpp:533-537</span><br><span class="ref">InstanceCullingContext.cpp:88-92</span></td>
+</tr>
+<tr>
+  <td><code>InstanceLODsBuffer</code><br>（<span class="tag t-fork">GR</span> ISM dithered LOD）</td>
+  <td>真实 buffer</td>
+  <td><b>换成 dummy</b>（buffer 建了但不绑）</td>
+  <td><span class="ref">InstanceCullingContext.cpp:1040-1049</span></td>
+</tr>
+<tr>
+  <td><b>UBO 窗口的数据来源</b></td>
+  <td>不适用</td>
+  <td><code>BatchedPrimitive.Data = CreateSRV(InstanceIdsBuffer)</code><br><b>与输出缓冲是同一条 buffer</b></td>
+  <td><span class="ref">InstanceCullingContext.cpp:1054-1059</span></td>
+</tr>
+<tr>
+  <td>ISM draw 合并</td>
+  <td>允许</td>
+  <td><code>bUsesUniformBufferView ? (CurrentAutoInstanceCount &lt; MaxPrimitiveBatchSize &amp;&amp; !bUseIndirectDraw) : true</code><br>注释：<i>"UniformBufferView path does not support merging ISM draws atm"</i></td>
+  <td><span class="ref">InstanceCullingContext.cpp:1649-1650</span></td>
+</tr>
+<tr>
+  <td><b>逐实例软件遮挡查询</b></td>
+  <td>可用</td>
+  <td><b>不可用</b> —— <code>IsCompatibleWithView</code> 要求 <code>GetSupportsVertexShaderSRVs</code>，而 Android ES3.1 该项为 false</td>
+  <td><span class="ref">InstanceCullingOcclusionQuery.cpp:844-853</span></td>
+</tr>
+<tr>
+  <td>per-draw 索引的绑定方式</td>
+  <td><code>SetStreamSource</code>（顶点流）</td>
+  <td><code>SetUniformBufferDynamicOffset</code>（UBO 动态偏移）</td>
+  <td><span class="ref">MeshPassProcessor.cpp:1719</span><br><span class="ref">MeshPassProcessor.cpp:1777</span></td>
+</tr>
+</tbody>
+</table>
+
+<div class="callout">
+  <div class="h">两条结构性差异（不是参数差异）</div>
+  <b>① 输出容量语义完全不同。</b>PC 的输出缓冲按<b>实例数</b>分配（1 实例 = 1 个 uint 槽）；移动端按<b>整批数据的字节数</b>分配（一批 = 所有实例的完整 AoS 数据）。这就是 <code>GetInstanceIdNumElements</code> 两条分支差一个 <code>/16u</code> 的原因（<span class="ref">InstanceCullingContext.cpp:173-186</span>）。<br>
+  <b>② 每 draw 偏移的算法不同。</b>PC 是<b>增量式</b>（每 draw +4 字节）；移动端是<b>整批式</b>（一次算出 Generic + UnCulled 两桶的总字节）。引擎注释 <i>"one instance step rate"</i> 说的就是这件事（<span class="ref">InstanceCullingContext.cpp:160</span>）。
+</div>
+
+<h3>8.21 本分叉在 InstanceCulling 上的定制清单</h3>
+
+<table>
+<thead><tr><th style="width:22%">改动</th><th style="width:12%">归属</th><th>作用</th><th style="width:22%">位置</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>Adreno SSBO stride 修包</b></td><td>@ZXB</td>
+  <td>把两个 SSBO 元素<b>包成单成员 struct</b> 强制正确 stride。注释原文：<i>"Wrap SSBO elements in single-member structs to force correct stride on old Adreno drivers (fixes missing primitives with mobile GPUScene on 845; UE5.4 shelf fix by Wei.Liu)"</i>。<b>这也是访问点全部带 <code>.Data</code> 后缀的原因</b>（如 <code>DrawCommandDescs[...].Data</code>）。</td>
+  <td><span class="ref">BuildInstanceDrawCommands.usf:54-62</span></td>
+</tr>
+<tr>
+  <td>强制 Generic 处理</td><td><span class="tag t-fork">GR ADD</span></td>
+  <td><code>#if 1 // GR ADD</code> 把上游硬编码的 <code>false</code> 改成「<code>r.HZBOcclusion</code> 与 <code>r.HZB.IndirectDraw</code> 同时非 0 时为真」</td>
+  <td><span class="ref">InstanceCullingContext.cpp:1582-1588</span></td>
+</tr>
+<tr>
+  <td>ISM Dithered LOD</td><td>@yinnhaowang</td>
+  <td>新增输出 <code>InstanceLODsBufferOut</code>、给 <code>WriteInstance</code>/<code>WriteDataUBO</code> 加 <code>MeshLODIndex</code> 形参、给 <code>IsInstanceVisible</code> 加 <code>bUseISMDitheredLOD</code> 形参；剔除算法对两个 temporal LOD 视点各算一次并取并集，阈值放宽 0.8/1.2</td>
+  <td><span class="ref">BuildInstanceDrawCommands.usf:74-75</span><br><span class="ref">BuildInstanceDrawCommands.usf:119</span><br><span class="ref">NaniteCullingCommon.ush:346-405</span></td>
+</tr>
+<tr>
+  <td>Imposter Proxy</td><td>@yinnhaowang / @yixing</td>
+  <td>在 <code>IsInstanceVisible</code> 通过后再做一次屏占比判定，低于阈值的实例从常规 draw 剔除、改派给 imposter 列表。为此给 <code>FPackedItem</code> 加了第三个 32 位字段</td>
+  <td><span class="ref">BuildInstanceDrawCommands.usf:263-329</span><br><span class="ref">InstanceCullingLoadBalancer.h:64-68</span></td>
+</tr>
+<tr>
+  <td>BlueCircleCulling</td><td>@wanmuxin / @shiyu</td>
+  <td>屏幕空间圆形剔除，半径 = <code>BlueCircleInfo.z + RadiusExt</code>，其中 <code>RadiusExt = 1500.0f; // Why? Ask @wanmuxin</code></td>
+  <td><span class="ref">NaniteCullingCommon.ush:286-307</span><br><span class="ref">BuildInstanceDrawCommands.usf:219</span></td>
+</tr>
+<tr>
+  <td>ProbabilisticInstanceCulling</td><td>@yinnhaowang</td>
+  <td>用 <code>Hash31(InstancePosition)</code> 生成稳定随机值，按距离归一化后与阈值比较，用于草木等海量实例</td>
+  <td><span class="ref">NaniteCullingCommon.ush:309-334</span><br><span class="ref">BuildInstanceDrawCommands.usf:222</span></td>
+</tr>
+<tr>
+  <td>Skip Imposter Rendering</td><td>@yinnhaowang</td>
+  <td>提交期按 <code>r.InstanceCulling.SkipImposterRendering</code>（默认 1）跳过 imposter draw</td>
+  <td><span class="ref">InstanceCullingContext.cpp:1884-1893</span></td>
+</tr>
+<tr>
+  <td>draw call 统计</td><td>@jiazhangtan</td>
+  <td><code>#if STATS</code> 下调用 <code>StatDrawCallsType(...)</code></td>
+  <td><span class="ref">InstanceCullingContext.cpp:1873-1876</span></td>
+</tr>
+</tbody>
+</table>
+
+<div class="callout note">
+  <div class="h">一个「存在但没接线」的自研剔除项</div>
+  <code>AxisZConeCulling</code>（<span class="ref">NaniteCullingCommon.ush:266-284</span>，标志 <code>PRIMITIVE_VISIBILITY_FLAG_AXIS_Z_CONE_CULLING</code>，<span class="ref">SceneDefinitions.h:78</span>）<b>在本仓库的 <code>InstanceCulling</code> 路径上没有被调用</b> —— <code>IsInstanceVisible</code>（<span class="ref">BuildInstanceDrawCommands.usf:149-260</span>）里只有 BlueCircle 与 Probabilistic 两项自研剔除。看到这个 flag 不代表它生效。
+</div>
+
+<div class="callout warn">
+  <div class="h">两处「注释与实现不一致」</div>
+  <b>①</b> <code>InstanceCullingCommon.ush:148-153</code> 的文档注释说 payload 是 26 位、扩展时「剩余 25 位」作索引，但代码用的是 <code>&gt;&gt; INSTANCE_CULLING_PAYLOAD_NUM_COMMON_BITS</code>（=2），即<b>剩余 24 位</b>。<br>
+  <b>②</b> <code>BuildInstanceDrawCommands.usf:332-335</code> 的函数注释是从 VSM invalidation 抄来的残留（讲的是 virtual shadow map page 失效），与实际逻辑不符。
+</div>
+
+<h3>8.22 延迟剔除：Manager 与 MergedContext</h3>
+
+<p>前面 §8.3–§8.7 讲的是「一个 pass 的一次剔除」。但一帧里有十几个 mesh pass（DepthPass / BasePass / CSM / Translucency / Decal…），如果每个都独立发 dispatch、独立建 buffer，小 dispatch 和 buffer 分配的开销会失控。<code>FInstanceCullingManager</code> + <code>FInstanceCullingMergedContext</code> 就是为解决这件事而存在的。</p>
+
+<h4>为什么必须「延迟」</h4>
+<div class="callout">
+  <code>BuildRenderingCommands</code> 在主渲染 setup 阶段被各 mesh pass 逐个调用，但<b>此刻每个 pass 的可见 draw command 还没算完</b>（并行的 MDC setup task 还在跑），indirect args / instance id buffer 的<b>尺寸未知</b>。<br>
+  延迟的本质：<b>RDG setup 阶段只登记 batch、建「尺寸由回调决定」的 buffer；真正的合并计算推到 RDG Execute/Drain 时刻。</b>
+</div>
+
+<h4>Manager 的生命周期</h4>
+<pre><span class="c">// InstanceCullingManager.cpp:32-37（逐字符照录）</span>
+FInstanceCullingManager::FInstanceCullingManager(FSceneUniformBuffer&amp; SceneUB, bool bInIsEnabled, FRDGBuilder&amp; GraphBuilder)
+	: SceneUB(SceneUB), bIsEnabled(bInIsEnabled)
+{
+	CullingIntermediate.DummyUniformBuffer = FInstanceCullingContext::CreateDummyInstanceCullingUniformBuffer(GraphBuilder);
+	BlueCircleInfo = FVector4f(0, 0, 0, 0);
+}</pre>
+<p>它不是持久对象 —— 每帧由 SceneRenderer 在 RDG 上分配：</p>
+<table class="kv">
+<thead><tr><th>路径</th><th>位置</th></tr></thead>
+<tbody>
+<tr><td><span class="tag t-pc">PC</span> Deferred</td><td><span class="ref">DeferredShadingRenderer.cpp:1908</span></td></tr>
+<tr><td><span class="tag t-mob">Mobile</span></td><td><span class="ref">MobileShadingRenderer.cpp:1352</span></td></tr>
+</tbody>
+</table>
+<p><code>bIsEnabled</code> 直接取 <code>GPUScene.IsEnabled()</code>，<b>所有公开方法都以它做短路</b>（<span class="ref">InstanceCullingManager.cpp:45</span>、<span class="ref">InstanceCullingManager.cpp:53</span>、<span class="ref">InstanceCullingManager.cpp:100</span>）。析构为空，buffer 生命周期全交给 RDG。</p>
+
+<h4>RegisterView：把 FViewInfo 榨成 FPackedView</h4>
+<pre><span class="c">// InstanceCullingManager.cpp:51-75（逐字符照录）</span>
+int32 FInstanceCullingManager::RegisterView(const FViewInfo&amp; ViewInfo)
+{
+	if (!bIsEnabled)
+	{
+		return 0;
+	}
+
+	Nanite::FPackedViewParams Params;
+	Params.ViewMatrices = ViewInfo.ViewMatrices;
+	Params.PrevViewMatrices = ViewInfo.PrevViewInfo.ViewMatrices;
+	Params.ViewRect = ViewInfo.ViewRect;
+	<span class="c">// TODO: faking this here (not needed for culling, until we start involving multi-view and HZB)</span>
+	Params.RasterContextSize = ViewInfo.ViewRect.Size();
+	Params.ViewLODDistanceFactor = ViewInfo.LODDistanceFactor;
+	Params.HZBTestViewRect = FIntRect(0, 0, ViewInfo.PrevViewInfo.ViewRect.Width(), ViewInfo.PrevViewInfo.ViewRect.Height());	<span class="c">// needs to be in HZB space, which is 0,0-based for any view, even stereo/splitscreen ones</span>
+	Params.MaxPixelsPerEdgeMultipler = 1.0f;
+	Params.InstanceOcclusionQueryMask = ViewInfo.PrevViewInfo.InstanceOcclusionQueryMask;
+
+#pragma region shiyu
+	Params.BlueCircleInfo = ViewInfo.GetBlueCircleInfoData();
+	Params.BlueCircleEnableAndDebugThreadIndex = ViewInfo.GetBlueCircleEnableAndDebutThreadIndex();
+#pragma endregion
+
+	<span class="c">// Grass probabilistic culling:[yinnhaowang]:[ADD]</span>
+	Params.InstanceProbabilisticCullingParam = ViewInfo.GetInstanceProbabilisticCullingParam();</pre>
+<p><b>两处是整套机制的枢纽</b>：</p>
+<ul>
+<li><code>Params.InstanceOcclusionQueryMask = ViewInfo.PrevViewInfo.InstanceOcclusionQueryMask</code>（:67）—— <b>遮挡查询结果的回灌入口</b>，见 §8.23。</li>
+<li><code>ViewPrevHZBs.AddUnique(HZB)</code>（:86-91）—— <b>HZB 去重，去重后的下标决定 bin 号</b>。</li>
+</ul>
+
+<h4>bin 的划分</h4>
+<pre><span class="c">// InstanceCullingManager.cpp:122-146（逐字符照录）</span>
+int32 FInstanceCullingManager::GetBinIndex(EBatchProcessingMode Mode, const TRefCountPtr&lt;IPooledRenderTarget&gt;&amp; HZB)
+{
+	if (Mode == EBatchProcessingMode::UnCulled)
+	{
+		return 0;
+	}
+
+	int32 BinIndex;
+	<span class="c">// all contexts without a valid HZB go in the first bin, together with the first view's HZB</span>
+	if (!HZB.IsValid())
+	{
+		return 1;
+	}
+
+	if (!ViewPrevHZBs.Find(HZB, BinIndex))
+	{
+		<span class="c">// error: the HZB is not registered correctly</span>
+		return -1;
+	}
+
+	<span class="c">// bin 0 is used for EBatchProcessingMode::UnCulled batches</span>
+	BinIndex += 1;
+
+	return BinIndex;
+}</pre>
+<pre><span class="c">// InstanceCullingContext.cpp:1126-1126</span>
+	uint32 NumBins = FMath::Max(2, InstanceCullingManager.ViewPrevHZBs.Num() + 1);</pre>
+<table class="kv">
+<thead><tr><th>bin</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><b>bin 0</b></td><td>固定给 <code>EBatchProcessingMode::UnCulled</code>（单实例快路径）</td></tr>
+<tr><td><b>bin i≥1</b></td><td>对应 <code>ViewPrevHZBs[i-1]</code>；无 HZB 的 Generic batch 也塞进 bin 1</td></tr>
+</tbody>
+</table>
+<p><b>每个 bin 一个独立 dispatch</b>（<span class="ref">InstanceCullingContext.cpp:1320-1384</span>）。因为<b>同一个 bin 内的所有 batch 共享同一张 HZB</b>，可以合并到一次 dispatch 里 —— 这就是「合并」的全部意义。</p>
+
+<h4>INST_CULL_CALLBACK：尺寸未知的 buffer 怎么建</h4>
+<pre><span class="c">// InstanceCullingContext.cpp:1135-1140（逐字符照录）</span>
+#define INST_CULL_CALLBACK(CustomCode) \
+	[PassParameters, DeferredContext]() \
+	{ \
+		DeferredContext-&gt;ProcessBatched(PassParameters); \
+		return CustomCode; \
+	}</pre>
+<p>把任意表达式包成 lambda。<b>RDG 在需要 buffer 元素数 / 数据指针 / dispatch group count 时才调用</b>；<b>第一次调用就触发 <code>ProcessBatched</code>，后续靠 <code>bProcessed</code> 幂等</b>（<span class="ref">InstanceCullingContext.cpp:1070-1104</span>）。</p>
+
+<h4>MergeBatches：偏移修正</h4>
+<p>把所有 context 的数据<b>拼进一组大数组</b>，每个 context 只留一条 <code>FContextBatchInfoPacked</code> 记录各自在大数组里的起始偏移。跨 context 的游标就是 <code>InstanceIdBufferOffset</code>：</p>
+<pre><span class="c">// InstanceCullingMergedContext.cpp:84-87（逐字符照录）</span>
+		for (int32 Index = 0; Index &lt; InstanceCullingContext.InstanceIdOffsets.Num(); ++Index)
+		{
+			InstanceIdOffsets[BatchInfo.IndirectArgsOffset + Index] = InstanceCullingContext.InstanceIdOffsets[Index] + InstanceIdBufferOffset;
+		}</pre>
+<pre><span class="c">// InstanceCullingMergedContext.cpp:132-132</span>
+		BatchInfo.InstanceDataWriteOffset = InstanceIdBufferOffset;</pre>
+<pre><span class="c">// InstanceCullingMergedContext.cpp:152-152</span>
+		InstanceIdBufferOffset += InstanceCullingContext.GetInstanceIdNumElements();</pre>
+<p>注意 :84-87 那条注释 <code>// TODO: perform offset on GPU</code> —— <b>当前是 CPU 侧逐条循环改写</b>，尚未下放到 GPU。</p>
+<p>shader 侧靠两级间接反查自己的 context（<span class="ref">InstanceCullingCommon.ush:83</span>）：<code>BatchInfos[BatchInds[GroupIndex]]</code>。</p>
+
+<h4>CVar 清单</h4>
+<table>
+<thead><tr><th>CVar</th><th>默认</th><th>作用</th><th>位置</th></tr></thead>
+<tbody>
+<tr><td><code>r.InstanceCulling.AllowBatchedBuildRenderingCommands</code></td><td>1</td><td>门控是否建 DeferredContext（还需 GPUScene 开启 + 非 RDG immediate mode）</td><td><span class="ref">InstanceCullingManager.cpp:17-22</span>、<span class="ref">InstanceCullingManager.cpp:148-151</span></td></tr>
+<tr><td><code>r.InstanceCulling.OcclusionQueries</code></td><td>0</td><td>逐实例软件遮挡查询（标注 EXPERIMENTAL）</td><td><span class="ref">InstanceCullingOcclusionQuery.cpp:27-31</span></td></tr>
+<tr><td><code>r.InstanceCulling.UseLoadBalancer</code></td><td>1</td><td>遮挡查询是否复用 BasePass 的 LoadBalancer</td><td><span class="ref">InstanceCullingOcclusionQuery.cpp:33-38</span></td></tr>
+</tbody>
+</table>
+<div class="callout warn">
+  <div class="h">两个「死物」</div>
+  <b>① <code>DumpDrawCommandInfoNextFrame</code></b>（<span class="ref">InstanceCullingManager.cpp:25-30</span>）：一个 <code>FAutoConsoleCommand</code>，它置位的 <code>bDumpDrawCommandInfoNextFrame</code> <b>全 Renderer 模块只有定义处与 lambda 写入，没有任何读取点</b>。<br>
+  <b>② <code>SetBlueCircleInfo</code> / <code>GetBlueCircleInfo</code></b>（<span class="ref">InstanceCullingManager.h:111-112</span>）：<b>无任何调用者</b>；配套的 <code>FVector3f BlueCircleInfo</code> 成员在构造时被赋了 <code>FVector4f(0,0,0,0)</code>（<span class="ref">InstanceCullingManager.cpp:36</span>，靠 TVector 隐式转换）。真正的 BlueCircle 参数走的是另一条路（<code>InstanceCullingManager.cpp:69-72</code> 的 <code>Params.BlueCircleInfo</code>）。
+</div>
+
+<h3>8.23 逐实例遮挡查询（Occlusion Query）</h3>
+
+<p>HZB 测试是<b>保守的</b>（偏「可见」）—— 它只知道「这个包围盒范围内的深度最小值」。逐实例遮挡查询是<b>更精确的一层补充</b>：真的把实例的包围盒光栅化一遍，看有没有像素通过深度测试。</p>
+
+<h4>两趟 pass</h4>
+<table>
+<thead><tr><th style="width:12%">趟</th><th style="width:30%">入口</th><th>做什么</th></tr></thead>
+<tbody>
+<tr><td><b>Setup CS</b></td><td><code>MainCS</code><br><span class="ref">InstanceCullingOcclusionQuery.usf:155-229</span></td><td>对候选实例做视锥 + HZB 粗测，输出三类结果：① <b>确定性结论</b>（Visible/Hidden 直接写 <code>RWVisibilityMask</code>）② 需要逐像素测试的实例列表 <code>OutInstanceIdBuffer</code> ③ indirect args</td></tr>
+<tr><td><b>光栅化</b></td><td><code>MainVS</code> + <code>MainPS</code><br><span class="ref">InstanceCullingOcclusionQuery.usf:231-270</span></td><td>用全局 cube 几何做 <code>DrawIndexedPrimitiveIndirect</code>，深度测试不写，PS 唯一副作用是往 <code>RWVisibilityMask</code> 写位</td></tr>
+</tbody>
+</table>
+<p>PS 的逻辑只有一行（<span class="ref">InstanceCullingOcclusionQuery.usf:261-270</span>）：<b>任一像素通过深度测试即判可见</b>。</p>
+
+<h4>结果缓冲</h4>
+<pre><span class="c">// InstanceCullingOcclusionQuery.cpp:48-66（逐字符照录）</span>
+static EPixelFormat GetPreferredVisibilityMaskFormat()
+{
+	EPixelFormat PossibleFormats[] =
+	{
+		PF_R8_UINT,  <span class="c">// may be available if typed UAV load/store is supported on current hardware</span>
+		PF_R32_UINT, <span class="c">// guaranteed to be supported</span>
+	};
+
+	for (EPixelFormat Format : PossibleFormats)
+	{
+		EPixelFormatCapabilities Capabilities = GPixelFormats[Format].Capabilities;
+		if (EnumHasAllFlags(Capabilities, EPixelFormatCapabilities::TypedUAVLoad | EPixelFormatCapabilities::TypedUAVStore))
+		{
+			return Format;
+		}
+	}
+
+	return PF_Unknown;
+}</pre>
+<table class="kv">
+<thead><tr><th>点</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>格式回退</td><td>优先 <code>PF_R8_UINT</code>（需 TypedUAVLoad+Store），否则回退<b>保证支持</b>的 <code>PF_R32_UINT</code>；都不行返回 <code>PF_Unknown</code></td></tr>
+<tr><td>初始值</td><td><code>0xFFFFFFFF</code> —— 默认「所有 view 都可见」，<b>保守</b></td></tr>
+<tr><td>清空技巧</td><td>用 <code>PF_R32G32B32A32_UINT</code> 宽格式 alias 同一底层资源再清，为了清得快</td></tr>
+<tr><td>每视图一位</td><td><code>1u &lt;&lt; ViewSlot</code>；<b><code>MaxViews = 8</code></b>，超过或 ViewKey==0 返回 0，<b>静默退化为不剔除</b></td></tr>
+<tr><td>尺寸</td><td>按 GPUScene 实例总数（对齐 64）分配 —— 因为 shader 用 <b>InstanceId 直接索引</b>（见 §8.11 第 12 步）</td></tr>
+</tbody>
+</table>
+
+<h4>结果怎么回灌（三段，<b>延迟一帧</b>）</h4>
+<pre><span class="c">// 本文归纳，非源码原文</span>
+第 N 帧：Render() 写 CurrentInstanceOcclusionQueryBuffer
+   ↓ EndFrame → QueueBufferExtraction 提取到 InstanceOcclusionQueryBuffer（持久）
+第 N+1 帧：InitViews 把它 register 进 manager
+   ↓
+CreateDeferredContext 建 SRV 喂给主剔除 CS
+   ↓
+RegisterView 把 mask 塞进 PackedView
+   ↓
+主 CS: (InstanceOcclusionQueryBuffer[InstanceId] &amp; Mask) == 0 → 不可见
+</pre>
+<div class="callout warn">
+  <div class="h">这是<b>一帧延迟的历史结果复用</b>，不是 two-pass</div>
+  shader 里两处注释明确承认这一点（<span class="ref">InstanceCullingOcclusionQuery.usf:93-98</span>、<span class="ref">InstanceCullingOcclusionQuery.usf:106-112</span>）：<i>"Two-pass occlusion culling algorithm is the only robust solution"</i>。也就是说这个方案是近似，不是精确解。
+</div>
+
+<h4>IsCompatibleWithView：五个条件的 AND</h4>
+<pre><span class="c">// InstanceCullingOcclusionQuery.cpp:844-853（逐字符照录）</span>
+bool FInstanceCullingOcclusionQueryRenderer::IsCompatibleWithView(const FViewInfo&amp; View)
+{
+	EPixelFormat VisibilityMaskFormat = GetPreferredVisibilityMaskFormat();
+	return FDataDrivenShaderPlatformInfo::GetSupportsVertexShaderSRVs(View.GetShaderPlatform())
+		&amp;&amp; View.GetViewKey() != 0
+		&amp;&amp; View.GetSceneTextures().Depth.Target
+		&amp;&amp; View.HZB
+		&amp;&amp; VisibilityMaskFormat != PF_Unknown
+		&amp;&amp; CVarInstanceCullingOcclusionQueries.GetValueOnRenderThread() != 0;
+}</pre>
+<p><b>第一条就是移动端的死穴</b>：<code>GetSupportsVertexShaderSRVs</code>。Android 的 ES3.1 平台该项为 false，所以整个 OQ 系统在移动端不可用 —— 而且 usf 里还有一道编译期硬闸门（<span class="ref">InstanceCullingOcclusionQuery.usf:27-29</span>）：</p>
+<pre><span class="c">// InstanceCullingOcclusionQuery.usf:27-29（逐字符照录）</span>
+#if !PLATFORM_SUPPORTS_VERTEX_SHADER_SRVS
+#error This shader requires accessing GPUScene buffers as SRVs from vertex stage
+#endif</pre>
+
+<h4>复用 BasePass LoadBalancer 的时序风险</h4>
+<p><code>r.InstanceCulling.UseLoadBalancer</code>（默认 1）时，OQ 不再自建实例列表，而是直接取 BasePass 的 culling context（<span class="ref">InstanceCullingOcclusionQuery.cpp:595-601</span>）。代码里两处注释点明了风险：</p>
+<ul>
+<li><span class="ref">InstanceCullingOcclusionQuery.cpp:599</span>：<i>"At this point in time, we don't have the guarantee that MeshDrawCommandPass is done. Only access stable members, not batches/items/mdcs"</i> —— 拿指针时 setup task 可能还在跑。</li>
+<li><span class="ref">InstanceCullingOcclusionQuery.cpp:372-374</span>：<i>"Execute() is expected to run late enough to not stall here. If it does happen, then we may have to move the render pass to later point in the frame"</i> —— <code>Execute()</code> 内部硬 <code>WaitForSetupTask()</code>，RDG 过早求值就变成渲染线程阻塞。</li>
+</ul>
+<p>另有一处语义差异：LB 路径会<b>整体跳过 dynamic primitive</b>（usf <code>:141-146</code>，判据 <code>!InstanceCullingSetup.bIsDynamic</code>），而非 LB 路径会把它们包含进来。</p>
+
+<h4>移动端：整个系统空转</h4>
+<p><code>FInstanceCullingOcclusionQueryRenderer</code> 是 <b>FScene 级持久对象</b>，<b>无条件创建</b>（<span class="ref">RendererScene.cpp:1919</span>，析构见 :2001）。移动端渲染器也照样调它的 <code>Render</code>（<span class="ref">MobileShadingRenderer.cpp:3418-3423</span>），但内部第一步 <code>IsCompatibleWithView</code> 就返回 false → <b>直接 return 0，空转</b>。</p>
+
+<!-- ============================================================ -->
+
+<h3>8.24 死代码与半成品清单</h3>
+
+<p>这一节专门收录「存在但不起作用」的东西。读这套代码时，<b>最容易踩的坑就是照着一个 flag / CVar / 变量名去推断行为，而它其实根本没有消费点</b>。以下每一条都经过全仓库检索确认。</p>
+
+<table>
+<thead><tr><th style="width:26%">东西</th><th style="width:18%">状态</th><th style="width:34%">说明</th><th style="width:22%">位置</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>bCanCompactCurrentCommand</code></td>
+  <td><b>算了不用</b></td>
+  <td>判据行被注释成 <code>//if (bCanCompactCurrentCommand)</code>，实际生效的是下一行的旧条件。连带 <code>r.InstancedStaticMeshes.DynamicInstancing</code>（<b>默认 0</b>）整条开关无效。</td>
+  <td><span class="ref">InstanceCullingContext.cpp:1658-1660</span><br><span class="ref">StaticMeshRender.cpp:245-254</span></td>
+</tr>
+<tr>
+  <td><code>MAX_INDIRECT_DRAW_COUNT</code></td>
+  <td><b>无消费点</b></td>
+  <td>宏定义 <code>32U</code>，在 <code>Renderer</code> 与 <code>Shaders</code> 全范围内<b>只有定义处</b>。</td>
+  <td><span class="ref">InstanceCullingContext.h:20</span></td>
+</tr>
+<tr>
+  <td><code>r.CullInstances.ImposterScreenSize</code></td>
+  <td><b>无消费点</b></td>
+  <td>只读的 <code>TAutoConsoleVariable</code>（默认 0.01），<b>全模块只有定义、没有任何 <code>GetValue*</code> 读取</b>。真正生效的是另一个 CVar <code>r.Nanite.ImposterScreenSize</code>。</td>
+  <td><span class="ref">InstanceCullingContext.cpp:30-34</span></td>
+</tr>
+<tr>
+  <td><code>DumpDrawCommandInfoNextFrame</code></td>
+  <td><b>写了不读</b></td>
+  <td>控制台命令置位 <code>bDumpDrawCommandInfoNextFrame</code>，但该标志<b>只有写入点</b>。</td>
+  <td><span class="ref">InstanceCullingManager.cpp:25-30</span></td>
+</tr>
+<tr>
+  <td><code>SetBlueCircleInfo</code> / <code>GetBlueCircleInfo</code></td>
+  <td><b>无调用者</b></td>
+  <td>接口与成员都在，但全 Renderer 模块无调用。真正的 BlueCircle 参数走 <code>FPackedViewParams</code>。</td>
+  <td><span class="ref">InstanceCullingManager.h:111-112</span></td>
+</tr>
+<tr>
+  <td>整块合并 culling flag 逻辑</td>
+  <td><b>被注释</b></td>
+  <td>合并两条 draw 时重算 <code>CullingPayloadFlags</code> 的代码整块在 <code>/* */</code> 里。</td>
+  <td><span class="ref">InstanceCullingContext.cpp:1674-1683</span></td>
+</tr>
+<tr>
+  <td>Imposter 参数绑定（两大段）</td>
+  <td><b>编译期摘除</b></td>
+  <td>由 <code>ENABLE_IMPOSTER_SHADER_PARAMETER</code> 门控，该宏被强制定义为 0。Manager 侧的 4 个成员与 <code>SetImposterResult</code> 随之空转。</td>
+  <td><span class="ref">InstanceCullingContext.cpp:25-27</span><br><span class="ref">InstanceCullingContext.cpp:888-907</span><br><span class="ref">InstanceCullingManager.h:114-122</span></td>
+</tr>
+<tr>
+  <td><code>AxisZConeCulling</code></td>
+  <td><b>未接线</b></td>
+  <td>算法与可见性 flag 都在，但 <code>IsInstanceVisible</code> 里没有调用它。</td>
+  <td><span class="ref">NaniteCullingCommon.ush:266-284</span><br><span class="ref">BuildInstanceDrawCommands.usf:149-260</span></td>
+</tr>
+<tr>
+  <td><code>MultiDrawIndirectCountsBuffer</code><br><code>MultiDrawIndirectCountsByteOffset</code></td>
+  <td><b>字段未填</b></td>
+  <td><code>FMeshDrawCommandOverrideArgs</code> 里有这两个成员，但 <code>GetMeshDrawCommandOverrideArgs</code> 只填另外 4 个字段，<b>这两个从不下发</b>。（<span class="tag t-fork">GR</span> TriCluster @Beiyu）</td>
+  <td><span class="ref">MeshPassProcessor.h:1281-1284</span><br><span class="ref">InstanceCullingContext.cpp:111-119</span></td>
+</tr>
+<tr>
+  <td><code>InstanceIdsBufferOutMobile</code>（compaction shader 内）</td>
+  <td><b>死声明</b></td>
+  <td>声明为 <code>RWByteAddressBuffer</code>（C++ 侧绑的是 <code>RWStructuredBuffer&lt;float4&gt;</code>，类型还不一致），但 shader body <b>从未使用</b>。该 permutation 在移动端不编译。</td>
+  <td><span class="ref">CompactVisibleInstances.usf:105</span><br><span class="ref">InstanceCullingContext.cpp:500</span></td>
+</tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+  <div class="h">还有一处应该记下的「不一致」</div>
+  <code>BuildInstanceDrawCommands.usf:332-335</code> 的函数注释是从 VSM invalidation 拷贝过来的残留（讲的是 virtual shadow map page 失效），与实际逻辑（剔除实例）完全无关。<b>读代码时不要被函数头的注释误导。</b>
+</div>
+
+<div class="callout note">
+  <div class="h">一个返回值语义上的小坑</div>
+  <code>AllocateIndirectArgs</code> 在图元类型非法时返回 <code>0U</code>（<span class="ref">InstanceCullingContext.cpp:287</span>），而 <code>0</code> 同时是「第 0 个 indirect 槽」的合法值 —— <b>失败与成功无法区分</b>。调用点（<span class="ref">InstanceCullingContext.cpp:1705</span>）也没有做区分。
+</div>
+
+<!-- ============================================================ -->
+
+<h3>8.25 合批（Batching）的完整链路</h3>
+
+<p>§8.3 与 §8.4 讲了合批的<b>执行</b>，但没讲<b>「凭什么能合」</b>。合批其实是 6 层叠起来的，任何一层不满足就合不了。这一节按层拆开。</p>
+
+<div class="callout">
+  <div class="h">六层结构</div>
+  <table style="margin:8px 0">
+  <thead><tr><th style="width:8%">层</th><th style="width:26%">机制</th><th style="width:20%">决定什么</th><th style="width:46%">位置</th></tr></thead>
+  <tbody>
+  <tr><td><b>0</b></td><td>StateBucketId</td><td>「什么算同一状态」</td><td><span class="ref">MeshPassProcessor.cpp:2849-2861</span></td></tr>
+  <tr><td><b>1</b></td><td>排序键（7 级）</td><td>「谁能和谁相邻」</td><td><span class="ref">MeshPassProcessor.h:2069-2114</span></td></tr>
+  <tr><td><b>2</b></td><td>相邻折叠判据（4 条）</td><td>「相邻的能不能合」</td><td><span class="ref">InstanceCullingContext.cpp:1658-1660</span></td></tr>
+  <tr><td><b>3</b></td><td>实例数记账</td><td>「合了之后怎么提交」</td><td><span class="ref">InstanceCullingContext.cpp:1664-1671</span></td></tr>
+  <tr><td><b>4</b></td><td>实例来源（3 条路径）</td><td>「实例从哪来」</td><td><span class="ref">InstanceCullingContext.cpp:1745-1804</span></td></tr>
+  <tr><td><b>5</b></td><td>批拆分（移动端）</td><td>「超上限怎么切」</td><td><span class="ref">InstanceCullingContext.cpp:349-402</span></td></tr>
+  <tr><td><b>6</b></td><td>LoadBalancer item 打包</td><td>「怎么装进 64 线程组」</td><td><span class="ref">InstanceCullingLoadBalancer.h:130-171</span></td></tr>
+  </tbody>
+  </table>
+  第 0~2 层决定「能不能合」，第 3~4 层决定「合了怎么记」，第 5~6 层是「合完之后怎么喂给 GPU」。
+</div>
+
+<h4>第 0 层：StateBucketId —— 「什么算同一状态」</h4>
+
+<p>每条 MDC 在 Finalize 时被丢进一个哈希表，<b>哈希相同且逐字段等价的会成为同一条「状态桶」</b>：</p>
+<pre><span class="c">// MeshPassProcessor.cpp:2849-2861（逐字符照录）</span>
+	if (bUseGPUScene)
+	{
+		Experimental::FHashElementId SetId;
+		FStateBucketMap&amp; BucketMap = Scene.CachedMeshDrawCommandStateBuckets[CurrMeshPass];
+		auto hash = BucketMap.ComputeHash(MeshDrawCommand);
+		{
+			SetId = BucketMap.FindOrAddIdByHash(hash, MeshDrawCommand, FMeshDrawCommandCount());
+			FMeshDrawCommandCount&amp; DrawCount = BucketMap.GetByElementId(SetId).Value;
+			DrawCount.Num++;
+		}
+
+		CommandInfo.StateBucketId = SetId.GetIndex();
+	}</pre>
+<pre><span class="c">// MeshPassProcessor.h:1446-1459（逐字符照录）</span>
+	bool MatchesForDynamicInstancing(const FMeshDrawCommand&amp; Rhs) const
+	{
+		return CachedPipelineId == Rhs.CachedPipelineId
+			&amp;&amp; StencilRef == Rhs.StencilRef
+			&amp;&amp; ShaderBindings.MatchesForDynamicInstancing(Rhs.ShaderBindings)
+			&amp;&amp; VertexStreams == Rhs.VertexStreams
+			&amp;&amp; PrimitiveIdStreamIndex == Rhs.PrimitiveIdStreamIndex
+			&amp;&amp; IndexBuffer == Rhs.IndexBuffer
+			&amp;&amp; FirstIndex == Rhs.FirstIndex
+			&amp;&amp; NumPrimitives == Rhs.NumPrimitives
+			&amp;&amp; NumInstances == Rhs.NumInstances
+			&amp;&amp; ((NumPrimitives &gt; 0 &amp;&amp; VertexParams.BaseVertexIndex == Rhs.VertexParams.BaseVertexIndex &amp;&amp; VertexParams.NumVertices == Rhs.VertexParams.NumVertices)
+				|| (NumPrimitives == 0 &amp;&amp; IndirectArgs.Buffer == Rhs.IndirectArgs.Buffer &amp;&amp; IndirectArgs.Offset == Rhs.IndirectArgs.Offset));
+	}</pre>
+<p>等价判定的<b>完整字段清单</b>（<code>MatchesForDynamicInstancing</code>）：</p>
+<table class="kv">
+<thead><tr><th>字段</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>CachedPipelineId</code></td><td>整条 GPU 管线状态（PSO）</td></tr>
+<tr><td><code>StencilRef</code></td><td>模板引用值</td></tr>
+<tr><td><code>ShaderBindings</code></td><td>着色器绑定（SRV / Sampler / UBO / 松散参数）</td></tr>
+<tr><td><code>VertexStreams</code></td><td>顶点流</td></tr>
+<tr><td><code>PrimitiveIdStreamIndex</code></td><td>PrimitiveId 顶点流槽</td></tr>
+<tr><td><code>IndexBuffer</code></td><td>索引缓冲</td></tr>
+<tr><td><code>FirstIndex</code></td><td>起始索引</td></tr>
+<tr><td><code>NumPrimitives</code></td><td>图元数</td></tr>
+<tr><td><code>NumInstances</code></td><td>实例数</td></tr>
+<tr><td><code>VertexParams</code> / <code>IndirectArgs</code></td><td>顶点参数（或 indirect 参数）</td></tr>
+</tbody>
+</table>
+<p>哈希键还额外包含一个 GR 自研字段（<span class="ref">MeshPassProcessor.h:1477</span>）：</p>
+<pre><span class="c">// MeshPassProcessor.h:1464-1478（逐字符照录）</span>
+		struct FHashKey
+		{
+			uint32 IndexBuffer;
+			uint32 VertexBuffers = 0;
+		    uint32 VertexStreams = 0;
+			uint32 PipelineId;
+			uint32 DynamicInstancingHash;
+			uint32 FirstIndex;
+			uint32 NumPrimitives;
+			uint32 NumInstances;
+			uint32 IndirectArgsBufferOrBaseVertexIndex;
+			uint32 NumVertices;
+			uint32 StencilRefAndPrimitiveIdStreamIndex;
+			bool bUseISMDitheredLOD; <span class="c">// consider ism ditheredlod in statebuckedid computation:[yinnhaowang]:[ADD]</span>
+</pre>
+<p><b><code>bUseISMDitheredLOD</code> 被纳入 StateBucketId 计算</b>（<span class="tag t-fork">GR</span> @yinnhaowang）—— 保证不同 dithered LOD 状态的 ISM 不会被合进同一个桶。</p>
+
+<div class="callout warn">
+  <div class="h"><code>StateBucketId == -1</code> 意味着「不可合并」</div>
+  引擎注释写得很清楚（<span class="ref">MeshPassProcessor.h:2044-2047</span>）：
+  <pre style="margin:8px 0">// Dynamic instancing state bucket ID.
+  // Any commands with the same StateBucketId can be merged into one draw call with instancing.
+  // A value of -1 means the draw is not in any state bucket and should be sorted by other factors instead.</pre>
+  什么时候会是 -1？GPUScene 关闭时走的是另一条分支（<span class="ref">MeshPassProcessor.cpp:2862-2868</span>，只分配 <code>CommandIndex</code> 不设 <code>StateBucketId</code>）。判定处也有显式排除：<code>StateBucketId != -1</code>（<span class="ref">InstanceCullingContext.cpp:1660</span>）。
+</div>
+
+<h4>第 1 层：排序 —— 只有相邻的才可能被合</h4>
+
+<p>折叠是<b>单趟扫描相邻元素</b>（§8.3 第 3 步），所以「谁排在一起」直接决定合批率。排序键有 7 级，顺序即优先级：</p>
+<pre><span class="c">// MeshPassProcessor.h:2069-2114（逐字符照录）</span>
+struct FCompareFMeshDrawCommands
+{
+	FORCEINLINE bool operator() (const FVisibleMeshDrawCommand&amp; A, const FVisibleMeshDrawCommand&amp; B) const
+	{
+		<span class="c">// First order by a sort key.</span>
+		if (A.SortKey != B.SortKey)
+		{
+			return A.SortKey &lt; B.SortKey;
+		}
+
+		if (A.MeshDrawCommand-&gt;IndexBuffer != B.MeshDrawCommand-&gt;IndexBuffer)
+		{
+			return A.MeshDrawCommand-&gt;IndexBuffer &lt; B.MeshDrawCommand-&gt;IndexBuffer;
+		}
+
+		<span class="c">// Next order by instancing bucket.</span>
+		if (A.StateBucketId != B.StateBucketId)
+		{
+			return A.StateBucketId &lt; B.StateBucketId;
+		}
+
+        <span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[ADD] Additionally sort by ISMDitheredLOD within the same StateBucketId to prevent commands with different DitheredLOD from being batched together</span>
+		if (A.bUseISMDitheredLOD != B.bUseISMDitheredLOD)
+		{
+			return A.bUseISMDitheredLOD &lt; B.bUseISMDitheredLOD;
+		}
+
+		if (A.CullingPayloadFlags != B.CullingPayloadFlags)
+		{
+			return A.CullingPayloadFlags &lt; B.CullingPayloadFlags;
+		}
+
+		if (A.CullingPayload != B.CullingPayload)
+		{
+			return A.CullingPayload &lt; B.CullingPayload;
+		}
+
+		<span class="c">// S1:zikuan,YivanLee:MultidrawMesh::BEGIN</span>
+		if (A.IndexInDrawList != B.IndexInDrawList)
+		{
+			return A.IndexInDrawList &lt; B.IndexInDrawList;
+		}
+		<span class="c">// S1:zikuan,YivanLee:MultidrawMesh::END</span>
+		return false;
+	}
+};</pre>
+<table>
+<thead><tr><th style="width:6%">级</th><th style="width:30%">键</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>SortKey</code></td><td>来自 MeshBatch 的排序键（不透明物体通常是 0，半透明按距离）</td></tr>
+<tr><td>2</td><td><code>IndexBuffer</code></td><td>索引缓冲指针 —— 不同网格必然排在两段</td></tr>
+<tr><td>3</td><td><code>StateBucketId</code></td><td><b>这一级才让同状态聚到一起</b></td></tr>
+<tr><td>4</td><td><code>bUseISMDitheredLOD</code> <span class="tag t-fork">GR</span></td><td>自研插入，注释：<i>"to prevent commands with different DitheredLOD from being batched together"</i></td></tr>
+<tr><td>5</td><td><code>CullingPayloadFlags</code></td><td>剔除载荷标志（是否做 Min/Max 屏幕尺寸剔除）</td></tr>
+<tr><td>6</td><td><code>CullingPayload</code></td><td>剔除载荷本体（LOD / 屏幕尺寸阈值）</td></tr>
+<tr><td>7</td><td><code>IndexInDrawList</code></td><td>自研（<code>S1:zikuan,YivanLee:MultidrawMesh</code>）</td></tr>
+</tbody>
+</table>
+<p>注意第 4~6 级是<b>先按 StateBucketId 分组、组内再细分</b>。这也解释了折叠判据为什么除了 StateBucketId 还要额外比 <code>CullingPayloadFlags</code> 和 <code>bUseISMDitheredLOD</code> —— 光看桶号不够。</p>
+
+<h4>第 2 层：折叠判据 —— 四条同时成立</h4>
+
+<pre><span class="c">// InstanceCullingContext.cpp:1652-1660（逐字符照录）</span>
+		<span class="c">// ISM Dynamic Instancing:[yinnhaowang]:[MODIFY]:[BEGIN]</span>
+		static const auto ICVarISMDynamicInstancing = IConsoleManager::Get().FindConsoleVariable(TEXT("r.InstancedStaticMeshes.DynamicInstancing"));
+		const bool bISMDynamicInstancing = ICVarISMDynamicInstancing &amp;&amp; ICVarISMDynamicInstancing-&gt;GetInt() &gt; 0;
+		<span class="c">// If GPU lod enabled, the draw command generated by ISM may have different culling payload flag, we would like to enable batching between such draw commands and the corresponding gpu culling flag need to cover all batched commands</span>
+		<span class="c">// e.g. One command is set with MinScreenSizeCull and other command is set with MaxScreenSizeCull, if these two command has same rendering state, we can combine them with a new command set with EMeshDrawCommandCullingPayloadFlags::All.</span>
+		<span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[MODIFY] Do not batch draw commands with different bUseISMDitheredLOD</span>
+		const bool bCanCompactCurrentCommand = bCompactIdenticalCommands &amp;&amp; CurrentStateBucketId != -1 &amp;&amp; VisibleMeshDrawCommand.StateBucketId == CurrentStateBucketId &amp;&amp; (bISMDynamicInstancing ? true : VisibleMeshDrawCommand.CullingPayloadFlags == CurrentCullingPayloadFlags);
+		<span class="c">//if (bCanCompactCurrentCommand)</span>
+		if (bCompactIdenticalCommands &amp;&amp; CurrentStateBucketId != -1 &amp;&amp; VisibleMeshDrawCommand.StateBucketId == CurrentStateBucketId &amp;&amp; VisibleMeshDrawCommand.CullingPayloadFlags == CurrentCullingPayloadFlags &amp;&amp; VisibleMeshDrawCommand.bUseISMDitheredLOD == CurrentISMDitheredLOD)</pre>
+<table>
+<thead><tr><th style="width:34%">条件</th><th>来源</th><th style="width:20%">说明</th></tr></thead>
+<tbody>
+<tr><td><code>bCompactIdenticalCommands</code></td><td><b>调用点硬编码</b></td><td><span class="ref">MeshDrawCommands.cpp:1298</span> 与 <span class="ref">SimpleMeshDrawCommandPass.cpp:46</span> 传 <code>true</code>；<span class="ref">LumenSceneRendering.cpp:2126</span> 与 <span class="ref">WaterInfoTextureRendering.cpp:924</span> 传 <code>false</code></td></tr>
+<tr><td><code>CurrentStateBucketId != -1</code></td><td>上一条命令的桶号</td><td>排除不可合并项</td></tr>
+<tr><td><code>StateBucketId == CurrentStateBucketId</code></td><td>本条 vs 上一条</td><td>核心判据</td></tr>
+<tr><td><code>CullingPayloadFlags == CurrentCullingPayloadFlags</code></td><td>本条 vs 上一条</td><td>自研分支想放宽，见下</td></tr>
+<tr><td><code>bUseISMDitheredLOD == CurrentISMDitheredLOD</code></td><td>本条 vs 上一条</td><td><span class="tag t-fork">GR</span> 新增</td></tr>
+</tbody>
+</table>
+<div class="callout warn">
+  <div class="h">这一层的自研改动<b>没有生效</b></div>
+  <code>#pragma region</code> 注释（<span class="ref">InstanceCullingContext.cpp:1652</span>）说明 @yinnhaowang 想用 <code>r.InstancedStaticMeshes.DynamicInstancing</code> 放宽「<code>CullingPayloadFlags</code> 必须相等」这个条件（让 LOD 不同的 ISM 也能合）。<br>
+  <b>但</b>算出的 <code>bCanCompactCurrentCommand</code>（:1658）紧跟的判据行被注释成 <code>//if (bCanCompactCurrentCommand)</code>（:1659），实际生效的是 :1660 的旧条件。→ <b>该开关连同这条放宽逻辑当前都不起作用</b>。
+</div>
+
+<h4>第 3 层：合并后怎么记实例数</h4>
+
+<pre><span class="c">// InstanceCullingContext.cpp:1661-1687（逐字符照录）</span>
+		{
+			<span class="c">// Drop since previous covers for this</span>
+
+			CurrentAutoInstanceCount++;
+			MaxInstances = FMath::Max&lt;int32&gt;(CurrentAutoInstanceCount, MaxInstances);
+
+			FMeshDrawCommandInfo&amp; RESTRICT DrawCmd = MeshDrawCommandInfos.Last();
+			if (DrawCmd.bUseIndirect == 0)
+			{
+				DrawCmd.IndirectArgsOffsetOrNumInstances += 1;
+			}
+
+			<span class="c">// The new culling flag should covers all combined commands.</span>
+			/*if ((CurrentCullingPayloadFlags | VisibleMeshDrawCommand.CullingPayloadFlags) != CurrentCullingPayloadFlags)
+			{
+				uint32&amp; DrawCommandDesc = DrawCommandDescs.Last();
+				DrawCommandDesc = PackDrawCommandDesc(
+					bMaterialUsesWorldPositionOffset, 
+					bMaterialAlwaysEvaluatesWorldPositionOffset, 
+					VisibleMeshDrawCommand.CullingPayload, 
+					CurrentCullingPayloadFlags | VisibleMeshDrawCommand.CullingPayloadFlags
+				);
+			}*/
+
+			<span class="c">// Nothing needs to be done when indirect rendering is used on the draw command because the current cached value CurrentIndirectArgsOffset won't change</span>
+			<span class="c">// and these instances will be added to the same previous draw command in AddInstancesToDrawCommand below</span>
+		}</pre>
+<table class="kv">
+<thead><tr><th>情形</th><th>怎么记</th></tr></thead>
+<tbody>
+<tr><td><b>indirect</b>（<code>bUseIndirect == 1</code>）</td><td><b>什么都不用记</b> —— 实例数由 GPU 的原子加在 indirect args 里累加；合并后的命令复用同一个 <code>CurrentIndirectArgsOffset</code>，后续 <code>AddInstancesToDrawCommand</code> 会往同一个槽位塞</td></tr>
+<tr><td><b>非 indirect</b></td><td><code>DrawCmd.IndirectArgsOffsetOrNumInstances += 1</code> —— 该字段此时是<b>实例数</b>（见 §8.3 第 5 步的二选一语义）</td></tr>
+</tbody>
+</table>
+<p><code>CurrentAutoInstanceCount</code>（:1664）<b>只用于 stats</b>（注释 <code>// Only used to supply stats</code>，<span class="ref">InstanceCullingContext.cpp:1622</span>），以及在移动端参与合并上限判定（§8.20 的 ISM 合并那一行）。</p>
+
+<h4>第 4 层：实例数从哪来 —— 三条互斥路径</h4>
+
+<pre><span class="c">// InstanceCullingContext.cpp:1745-1804（逐字符照录）</span>
+		if (bSupportsGPUSceneInstancing)
+		{
+			EInstanceFlags InstanceFlags = EInstanceFlags::None;
+			if (VisibleMeshDrawCommand.PrimitiveIdInfo.bIsDynamicPrimitive)
+			{
+				EnumAddFlags(InstanceFlags, EInstanceFlags::DynamicInstanceDataOffset);
+			}
+			if (bForceInstanceCulling)
+			{
+				EnumAddFlags(InstanceFlags, EInstanceFlags::ForceInstanceCulling);
+			}
+			if (bPreserveInstanceOrder)
+			{
+				EnumAddFlags(InstanceFlags, EInstanceFlags::PreserveInstanceOrder);
+			}
+
+			const uint32 InstanceOffset = TotalInstances;
+
+			<span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[MODIFY]:[BEGIN]</span>
+			<span class="c">// ImposterProxy System:[yinnhaowang]:[ADD]</span>
+			uint32 AdditionalCustomCullingFlags = 0u;
+			<span class="c">// Use flag cached in mesh draw command to filter unnecessary imposter proxy id write</span>
+			<span class="c">//bool bWriteImposterProxyInstanceId = MeshDrawCommand-&gt;bWriteImposterProxyInstanceId;</span>
+			AdditionalCustomCullingFlags |= MeshDrawCommand-&gt;bWriteImposterProxyInstanceId ? CUSTOM_INSTANCE_CULLING_FLAG_WRITE_IMPOSTER_INSTANCE_ID : 0;
+			AdditionalCustomCullingFlags |= MeshDrawCommand-&gt;bUseISMDitheredLOD ? CUSTOM_INSTANCE_CULLING_FLAG_ISM_DITHERED_LOD : 0;
+			<span class="c">// ISM Dithered LOD Transition:[yinnhaowang]:[MODIFY]:[END]</span>
+
+			<span class="c">// append 'culling command' targeting the current slot</span>
+			<span class="c">// This will cause all instances belonging to the Primitive to be added to the command, if they are visible etc (GPU-Scene knows all - sees all)</span>
+			if (VisibleMeshDrawCommand.RunArray)
+			{
+				<span class="c">// ImposterProxy System:[yinnhaowang]:[MODIFY]</span>
+				AddInstanceRunsToDrawCommand(CurrentIndirectArgsOffset, VisibleMeshDrawCommand.PrimitiveIdInfo.InstanceSceneDataOffset, VisibleMeshDrawCommand.RunArray, VisibleMeshDrawCommand.NumRuns, InstanceFlags, MaxGenericBatchSize, AdditionalCustomCullingFlags);
+			}
+			else if (bFetchInstanceCountFromScene)
+			{
+				check(Scene != nullptr);
+				check(!VisibleMeshDrawCommand.PrimitiveIdInfo.bIsDynamicPrimitive);
+				uint32 NumInstances = uint32(Scene-&gt;Primitives[VisibleMeshDrawCommand.PrimitiveIdInfo.ScenePrimitiveId]-&gt;GetNumInstanceSceneDataEntries());
+				if (NumInstances &gt; 0u)
+				{
+					<span class="c">// ImposterProxy System:[yinnhaowang]:[MODIFY]</span>
+					AddInstancesToDrawCommand(CurrentIndirectArgsOffset, VisibleMeshDrawCommand.PrimitiveIdInfo.InstanceSceneDataOffset, 0, NumInstances, InstanceFlags, MaxGenericBatchSize, AdditionalCustomCullingFlags);
+				}
+			}
+			else
+			{
+				if (Scene != nullptr)
+				{
+					<span class="c">// Make sure the cached MDC matches what is stored in the scene</span>
+					checkSlow(VisibleMeshDrawCommand.PrimitiveIdInfo.bIsDynamicPrimitive 
+						|| !bSupportsGPUSceneInstancing
+						|| VisibleMeshDrawCommand.MeshDrawCommand-&gt;NumInstances == uint32(Scene-&gt;Primitives[VisibleMeshDrawCommand.PrimitiveIdInfo.ScenePrimitiveId]-&gt;GetNumInstanceSceneDataEntries()));
+					<span class="c">// This condition is used to skip re-caching MDCs and thus should not be set on anything that doesn't take the above path</span>
+					checkSlow(!Scene-&gt;Primitives[VisibleMeshDrawCommand.PrimitiveIdInfo.ScenePrimitiveId]-&gt;Proxy-&gt;DoesMeshBatchesUseSceneInstanceCount());
+				}
+				<span class="c">// ImposterProxy System:[yinnhaowang]:[MODIFY]</span>
+				AddInstancesToDrawCommand(CurrentIndirectArgsOffset, VisibleMeshDrawCommand.PrimitiveIdInfo.InstanceSceneDataOffset, 0, VisibleMeshDrawCommand.MeshDrawCommand-&gt;NumInstances, InstanceFlags, MaxGenericBatchSize, AdditionalCustomCullingFlags);
+			}
+</pre>
+<table>
+<thead><tr><th style="width:26%">路径</th><th style="width:26%">判据</th><th>实例数来源</th></tr></thead>
+<tbody>
+<tr><td><b>Run 子集</b></td><td><code>VisibleMeshDrawCommand.RunArray</code> 非空</td><td><code>Runs[]</code> 里的若干区间（闭区间），走 <code>AddInstanceRunsToDrawCommand</code>，<b>强制带 ForceInstanceCulling</b></td></tr>
+<tr><td><b>从场景取</b></td><td><code>bFetchInstanceCountFromScene</code></td><td><code>Scene-&gt;Primitives[ScenePrimitiveId]-&gt;GetNumInstanceSceneDataEntries()</code> —— <b>绕开 MDC 重缓存</b>，改实例数不必重建 MDC</td></tr>
+<tr><td><b>MDC 自带</b></td><td>其余</td><td><code>MeshDrawCommand-&gt;NumInstances</code></td></tr>
+</tbody>
+</table>
+<p>这三条路径在 <span class="ref">InstanceCullingContext.cpp:1805</span> 汇合：<code>const uint32 NumInstancesAdded = TotalInstances - InstanceOffset;</code>。</p>
+
+<h4>相关 flag 的定义（<code>EFVisibleMeshDrawCommandFlags</code>）</h4>
+<pre><span class="c">// MeshPassProcessor.h:1813-1839（逐字符照录）</span>
+enum class EFVisibleMeshDrawCommandFlags : uint8
+{
+	Default = 0U,
+	/** If set, the FMaterial::MaterialUsesWorldPositionOffset_RenderThread() indicates that WPO is active for the given material. */
+	MaterialUsesWorldPositionOffset = 1U &lt;&lt; 0U,
+
+	/**
+	 * If set, the FMaterial::ShouldAlwaysEvaluateWorldPositionOffset() indicates that WPO is ALWAYS active for the given material.
+	 * NOTE: This flag is only set if MaterialUsesWorldPositionOffset is also set.
+	 */
+	MaterialAlwaysEvaluatesWorldPositionOffset = 1U &lt;&lt; 1U,
+
+	/** If set, the mesh draw command supports primitive ID steam (required for dynamic instancing and GPU-Scene instance culling). */
+	HasPrimitiveIdStreamIndex = 1U &lt;&lt; 2U,
+
+	/** If set, forces individual instances to always be culled independently from the primitive */
+	ForceInstanceCulling = 1U &lt;&lt; 3U,
+
+	/** If set, requires that instances preserve their original draw order in the draw command */
+	PreserveInstanceOrder = 1U &lt;&lt; 4U,
+
+	/** If set, the instance culling machinery will pull the instance count from the primitive in FScene, making it possible to bypass MDC re-caching */
+	FetchInstanceCountFromScene = 1U &lt;&lt; 5U,
+
+	All = MaterialUsesWorldPositionOffset | HasPrimitiveIdStreamIndex | ForceInstanceCulling | PreserveInstanceOrder | FetchInstanceCountFromScene,
+	NumBits = 6U
+};</pre>
+
+<h4>第 5 / 6 层</h4>
+<p><b>第 5 层（批拆分）</b> 是 §8.4 的内容：PC 上 <code>MaxBatchSize == MAX_uint32</code> 直接透传，移动端按 64 / 32 切。<b>第 6 层（LoadBalancer item 打包）</b> 是 §8.8 与 §8.14 的内容。</p>
+
+<h4>三个「Dynamic Instancing」，只有一个是活的</h4>
+
+<p>这套代码里出现四个名字里带 <code>DynamicInstancing</code> 的东西，<b>其中三个当前不起作用</b>。这是读这块最容易翻车的地方。</p>
+<table>
+<thead><tr><th style="width:34%">名字</th><th style="width:16%">状态</th><th>说明</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>FInstanceCullingContext::SetupDrawCommands</code><br>的 <code>bCompactIdenticalCommands</code></td>
+  <td><span class="tag t-ok">生效</span></td>
+  <td><b>这才是真正在跑的那条</b>。但它不是 CVar，是<b>调用点常量</b>：主 mesh pass 与 SimpleMeshDrawCommandPass 传 <code>true</code>，Lumen / 水体传 <code>false</code>。</td>
+</tr>
+<tr>
+  <td><code>r.InstancedStaticMeshes.DynamicInstancing</code><br>（<span class="tag t-fork">GR</span> @yinnhaowang）</td>
+  <td><b>无效</b></td>
+  <td>在 <code>SetupDrawCommands</code> 内被读取（<span class="ref">InstanceCullingContext.cpp:1653</span>），但它参与的判据行被注释。默认值 <code>0</code>（<span class="ref">StaticMeshRender.cpp:245-254</span>）。</td>
+</tr>
+<tr>
+  <td><code>r.MeshDrawCommands.DynamicInstancing</code><br>→ <code>IsDynamicInstancingEnabled()</code></td>
+  <td><b>无效</b></td>
+  <td>它只流向 <code>TaskContext.bDynamicInstancing</code>（<span class="ref">MeshDrawCommands.cpp:1536</span>），最终传给 <code>SubmitMeshDrawCommandsRange</code> 的 <code>bDynamicInstancing</code> 参数 —— 而该参数<b>在函数入口就被强制清零</b>。</td>
+</tr>
+<tr>
+  <td><code>BuildMeshDrawCommandPrimitiveIdBuffer</code><br>的 <code>bDynamicInstancing</code> 参数</td>
+  <td><b>无效</b></td>
+  <td>该函数是 <code>static</code>（文件内），只有 2 个调用点，实参都来自 <span class="ref">MeshDrawCommands.cpp:1397</span> 那句 <code>const bool bDynamicInstancing = false;</code></td>
+</tr>
+</tbody>
+</table>
+<p><b>关键证据 —— 参数在函数入口被清零</b>（<span class="ref">MeshPassProcessor.cpp:2332-2336</span>）：</p>
+<pre><span class="c">// MeshPassProcessor.cpp:2332-2336（逐字符照录）</span>
+	<span class="c">// GPUCULL_TODO: workaround for the fact that DrawDynamicMeshPassPrivate et al. don't work with GPU-Scene instancing</span>
+	<span class="c">//               we don't support dynamic instancing for this path since we require one primitive per draw command</span>
+	<span class="c">//               This is because the stride on the instance data buffer is set to 0 so only the first will ever be fetched.</span>
+	checkSlow(!bDynamicInstancing);
+	bDynamicInstancing = false; <span class="c">//-V763</span></pre>
+<p>清零之后，函数体内对这个参数的唯一使用（<span class="ref">MeshPassProcessor.cpp:2393</span>）永远走 false 分支：</p>
+<pre><span class="c">// MeshPassProcessor.cpp:2393-2394（逐字符照录）</span>
+		LocalSceneArgs.PrimitiveIdOffset = InSceneArgs.PrimitiveIdOffset + (bDynamicInstancing ? VisibleMeshDrawCommand.PrimitiveIdBufferOffset : DrawCommandIndex) * PrimitiveIdBufferStride;
+		checkSlow(!bDynamicInstancing || VisibleMeshDrawCommand.PrimitiveIdBufferOffset &gt;= 0);</pre>
+<p>因此<b>整个 CPU 侧的 dynamic instancing 合并路径在本分叉里是死代码</b> —— 合批全部由 GPUScene 的 InstanceCulling 承担。这与 §9.13「关掉 GPUScene 后每条 draw 绑一个 Primitive UBO」是同一件事的两面。</p>
+
+<h4>合批失败的常见原因（排查清单）</h4>
+
+<p>按上面 6 层逐级排查，哪一条不满足就合不了：</p>
+<table>
+<thead><tr><th style="width:6%">层</th><th style="width:34%">可能的原因</th><th>怎么查</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>两条 MDC 的 <code>ShaderBindings</code> / <code>VertexStreams</code> / <code>NumInstances</code> 等任一不等 → 不同桶</td><td>比对 <code>MatchesForDynamicInstancing</code> 的 10 个字段</td></tr>
+<tr><td>0</td><td><code>PrimitiveIdStreamIndex &lt; 0</code> → <code>StateBucketId == -1</code>，永不合并</td><td>查 VF 是否暴露 PrimitiveId 流</td></tr>
+<tr><td>1</td><td><code>IndexBuffer</code> 不同 → 排序后不相邻</td><td>同状态但不同网格，必然分开</td></tr>
+<tr><td>1</td><td><code>SortKey</code> 不同（如半透明按距离排序）</td><td>半透明物体本质上难合批</td></tr>
+<tr><td>2</td><td>调用点传了 <code>false</code>（Lumen / Water）</td><td>查调用点（<span class="ref">MeshDrawCommands.cpp:1296</span> 等 4 处）</td></tr>
+<tr><td>2</td><td><code>CullingPayloadFlags</code> 不同（如一个开 MinScreenSizeCull、另一个不开）</td><td>自研本想放宽这条，但未生效</td></tr>
+<tr><td>5</td><td>移动端撞 64 / 32 上限 → 被拆成多批</td><td>数 <code>DrawCmd.NumBatches</code> / 看 <code>r.MeshDrawCommands.Stats</code></td></tr>
+</tbody>
+</table>
+<div class="callout note">
+  <div class="h">移动端还有一条额外限制</div>
+  <b>UBV 路径下 ISM draw 不能合并</b>（<span class="ref">InstanceCullingContext.cpp:1649-1650</span>，注释 <i>"UniformBufferView path does not support merging ISM draws atm"</i>）—— 放宽到 32 条 primitive 批以下且非 indirect 才允许。这条在 §8.20 有对照。
 </div>
 
 <!-- ============================================================ -->
@@ -1776,7 +4164,7 @@ FPrimitiveSceneData GetPrimitiveData(uint PrimitiveId)
 </table>
 <div class="callout note">
   <div class="h">注意：移动端两条路径写的是同一个数组</div>
-  <code>LoadPrimitiveDataElementUBO</code> 与 <code>LoadInstanceDataElementUBO</code> <b>都从 <code>BatchedPrimitive.Data</code> 取值</b> <span class="ref">SceneDataMobileLoader.ush:16</span>、<span class="ref">SceneDataMobileLoader.ush:184</span>，只是 stride 不同（32 vs 16 个 float4）。也就是说两者共用同一条 uniform buffer，靠 stride 区分「这 16 KB 里装的是 Primitive 还是 Instance」——对应 §8.7 的两种 <code>EBatchProcessingMode</code>。
+  <code>LoadPrimitiveDataElementUBO</code> 与 <code>LoadInstanceDataElementUBO</code> <b>都从 <code>BatchedPrimitive.Data</code> 取值</b> <span class="ref">SceneDataMobileLoader.ush:16</span>、<span class="ref">SceneDataMobileLoader.ush:184</span>，只是 stride 不同（32 vs 16 个 float4）。也就是说两者共用同一条 uniform buffer，靠 stride 区分「这 16 KB 里装的是 Primitive 还是 Instance」——对应 §8.15 的两种 <code>EBatchProcessingMode</code>。
 </div>
 
 <h3>9.6 图形 API 维度对照：DX12 / GLES / Vulkan / Metal</h3>
@@ -2505,7 +4893,7 @@ FSceneDataIntermediates GetSceneDataIntermediates()
 <tbody>
 <tr><td><code>r.Mobile.SupportGPUScene</code></td><td><code>1</code></td><td>移动端 GPUScene 总开关（<b>ReadOnly，只能走 ini</b>）</td><td><span class="ref">BaseEngine.ini:3798</span></td></tr>
 <tr><td><code>r.MeshDrawCommands.DynamicInstancing</code></td><td><code>1</code></td><td>动态实例化合批</td><td><span class="ref">SceneRendering.cpp:301</span></td></tr>
-<tr><td><code>r.InstancedStaticMeshes.DynamicInstancing</code></td><td>—</td><td><span class="tag t-fork">GR</span> 在 <code>SetupDrawCommands</code> 中读取，但判据行被注释 → <b>当前不生效</b></td><td><span class="ref">InstanceCullingContext.cpp:1653</span>、<span class="ref">InstanceCullingContext.cpp:1659</span></td></tr>
+<tr><td><code>r.InstancedStaticMeshes.DynamicInstancing</code></td><td><code>0</code><br><span class="ref">StaticMeshRender.cpp:245-254</span></td><td><span class="tag t-fork">GR</span> 在 <code>SetupDrawCommands</code> 中读取，但判据行被注释 → <b>当前不生效</b></td><td><span class="ref">InstanceCullingContext.cpp:1653</span>、<span class="ref">InstanceCullingContext.cpp:1659</span></td></tr>
 <tr><td><code>r.HZBOcclusion</code> / <code>r.HZB.IndirectDraw</code></td><td><code>1</code> / —</td><td><span class="tag t-fork">GR</span> 二者同时开时强制 Generic 剔除</td><td><span class="ref">BaseEngine.ini:3794</span>、<span class="ref">InstanceCullingContext.cpp:1583-1584</span></td></tr>
 </tbody>
 </table>
