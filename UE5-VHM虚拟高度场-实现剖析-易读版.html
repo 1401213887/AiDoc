@@ -1,0 +1,1839 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VHM 虚拟高度场实现剖析 · 易读版</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --ink:#1a1d21; --ink2:#4a5158; --ink3:#7a828a;
+    --line:#e2e6ea; --accent:#2f6feb; --accent-soft:#eaf1fe;
+    --pc:#2f6feb; --mobile:#d9741a; --fork:#8e44ad;
+    --ok:#1f9254; --warn:#c0392b; --note:#8a6d1f;
+    --code-bg:#f2f4f7;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.75; font-size:15px;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:40px 28px 100px}
+  header.top{
+    background:linear-gradient(135deg,#1f3a63 0%,#2f6feb 100%);
+    color:#fff; border-radius:14px; padding:34px 36px; margin-bottom:28px;
+  }
+  header.top h1{margin:0 0 10px; font-size:27px; letter-spacing:.3px}
+  header.top p{margin:0; opacity:.9; font-size:14px}
+  header.top .meta{margin-top:16px; font-size:12.5px; opacity:.82; border-top:1px solid rgba(255,255,255,.22); padding-top:12px}
+  header.top code{background:rgba(255,255,255,.18); color:#fff; padding:1.5px 6px}
+  h2{font-size:21px; margin:44px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--line)}
+  h2 .num{color:var(--accent); font-weight:700; margin-right:8px}
+  h3{font-size:17px; margin:28px 0 10px; color:var(--ink)}
+  h4{font-size:15px; margin:20px 0 8px; color:var(--ink2)}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0; padding-left:24px}
+  li{margin:5px 0}
+  code{
+    background:var(--code-bg); padding:1.5px 5px; border-radius:4px;
+    font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace; font-size:12.8px;
+  }
+  pre{
+    background:#1e232b; color:#dfe6ee; padding:14px 16px; border-radius:8px;
+    overflow-x:auto; font-size:12.5px; line-height:1.6;
+    font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  }
+  pre .c{color:#7f8c9b}
+  pre .k{color:#7cc4ff}
+  pre .s{color:#c3e88d}
+  .ref{
+    font-family:"Cascadia Mono",Consolas,monospace; font-size:11.5px;
+    color:var(--ink3); background:#eef1f4; border-radius:3px; padding:0 4px;
+    white-space:nowrap;
+  }
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 22px; margin:16px 0}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:13.4px; background:var(--panel)}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top}
+  th{background:#eef2f7; font-weight:600; font-size:13px}
+  tbody tr:nth-child(even){background:#fafbfc}
+  .tag{display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; font-weight:600; white-space:nowrap}
+  .t-pc{background:#e8f0fe; color:var(--pc)}
+  .t-mob{background:#fdf0e4; color:var(--mobile)}
+  .t-fork{background:#f5ebfa; color:var(--fork)}
+  .t-ok{background:#e6f6ec; color:var(--ok)}
+  .t-bad{background:#fdeaea; color:var(--warn)}
+  .callout{border-left:4px solid var(--accent); background:var(--accent-soft); padding:12px 16px; border-radius:0 8px 8px 0; margin:14px 0}
+  .callout.warn{border-color:var(--warn); background:#fdf0ef}
+  .callout.note{border-color:var(--note); background:#fdf8e8}
+  .callout.ok{border-color:var(--ok); background:#e9f7ef}
+  .callout .h{font-weight:700; margin-bottom:4px; font-size:13.5px}
+  .fig{margin:22px 0; text-align:center}
+  .fig svg{max-width:100%; height:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px}
+  .fig .cap{font-size:12.5px; color:var(--ink3); margin-top:8px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  .toc{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 22px; margin-bottom:26px}
+  .toc ol{margin:6px 0; padding-left:22px; columns:2; column-gap:30px}
+  @media(max-width:700px){.toc ol{columns:1}}
+  .toc a{color:var(--ink2); text-decoration:none}
+  .toc a:hover{color:var(--accent)}
+  .kv{font-size:13px}
+  .kv td:first-child{white-space:nowrap; font-weight:600; width:1%}
+  footer{margin-top:60px; padding-top:20px; border-top:1px solid var(--line); font-size:12.5px; color:var(--ink3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>VHM 虚拟高度场（Virtual Heightfield Mesh）实现剖析</h1>
+  <p>易读版 · 先讲透 V3，再单独讲 V1，最后对比</p>
+  <div class="meta">
+    代码基线：<code>D:\GR_DevTest\UE5EA\Engine\Plugins\Experimental\VirtualHeightfieldMesh</code>
+    （UE 5.5.4 分叉，CL 1128341）<br>
+    所有结论均标注 <span style="background:rgba(255,255,255,.18);padding:0 4px;border-radius:3px">完整文件名:行号</span>；
+    凡本仓库未找到的写法一律标「未找到」，不做推测。<br>
+    行号基线 = <b>本工作区当前版本</b>（<code>VirtualHeightfieldMeshSceneProxy.cpp</code> 为 3053 行，
+    含一处本地未提交的 <code>// [ZXB]</code> 改动；depot 版为 3052 行，差 1 行，详见 §11.3）。
+  </div>
+</header>
+
+<div class="toc">
+  <strong>目录</strong>
+  <ol>
+    <li><a href="#s1">先看全景</a></li>
+    <li><a href="#s2">输入：地形数据长什么样</a></li>
+    <li><a href="#s3">数据结构：每个 buffer 长什么样</a></li>
+    <li><a href="#s4">V3 主线：五个阶段</a></li>
+    <li><a href="#s5">串起来看：一个 quad 的一生</a></li>
+    <li><a href="#s6">CPU 侧：谁在什么时候调度</a></li>
+    <li><a href="#s7">关键数学</a></li>
+    <li><a href="#s8">V1（Epic 原版）单独讲</a></li>
+    <li><a href="#s9">V1 与 V3 对比</a></li>
+    <li><a href="#s10">本仓库（GR 分叉）的自研改动</a></li>
+    <li><a href="#s11">已做的优化总结</a></li>
+    <li><a href="#s12">已知问题与待确认</a></li>
+    <li><a href="#s13">CVar 速查</a></li>
+    <li><a href="#s14">网络资料勘误</a></li>
+    <li><a href="#s15">一页总结</a></li>
+    <li><a href="#s16">参考</a></li>
+  </ol>
+</div>
+
+<div class="callout"><p style='margin:0 0 6px'><strong>这份文档怎么读</strong></p><ol style='margin:0'><li>先把「一帧全景」看懂（§1），知道有哪几个阶段、数据怎么流。</li><li>再按顺序看 V3 的五个阶段（§4），每个阶段都画了流程图 + 数据流向。</li><li><strong>V1（Epic 原版）单独放在 §8，读完 V3 再看</strong>；两者的对比在 §9。混在一起讲会互相干扰。</li><li>每条结论都标了 <code>完整文件名:行号</code>，可以回源码逐条核对。</li></ol></div>
+
+<p><strong>代码位置</strong>：<code>D:\GR_DevTest\UE5EA\Engine\Plugins\Experimental\VirtualHeightfieldMesh\</code></p>
+
+<h2 id="s1"><span class="num">一</span>先看全景</h2>
+
+<h3>1.1 三句话</h3>
+
+<ol><li><strong>它不是「一块地形网格」，而是一个「页表遍历器」。</strong> 每帧在 GPU 上遍历虚拟纹理的页表，把「已驻留显存 + 视野需要」的那些页逐个变成一个 <strong>quad 实例</strong>，最后一次 <code>DrawIndexedInstancedIndirect</code> 画出来。CPU 全程不知道要画多少个。</li><li><strong>LOD 不是「挑层级」，而是「边遍历边细分」。</strong> 从 64 个粗 quad 起步，每个 quad 若离相机够近就分裂成 4 个，直到层降到 0。</li><li><strong>几何由 <code>SV_VertexID</code> 当场算出来，没有顶点缓冲。</strong> 每个实例只有 16 字节（位置 + 层级 + 物理页地址），顶点位置靠 VS 查页表、采高度图位移得到。</li></ol>
+
+<h3>1.2 一帧全景</h3>
+
+<div class="fig">
+<svg viewBox="0 0 1120 720" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="720" fill="#ffffff"/>
+  <rect x="14" y="14" width="234" height="690" rx="10" fill="#f4f7fc" stroke="#c9d8ee"/>
+  <text x="131" y="42" font-size="14" fill="#1f3a63" text-anchor="middle" font-weight="700">输入</text>
+  <rect x="262" y="14" width="448" height="690" rx="10" fill="#f4fbf6" stroke="#bfe3cc"/>
+  <text x="486" y="42" font-size="14" fill="#1f6b41" text-anchor="middle" font-weight="700">每帧 GPU 计算链</text>
+  <rect x="724" y="14" width="382" height="690" rx="10" fill="#f7f8fa" stroke="#e2e6ea"/>
+  <text x="915" y="42" font-size="14" fill="#4a5158" text-anchor="middle" font-weight="700">产出 / 消费</text>
+  <rect x="28" y="56" width="206" height="54" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="131" y="70.5" font-size="12.5" fill="#1a1d21" text-anchor="middle">HeightTexture</text>
+  <text x="131" y="87.5" font-size="10.5" fill="#7a828a" text-anchor="middle">RVT 物理页 · float</text>
+  <text x="131" y="104.5" font-size="10.5" fill="#7a828a" text-anchor="middle">每帧由 VT 系统流送</text>
+  <rect x="28" y="126" width="206" height="54" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="131" y="140.5" font-size="12.5" fill="#1a1d21" text-anchor="middle">PageTableTexture</text>
+  <text x="131" y="157.5" font-size="10.5" fill="#7a828a" text-anchor="middle">页表 · uint</text>
+  <text x="131" y="174.5" font-size="10.5" fill="#7a828a" text-anchor="middle">虚拟 UV → 物理页地址</text>
+  <rect x="28" y="196" width="206" height="54" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="131" y="219" font-size="12.5" fill="#1a1d21" text-anchor="middle">HeightMinMaxTexture</text>
+  <text x="131" y="236" font-size="10.5" fill="#7a828a" text-anchor="middle">离线烘焙 · 每格 min/max</text>
+  <rect x="28" y="266" width="206" height="54" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="131" y="289" font-size="12.5" fill="#1a1d21" text-anchor="middle">MaskTexture</text>
+  <text x="131" y="306" font-size="10.5" fill="#7a828a" text-anchor="middle">离线烘焙 · 0 / 0.5 / 1</text>
+  <text x="131" y="344" font-size="9.5" fill="#7a828a" text-anchor="middle">（由 VT 流送 + Editor 烘焙提供）</text>
+  <rect x="278" y="56" width="416" height="70" rx="7" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="486" y="86" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">① InitAllBuffersCS</text>
+  <text x="486" y="105" font-size="10.5" fill="#7a828a" text-anchor="middle">清零所有工作缓冲</text>
+  <rect x="278" y="150" width="416" height="70" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="486" y="180" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">② FillLevel4QuadCS</text>
+  <text x="486" y="199" font-size="10.5" fill="#7a828a" text-anchor="middle">播种 64 个 MaxLevel-3 根节点</text>
+  <rect x="278" y="244" width="416" height="70" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="486" y="274" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">③ CollectSubdivideQuadsCS</text>
+  <text x="486" y="293" font-size="10.5" fill="#7a828a" text-anchor="middle">循环 (MaxLevel-3+1) 轮：每轮读 4 张纹理，细分 或 收叶子</text>
+  <rect x="278" y="366" width="416" height="70" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="486" y="396" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">④ CullQuadsAndGenerateInstancesCS</text>
+  <text x="486" y="415" font-size="10.5" fill="#7a828a" text-anchor="middle">剔除 + 生成实例，分主 / 洞两路</text>
+  <rect x="278" y="488" width="416" height="70" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="486" y="518" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">⑤ DrawIndexedInstancedIndirect ×2</text>
+  <text x="486" y="537" font-size="10.5" fill="#7a828a" text-anchor="middle">主材质 + 洞材质各一次</text>
+  <line x1="486" y1="126" x2="486" y2="150" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="486" y1="220" x2="486" y2="244" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="486" y1="314" x2="486" y2="338" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="486" y1="436" x2="486" y2="460" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="694" y1="279" x2="720" y2="279" stroke="#2f6feb" stroke-width="1.4"/>
+  <polyline points="720,279 720,210 692,210" fill="none" stroke="#2f6feb" stroke-width="1.4" marker-end="url(#arb)"/>
+  <text x="724" y="250" font-size="9.5" fill="#2f6feb" text-anchor="middle">下一轮</text>
+  <polyline points="234,83 260,83 260,279 276,279" fill="none" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <polyline points="234,153 260,153 260,279 276,279" fill="none" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <polyline points="234,223 260,223 260,279 276,279" fill="none" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <polyline points="234,293 260,293 260,279 276,279" fill="none" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="740" y="69.5" width="350" height="43" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="915" y="95.5" font-size="10.5" fill="#7a828a" text-anchor="middle">WorkerQueueInfo / Args 全部归零</text>
+  <line x1="694" y1="91" x2="734" y2="91" stroke="#5a6672" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="740" y="155" width="350" height="60" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="915" y="181" font-size="10.5" fill="#7a828a" text-anchor="middle">SubdivideQuadBuffer ← 64 个 QuadItem2</text>
+  <text x="915" y="198" font-size="10.5" fill="#7a828a" text-anchor="middle">SubdivideArgs = {2, 1, 1, 64}</text>
+  <line x1="694" y1="185" x2="734" y2="185" stroke="#5a6672" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="740" y="240.5" width="350" height="77" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="915" y="266.5" font-size="10.5" fill="#7a828a" text-anchor="middle">SubdivideQuadBuffer（双缓冲交替）</text>
+  <text x="915" y="283.5" font-size="10.5" fill="#7a828a" text-anchor="middle">FinalQuadBuffer ← 叶子节点</text>
+  <text x="915" y="300.5" font-size="10.5" fill="#7a828a" text-anchor="middle">VTFeedbackBuffer ← VT 页请求</text>
+  <line x1="694" y1="279" x2="734" y2="279" stroke="#5a6672" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="740" y="362.5" width="350" height="77" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="915" y="388.5" font-size="10.5" fill="#7a828a" text-anchor="middle">InstanceBuffer ← 不透明实例</text>
+  <text x="915" y="405.5" font-size="10.5" fill="#7a828a" text-anchor="middle">HoleInstanceBuffer ← 洞实例</text>
+  <text x="915" y="422.5" font-size="10.5" fill="#7a828a" text-anchor="middle">IndirectArgsBuffer[0..9]</text>
+  <line x1="694" y1="401" x2="734" y2="401" stroke="#5a6672" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="740" y="484.5" width="350" height="77" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="915" y="510.5" font-size="10.5" fill="#7a828a" text-anchor="middle">主材质批次：args[0..4]</text>
+  <text x="915" y="527.5" font-size="10.5" fill="#7a828a" text-anchor="middle">洞材质批次：args[5..9]</text>
+  <text x="915" y="544.5" font-size="10.5" fill="#7a828a" text-anchor="middle">→ 屏幕</text>
+  <line x1="694" y1="523" x2="734" y2="523" stroke="#5a6672" stroke-width="1.2" marker-end="url(#ar)"/>
+  <text x="560" y="700" font-size="11" fill="#8e44ad" text-anchor="middle" font-weight="700">CPU 全程不知道要画几个实例 —— 实例数由 ④ 用原子加写进 IndirectArgsBuffer</text>
+</svg>
+<div class="cap">图 1　一帧全景：4 张输入纹理 → 5 个阶段 → 2 次 Indirect Draw（箭头即数据流向）</div>
+</div>
+
+<p>这张图是全文的目录：<strong>左边 4 张纹理是输入，中间 5 个阶段是 VHM 的全部工作，右边是每步产出。箭头就是数据流向。</strong></p>
+
+<h3>1.3 先确认一件事：本仓库跑的是哪个版本</h3>
+
+<p>本仓库实际执行的是 <strong>V3 流水线</strong>（<code>r.VHM.Version</code> 默认 = 3，<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:117-122</span>），代码在 <span class="ref">VirtualHeightfieldMesh3.usf</span>。</p>
+
+<p>Epic 官方原版是 <strong>V1</strong>（<span class="ref">VirtualHeightfieldMesh.usf</span>），本仓库保留但默认不走。</p>
+
+<div class="callout"><p style='margin:0'><strong>所以：§2 到 §7 只讲 V3，完全不提 V1。</strong> 想了解 V1 请直接跳到 §8，两者的对比在 §9。先把一条线走通，比两条线对照着看要轻松得多。</p></div>
+
+<h2 id="s2"><span class="num">二</span>输入：地形数据长什么样</h2>
+
+<h3>2.1 高度存在哪 —— 虚拟纹理（RVT）</h3>
+
+<p>地形高度不是一张大图，而是被切成一个个 <strong>页（page）</strong>，按需流送到显存。要取某个位置的高度，得先查一张 <strong>页表</strong> 才知道该去哪一页取。</p>
+
+<div class="fig">
+<svg viewBox="0 0 1120 400" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="400" fill="#ffffff"/>
+  <text x="24" y="34" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">地形 UV（0~1 覆盖整块地形）</text>
+  <rect x="24" y="48" width="200" height="200" rx="6" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <line x1="74" y1="48" x2="74" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="24" y1="98" x2="224" y2="98" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="124" y1="48" x2="124" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="24" y1="148" x2="224" y2="148" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="174" y1="48" x2="174" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="24" y1="198" x2="224" y2="198" stroke="#e2e6ea" stroke-width="0.8"/>
+  <rect x="124" y="98" width="50" height="50" rx="0" fill="#eaf1fe" stroke="#2f6feb" stroke-width="1"/>
+  <text x="149" y="128" font-size="11" fill="#2f6feb" text-anchor="middle" font-weight="700">UV</text>
+  <line x1="232" y1="148" x2="268" y2="148" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="250" y="140" font-size="9.5" fill="#5a6672" text-anchor="middle">① 按 LOD 选层级</text>
+  <text x="276" y="34" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">页表纹素（uint32）</text>
+  <text x="383.143" y="48" font-size="9.5" fill="#7a828a" text-anchor="middle">8..27</text>
+  <text x="511.714" y="48" font-size="9.5" fill="#7a828a" text-anchor="middle">4..7</text>
+  <text x="554.571" y="48" font-size="9.5" fill="#7a828a" text-anchor="middle">0..3</text>
+  <rect x="276" y="54" width="214.286" height="44" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="383.143" y="80" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">PageY</text>
+  <text x="383.143" y="111" font-size="9.5" fill="#7a828a" text-anchor="middle">高位：页 Y</text>
+  <rect x="490.286" y="54" width="42.8571" height="44" rx="0" fill="#f7faff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="511.714" y="80" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">PageX</text>
+  <text x="511.714" y="111" font-size="9.5" fill="#7a828a" text-anchor="middle">页 X</text>
+  <rect x="533.143" y="54" width="42.8571" height="44" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="554.571" y="80" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Lv</text>
+  <text x="276" y="152" font-size="9.5" fill="#7a828a" text-anchor="start">（NumAddressBits=6 或 8 时 PageX 占 6/8 位）</text>
+  <text x="276" y="178" font-size="11" fill="#1a1d21" text-anchor="start">PhysicalAddress = PageTableTexture.Load(...)</text>
+  <line x1="586" y1="148" x2="622" y2="148" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="604" y="140" font-size="9.5" fill="#5a6672" text-anchor="middle">② 解出物理页</text>
+  <text x="636" y="34" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">物理页纹理（HeightTexture）</text>
+  <rect x="636" y="48" width="300" height="200" rx="6" fill="#ffffff" stroke="#8fc9a8" stroke-width="1"/>
+  <line x1="711" y1="48" x2="711" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="636" y1="98" x2="936" y2="98" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="786" y1="48" x2="786" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="636" y1="148" x2="936" y2="148" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="861" y1="48" x2="861" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="636" y1="198" x2="936" y2="198" stroke="#e2e6ea" stroke-width="0.8"/>
+  <rect x="711" y="148" width="75" height="50" rx="0" fill="#e9f7ef" stroke="#1f9254" stroke-width="1"/>
+  <text x="748" y="178" font-size="11" fill="#1f9254" text-anchor="middle" font-weight="700">该页</text>
+  <text x="636" y="268" font-size="9.5" fill="#7a828a" text-anchor="start">VirtualToPhysicalUV()：把虚拟 UV 换算成该页内的纹理坐标</text>
+  <line x1="944" y1="148" x2="980" y2="148" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="986" y="112" width="118" height="72" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="1045" y="135.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">Height</text>
+  <text x="1045" y="152.5" font-size="10.5" fill="#7a828a" text-anchor="middle">SampleLevel</text>
+  <text x="1045" y="169.5" font-size="10.5" fill="#7a828a" text-anchor="middle">(PointSampler)</text>
+  <text x="24" y="300" font-size="11.5" fill="#8e44ad" text-anchor="start" font-weight="700">关键：地形有多细，由「页表里有哪些页」决定 —— 没加载的页，连几何都不会生成。</text>
+  <text x="24" y="326" font-size="10.5" fill="#7a828a" text-anchor="start">页表由 RVT 系统流送；VHM 只做「读页表」，不参与页的淘汰/加载。</text>
+  <rect x="24" y="344" width="1080" height="40" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="564" y="368.5" font-size="10.5" fill="#7a828a" text-anchor="middle">一个 quad 的 PhysicalAddress 会在 CS 里逐级继承/下传，最终由 VS 用它去定位高度采样位置</text>
+</svg>
+<div class="cap">图 2　虚拟纹理寻址：四叉树节点怎样变成一个高度采样点</div>
+</div>
+
+<p><strong>这里有个关键的推论</strong>：既然几何是「照着页表生成」的，那么 <strong>没被加载的页，连几何都不会存在</strong>。地形的精细程度本质上由「VT 流送了哪些页」决定，而不是由某个 LOD 参数直接决定。</p>
+
+<p>页表由 RVT 系统负责流送和淘汰；VHM 只做两件事：<strong>读页表</strong>、<strong>写反馈</strong>（告诉 VT 系统「这段地形我需要第几级页」）。</p>
+
+<h3>2.2 MinMax 金字塔 —— 为什么需要它</h3>
+
+<p>剔除时要知道「这个 quad 的高度范围是多少」。如果每次都去采整块高度图，代价太大。</p>
+
+<p>于是离线烘焙一张 <strong>MinMax 纹理</strong>：每个格子只存两个数 —— 这块地的<strong>最低点</strong>和<strong>最高点</strong>。</p>
+
+<div class="fig">
+<svg viewBox="0 0 1120 330" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/>
+    </marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/>
+    </marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/>
+    </marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/>
+    </marker>
+  </defs>
+
+  <text x="16" y="30" font-size="13" font-weight="700" fill="#1f3a63">离线烘焙（Editor only · WITH_EDITOR · MinMaxHeightCS numthreads(8,8,1)）</text>
+  <line x1="12" y1="42" x2="1108" y2="42" stroke="#c9d8ee" stroke-width="1"/>
+
+  <rect x="12" y="60" width="170" height="86" rx="8" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="97" y="86" font-size="12" fill="#1a1d21" text-anchor="middle">RVT WorldHeight</text>
+  <text x="97" y="104" font-size="10.5" fill="#7a828a" text-anchor="middle">逐 tile 渲染</text>
+  <text x="97" y="122" font-size="10.5" fill="#7a828a" text-anchor="middle">RenderPagesStandAlone</text>
+
+  <line x1="182" y1="103" x2="204" y2="103" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="206" y="60" width="170" height="86" rx="8" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="291" y="86" font-size="12" fill="#1a1d21" text-anchor="middle">PF_G16 (R16)</text>
+  <text x="291" y="104" font-size="10.5" fill="#7a828a" text-anchor="middle">TileSize × TileSize</text>
+  <text x="291" y="122" font-size="10.5" fill="#7a828a" text-anchor="middle">临时目标</text>
+
+  <line x1="376" y1="103" x2="400" y2="103" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="402" y="54" width="186" height="98" rx="8" fill="#eaf1fe" stroke="#9db8dd"/>
+  <text x="495" y="78" font-size="11" fill="#1a1d21" text-anchor="middle">DownsampleMinMaxAndCopy</text>
+  <text x="495" y="98" font-size="10.5" fill="#4a5158" text-anchor="middle">R16 → RG16（第一层）</text>
+  <text x="495" y="116" font-size="10.5" fill="#4a5158" text-anchor="middle">RG16 → RG16（逐 mip 归并）</text>
+  <text x="495" y="134" font-size="10.5" fill="#4a5158" text-anchor="middle">Min 归并时排除 0 值</text>
+
+  <line x1="588" y1="103" x2="612" y2="103" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="614" y="54" width="186" height="98" rx="8" fill="#eaf1fe" stroke="#9db8dd"/>
+  <text x="707" y="78" font-size="11" fill="#1a1d21" text-anchor="middle">RG16 → RGBA8 packed</text>
+  <text x="707" y="98" font-size="10.5" fill="#4a5158" text-anchor="middle">每个 tile 塌缩成 1 texel</text>
+  <text x="707" y="116" font-size="10.5" fill="#4a5158" text-anchor="middle">.x=Max&gt;&gt;8 .y=Min&amp;0xff</text>
+  <text x="707" y="134" font-size="10.5" fill="#4a5158" text-anchor="middle">.z=Min&gt;&gt;8 .w=Max&amp;0xff</text>
+
+  <line x1="800" y1="103" x2="824" y2="103" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="826" y="54" width="282" height="98" rx="8" fill="#e9f7ef" stroke="#8fc9a8"/>
+  <text x="967" y="78" font-size="11.5" fill="#1a1d21" text-anchor="middle">GenerateMinMaxTextureMips</text>
+  <text x="967" y="98" font-size="10.5" fill="#5f7a68" text-anchor="middle">RGBA8 → RGBA8 全局 mip 链</text>
+  <text x="967" y="116" font-size="10.5" fill="#5f7a68" text-anchor="middle">NumMips = CeilLogTwo(Max(TilesX,TilesY)) + 1</text>
+  <text x="967" y="134" font-size="10.5" fill="#5f7a68" text-anchor="middle">mip0 的 1 texel = 1 个 RVT tile 的高度范围</text>
+
+  <rect x="224" y="196" width="620" height="60" rx="8" fill="#ffffff" stroke="#9db8dd"/>
+  <text x="534" y="220" font-size="12" fill="#1a1d21" text-anchor="middle">UHeightfieldMinMaxTexture</text>
+  <text x="534" y="240" font-size="10" fill="#7a828a" text-anchor="middle">Texture（BGRA8 全 mip · TF_Nearest · NeverStream）+ LodBiasTexture（G8）+ LodBiasMinMaxTexture（BGRA8）</text>
+
+  <line x1="967" y1="152" x2="967" y2="226" stroke="#5f7a68" stroke-width="1.5"/>
+  <line x1="967" y1="226" x2="848" y2="226" stroke="#5f7a68" stroke-width="1.5" marker-end="url(#arg)"/>
+
+  <rect x="224" y="286" width="620" height="34" rx="8" fill="#fdf0ef" stroke="#c0392b" stroke-dasharray="5 4"/>
+  <text x="534" y="308" font-size="11" fill="#c0392b" text-anchor="middle">消费端 UnPackMinMaxHeight（VirtualHeightfieldMesh.ush:173-179）与 PackMinMax 互不可逆 → 见 §10.1</text>
+
+  <line x1="534" y1="256" x2="534" y2="284" stroke="#c0392b" stroke-width="1.4" marker-end="url(#ar)"/>
+</svg>
+<div class="cap">图 3　MinMax 金字塔离线烘焙链路</div>
+</div>
+
+<p>有了 <code>[min, max]</code>，一个 quad 就是一个立体的 AABB，做视锥剔除只需要 O(1) 的判断，<strong>不用采一次高度图</strong>。</p>
+
+<div class="callout warn"><div class="h">注意</div><p style='margin:0'>这张纹理的打包方式在本仓库里有个<strong>可复现的不一致</strong>，详见 §12.1。</p></div>
+
+<h3>2.3 Mask 纹理 —— 本仓库自研的「挖洞」</h3>
+
+<p>Mask 只有三种值（<span class="ref">HeightfieldMaskRender.usf:52-81</span>）：</p>
+
+<table><thead><tr>
+<th>值</th>
+<th>含义</th>
+<th>后续处理</th>
+</tr></thead><tbody>
+<tr><td><code>1.0</code></td><td>不透明地面</td><td>走<strong>主材质</strong>那一路</td></tr>
+<tr><td><code>0.5</code></td><td>边界（混合区）</td><td>走<strong>洞材质</strong>那一路</td></tr>
+<tr><td><code>0.0</code></td><td>完全遮蔽</td><td><strong>直接剔除，不生成几何</strong></td></tr>
+</tbody></table>
+
+<p>这套机制是 Epic 原版没有的，用来在地形上挖洞（洞穴、隧道、建筑开口）。它的代价见 §4.4 —— 多了一次 draw。</p>
+
+<h2 id="s3"><span class="num">三</span>数据结构：每个 buffer 长什么样</h2>
+
+<div class="callout"><p style='margin:0'>提示：这一节可以先跳过，等看到 §4 某个阶段用到时再回来查。</p></div>
+
+<h3>3.1 四叉树节点 <code>QuadItem2</code>（16 字节）</h3>
+
+<p>这是<strong>遍历过程中的中间态</strong>，在 <code>SubdivideQuadBuffer</code> 里排队。</p>
+
+<div class="fig">
+<svg viewBox="0 0 1120 340" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="340" fill="#ffffff"/>
+  <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">QuadItem2 —— 四叉树里一个节点占 16 字节（uint4），在 SubdivideQuadBuffer 里排队</text>
+  <text x="24" y="64" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">uint32 #0  —— 位置 + 层级</text>
+  <text x="59" y="72" font-size="9.5" fill="#7a828a" text-anchor="middle">28..31</text>
+  <text x="339" y="72" font-size="9.5" fill="#7a828a" text-anchor="middle">0..27</text>
+  <rect x="24" y="78" width="70" height="46" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="59" y="105" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Level</text>
+  <rect x="94" y="78" width="490" height="46" rx="0" fill="#f7faff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="339" y="105" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">MortonEncode(Pos)</text>
+  <text x="24" y="160" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">uint32 #1 / #2 / #3  —— PhysicalAddress（三层共用/继承）</text>
+  <rect x="24" y="172" width="186.667" height="46" rx="0" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="117.333" y="186" font-size="10.5" fill="#7a828a" text-anchor="middle">[0]</text>
+  <text x="117.333" y="203" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.x</text>
+  <text x="117.333" y="231" font-size="9.5" fill="#7a828a" text-anchor="middle">VT 物理页地址</text>
+  <rect x="210.667" y="172" width="186.667" height="46" rx="0" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="304" y="186" font-size="10.5" fill="#7a828a" text-anchor="middle">[1]</text>
+  <text x="304" y="203" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.y</text>
+  <rect x="397.333" y="172" width="186.667" height="46" rx="0" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="490.667" y="186" font-size="10.5" fill="#7a828a" text-anchor="middle">[2]</text>
+  <text x="490.667" y="203" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.z</text>
+  <text x="620" y="76" font-size="11" fill="#1a1d21" text-anchor="start">创建：PackQuadItem2()</text>
+  <text x="620" y="96" font-size="10" fill="#7a828a" text-anchor="start">VirtualHeightfieldMesh3.usf:73-80</text>
+  <text x="620" y="126" font-size="11" fill="#1a1d21" text-anchor="start">解析：UnPackQuadItem2() → MortonDecode</text>
+  <text x="620" y="146" font-size="10" fill="#7a828a" text-anchor="start">VirtualHeightfieldMesh3.usf:59-66</text>
+  <rect x="620" y="172" width="476" height="132" rx="7" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="858" y="208.5" font-size="10.5" fill="#7a828a" text-anchor="middle">为什么用 Morton 码？</text>
+  <text x="858" y="225.5" font-size="10.5" fill="#7a828a" text-anchor="middle">· 把 2D 坐标压进 28 位，省掉显式存 XY</text>
+  <text x="858" y="242.5" font-size="10.5" fill="#7a828a" text-anchor="middle">· 相邻格子编码也相邻 → 改善访问局部性</text>
+  <text x="858" y="259.5" font-size="10.5" fill="#7a828a" text-anchor="middle">· 播种时可以用「线程号」直接当 Morton 码，一行生成 8×8 网格</text>
+  <text x="858" y="276.5" font-size="10.5" fill="#7a828a" text-anchor="middle">  见 §4.2 FillLevel4QuadCS</text>
+</svg>
+<div class="cap">图 4　QuadItem2 位域布局（V3 四叉树节点，16 B）</div>
+</div>
+
+<h3>3.2 最终渲染实例 <code>QuadRenderInstance</code>（16 字节）</h3>
+
+<p>这是<strong>交给光栅化的最终态</strong>，在 <code>InstanceBuffer</code> 里。</p>
+
+<div class="fig">
+<svg viewBox="0 0 1120 330" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="330" fill="#ffffff"/>
+  <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">QuadRenderInstance —— 一个 quad 最终占 16 字节（4 × uint32）</text>
+  <text x="24" y="64" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">uint32 #0  PosLevelPacked</text>
+  <text x="59" y="72" font-size="9.5" fill="#7a828a" text-anchor="middle">28..31</text>
+  <text x="216.5" y="72" font-size="9.5" fill="#7a828a" text-anchor="middle">14..27</text>
+  <text x="461.5" y="72" font-size="9.5" fill="#7a828a" text-anchor="middle">0..13</text>
+  <rect x="24" y="78" width="70" height="46" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="59" y="105" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Level</text>
+  <rect x="94" y="78" width="245" height="46" rx="0" fill="#f7faff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="216.5" y="105" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Pos.y</text>
+  <rect x="339" y="78" width="245" height="46" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="461.5" y="105" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Pos.x</text>
+  <rect x="24" y="148" width="560" height="30" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="304" y="163" font-size="10.5" fill="#7a828a" text-anchor="middle">bit[31:28] Level   ·   bit[27:14] Pos.y   ·   bit[13:0] Pos.x</text>
+  <text x="24" y="196" font-size="11.5" fill="#1a1d21" text-anchor="start" font-weight="700">uint32 #1 / #2 / #3  —— PhysicalAddress.x / .y / .z</text>
+  <rect x="24" y="214" width="186.667" height="46" rx="0" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="117.333" y="228" font-size="10.5" fill="#7a828a" text-anchor="middle">[0]</text>
+  <text x="117.333" y="245" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.x</text>
+  <text x="117.333" y="273" font-size="9.5" fill="#7a828a" text-anchor="middle">对齐 QuadItem2 的 .yzw</text>
+  <rect x="210.667" y="214" width="186.667" height="46" rx="0" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="304" y="228" font-size="10.5" fill="#7a828a" text-anchor="middle">[1]</text>
+  <text x="304" y="245" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.y</text>
+  <rect x="397.333" y="214" width="186.667" height="46" rx="0" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="490.667" y="228" font-size="10.5" fill="#7a828a" text-anchor="middle">[2]</text>
+  <text x="490.667" y="245" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.z</text>
+  <text x="620" y="76" font-size="11" fill="#1a1d21" text-anchor="start">谁写：④ CullQuadsAndGenerateInstancesCS</text>
+  <text x="620" y="98" font-size="10" fill="#7a828a" text-anchor="start">VirtualHeightfieldMesh3.usf:556</text>
+  <text x="620" y="130" font-size="11" fill="#1a1d21" text-anchor="start">谁读：VS —— GetQuadRenderInstance()</text>
+  <text x="620" y="152" font-size="10" fill="#7a828a" text-anchor="start">VirtualHeightfieldMeshVertexFactory.ush:22-27</text>
+  <text x="620" y="184" font-size="11" fill="#1a1d21" text-anchor="start">绑定形态：StructuredBuffer&lt;float4&gt;</text>
+  <text x="620" y="206" font-size="10" fill="#7a828a" text-anchor="start">stride 必须是 16 B —— 与 C++ 的 sizeof 对齐</text>
+  <rect x="620" y="230" width="476" height="74" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="858" y="254.5" font-size="10.5" fill="#7a828a" text-anchor="middle">Pos 用 14 位而不是中间态的 12 位：</text>
+  <text x="858" y="271.5" font-size="10.5" fill="#7a828a" text-anchor="middle">中间态 QuadItem2 要跨 LOD 携带 Level 做比较，用 4 位就够（最大 15）；</text>
+  <text x="858" y="288.5" font-size="10.5" fill="#7a828a" text-anchor="middle">而 Pos 需要更多位来容纳更细的层。</text>
+</svg>
+<div class="cap">图 5　QuadRenderInstance 位域布局（最终渲染实例，16 B）</div>
+</div>
+
+<div class="callout"><p style='margin:0'><strong>别把这两个搞混</strong>：它们都是 16 字节，但位域划分完全不同。 <code>QuadItem2</code> 要跨层级携带 Morton 位置（28 位），所以 <code>Level</code> 只有 4 位； <code>QuadRenderInstance</code> 的 <code>Level</code> 只用于 VS 里算 Morph，4 位够用，多出来的位给了 <code>Pos</code>。</p></div>
+
+<h3>3.3 <code>IndirectArgsBuffer</code>（40 字节）—— 两批 draw 的参数</h3>
+
+<div class="fig">
+<svg viewBox="0 0 1120 480" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="480" fill="#ffffff"/>
+  <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">IndirectArgsBuffer —— 40 字节（10 × uint32），一段给主材质，一段给洞材质</text>
+  <text x="24" y="68" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">主材质批次（BatchElement.IndirectArgsOffset = 0）</text>
+  <rect x="24" y="80" width="212" height="52" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="130" y="94" font-size="10.5" fill="#7a828a" text-anchor="middle">[0]</text>
+  <text x="130" y="114" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">IndexCount</text>
+  <text x="130" y="145" font-size="9.5" fill="#7a828a" text-anchor="middle">= NumIndices</text>
+  <rect x="236" y="80" width="212" height="52" rx="0" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="342" y="94" font-size="10.5" fill="#7a828a" text-anchor="middle">[1]</text>
+  <text x="342" y="114" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">InstanceCount</text>
+  <text x="342" y="145" font-size="9.5" fill="#7a828a" text-anchor="middle">← CS 原子加</text>
+  <rect x="448" y="80" width="212" height="52" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="554" y="94" font-size="10.5" fill="#7a828a" text-anchor="middle">[2]</text>
+  <text x="554" y="114" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">StartIndex</text>
+  <text x="554" y="145" font-size="9.5" fill="#7a828a" text-anchor="middle">= 0</text>
+  <rect x="660" y="80" width="212" height="52" rx="0" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="766" y="94" font-size="10.5" fill="#7a828a" text-anchor="middle">[3]</text>
+  <text x="766" y="114" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">BaseVertex</text>
+  <text x="766" y="145" font-size="9.5" fill="#7a828a" text-anchor="middle">= 0</text>
+  <rect x="872" y="80" width="212" height="52" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="978" y="94" font-size="10.5" fill="#7a828a" text-anchor="middle">[4]</text>
+  <text x="978" y="114" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">StartInstance</text>
+  <text x="978" y="145" font-size="9.5" fill="#7a828a" text-anchor="middle">= 0</text>
+  <text x="24" y="196" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">洞材质批次（BatchElement.IndirectArgsOffset = 5 × 4 B = 20 B）</text>
+  <rect x="24" y="208" width="212" height="52" rx="0" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="130" y="222" font-size="10.5" fill="#7a828a" text-anchor="middle">[0]</text>
+  <text x="130" y="242" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">IndexCount</text>
+  <text x="130" y="273" font-size="9.5" fill="#7a828a" text-anchor="middle">= NumIndices</text>
+  <rect x="236" y="208" width="212" height="52" rx="0" fill="#ffffff" stroke="#e2a15c" stroke-width="1"/>
+  <text x="342" y="222" font-size="10.5" fill="#7a828a" text-anchor="middle">[1]</text>
+  <text x="342" y="242" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">InstanceCount</text>
+  <text x="342" y="273" font-size="9.5" fill="#7a828a" text-anchor="middle">← CS 原子加</text>
+  <rect x="448" y="208" width="212" height="52" rx="0" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="554" y="222" font-size="10.5" fill="#7a828a" text-anchor="middle">[2]</text>
+  <text x="554" y="242" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">StartIndex</text>
+  <text x="554" y="273" font-size="9.5" fill="#7a828a" text-anchor="middle">= 0</text>
+  <rect x="660" y="208" width="212" height="52" rx="0" fill="#ffffff" stroke="#e2a15c" stroke-width="1"/>
+  <text x="766" y="222" font-size="10.5" fill="#7a828a" text-anchor="middle">[3]</text>
+  <text x="766" y="242" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">BaseVertex</text>
+  <text x="766" y="273" font-size="9.5" fill="#7a828a" text-anchor="middle">= 0</text>
+  <rect x="872" y="208" width="212" height="52" rx="0" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="978" y="222" font-size="10.5" fill="#7a828a" text-anchor="middle">[4]</text>
+  <text x="978" y="242" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">StartInstance</text>
+  <text x="978" y="273" font-size="9.5" fill="#7a828a" text-anchor="middle">= 0</text>
+  <text x="24" y="302" font-size="10.5" fill="#7a828a" text-anchor="start">两段的字段含义完全相同，只是被不同的 MeshBatch 消费、走不同材质。</text>
+  <text x="24" y="324" font-size="10.5" fill="#c0392b" text-anchor="start">CPU 读不到这两个数 —— 所以即使洞的实例数是 0，那次 draw 照样发出去。</text>
+  <rect x="24" y="344" width="516" height="112" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="282" y="370.5" font-size="10.5" fill="#7a828a" text-anchor="middle">谁写：</text>
+  <text x="282" y="387.5" font-size="10.5" fill="#7a828a" text-anchor="middle">· ④ CullQuadsAndGenerateInstancesCS 用 InterlockedAdd 加 InstanceCount</text>
+  <text x="282" y="404.5" font-size="10.5" fill="#7a828a" text-anchor="middle">  VirtualHeightfieldMesh3.usf:548-549</text>
+  <text x="282" y="421.5" font-size="10.5" fill="#7a828a" text-anchor="middle">· ② FillLevel4QuadCS 写 IndexCount = NumIndices</text>
+  <text x="282" y="438.5" font-size="10.5" fill="#7a828a" text-anchor="middle">  虚拟高度场网格：NumInstanceVertexSide² × 6 个索引</text>
+  <rect x="568" y="344" width="516" height="112" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="826" y="370.5" font-size="10.5" fill="#7a828a" text-anchor="middle">谁读：</text>
+  <text x="826" y="387.5" font-size="10.5" fill="#7a828a" text-anchor="middle">· 光栅化阶段 IndirectDraw 参数源</text>
+  <text x="826" y="404.5" font-size="10.5" fill="#7a828a" text-anchor="middle">· 两条 FMeshBatch 共用同一个 buffer，只差偏移</text>
+  <text x="826" y="421.5" font-size="10.5" fill="#7a828a" text-anchor="middle">  主：VirtualHeightfieldMeshSceneProxy.cpp:1024</text>
+  <text x="826" y="438.5" font-size="10.5" fill="#7a828a" text-anchor="middle">  洞：VirtualHeightfieldMeshSceneProxy.cpp:1082</text>
+</svg>
+<div class="cap">图 6　IndirectArgsBuffer 布局：两段 5-uint 的 IndirectDraw 参数</div>
+</div>
+
+<h3>3.4 其余缓冲</h3>
+
+<div class="fig">
+<svg viewBox="0 0 1120 580" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="580" fill="#ffffff"/>
+  <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">其余缓冲：队列头布局与全部缓冲一览</text>
+  <text x="24" y="72" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">WorkerQueueInfo —— 12 B（V3 默认路径不用）</text>
+  <rect x="24" y="84" width="173.333" height="54" rx="0" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="110.667" y="98" font-size="10.5" fill="#7a828a" text-anchor="middle">[0]</text>
+  <text x="110.667" y="119" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">Read</text>
+  <text x="110.667" y="151" font-size="9.5" fill="#7a828a" text-anchor="middle">消费游标</text>
+  <rect x="197.333" y="84" width="173.333" height="54" rx="0" fill="#ffffff" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="284" y="98" font-size="10.5" fill="#7a828a" text-anchor="middle">[1]</text>
+  <text x="284" y="119" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">Write</text>
+  <text x="284" y="151" font-size="9.5" fill="#7a828a" text-anchor="middle">生产游标</text>
+  <rect x="370.667" y="84" width="173.333" height="54" rx="0" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="457.333" y="98" font-size="10.5" fill="#7a828a" text-anchor="middle">[2]</text>
+  <text x="457.333" y="119" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">NumActive</text>
+  <text x="457.333" y="151" font-size="9.5" fill="#7a828a" text-anchor="middle">在途任务数</text>
+  <text x="24" y="176" font-size="10" fill="#7a828a" text-anchor="start">VirtualHeightfieldMesh.ush:16-21</text>
+  <text x="24" y="200" font-size="10.5" fill="#1a1d21" text-anchor="start">V3 里这个结构仍然存在，但只在 One-Pass 版本（§4.6）里用；</text>
+  <text x="24" y="218" font-size="10.5" fill="#1a1d21" text-anchor="start">默认的串行版本改用「每轮 dispatch 参数」代替它做同步。</text>
+  <rect x="24" y="244" width="520" height="66" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="284" y="271.5" font-size="10.5" fill="#7a828a" text-anchor="middle">V1 的节点用 12 / 12 / 8 分段（uint2），V3 用 14 / 14 / 4（uint4）。</text>
+  <text x="284" y="291.5" font-size="10.5" fill="#7a828a" text-anchor="middle">两个版本的数据结构不能混读 —— 位宽和容器都变了。</text>
+  <rect x="604" y="60" width="492" height="250" rx="10" fill="#f7f8fa" stroke="#e2e6ea"/>
+  <text x="850" y="82" font-size="14" fill="#4a5158" text-anchor="middle" font-weight="700">缓冲容量由这几个 CVar 决定</text>
+  <text x="620" y="104" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">SubdivideQuadBuffer / FinalQuadBuffer</text>
+  <text x="620" y="120" font-size="9.5" fill="#7a828a" text-anchor="start">r.VHM.MaxRenderInstances</text>
+  <text x="620" y="139" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">InstanceBuffer</text>
+  <text x="620" y="155" font-size="9.5" fill="#7a828a" text-anchor="start">r.VHM.MaxRenderInstances</text>
+  <text x="620" y="174" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">HoleInstanceBuffer</text>
+  <text x="620" y="190" font-size="9.5" fill="#7a828a" text-anchor="start">MaxRenderInstances ÷ 4</text>
+  <text x="620" y="209" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">VTFeedbackBuffer</text>
+  <text x="620" y="225" font-size="9.5" fill="#7a828a" text-anchor="start">r.VHM.MaxFeedbackItems</text>
+  <text x="620" y="244" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">WorkerQueueInfo 环形队列</text>
+  <text x="620" y="260" font-size="9.5" fill="#7a828a" text-anchor="start">r.VHM.MaxPersistentQueueItems</text>
+  <text x="620" y="279" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">IndirectArgsBuffer</text>
+  <text x="620" y="295" font-size="9.5" fill="#7a828a" text-anchor="start">固定 40 B（不随规模变）</text>
+  <rect x="620" y="262" width="460" height="36" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="850" y="284.5" font-size="10" fill="#7a828a" text-anchor="middle">队列容量必须是 2 的幂 —— 代码用 &amp; (Size−1) 取模。</text>
+  <text x="24" y="344" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">全部 GPU 缓冲一览</text>
+  <rect x="24" y="358" width="1050" height="26" rx="0" fill="#eef2f7" stroke="#e2e6ea" stroke-width="1"/>
+  <text x="34" y="376" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">缓冲</text>
+  <text x="334" y="376" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">元素 / 大小</text>
+  <text x="634" y="376" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">谁写</text>
+  <text x="784" y="376" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">谁读</text>
+  <rect x="24" y="384" width="1050" height="24" rx="0" fill="#fafbfc" stroke="#e2e6ea" stroke-width="1"/>
+  <text x="34" y="400" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">SubdivideQuadBuffer ×2</text>
+  <text x="334" y="400" font-size="10" fill="#1a1d21" text-anchor="start">QuadItem2 · 16 B</text>
+  <text x="634" y="400" font-size="10" fill="#1a1d21" text-anchor="start">② ③</text>
+  <text x="784" y="400" font-size="10" fill="#1a1d21" text-anchor="start">③（下一轮）</text>
+  <rect x="24" y="408" width="1050" height="24" rx="0" fill="#ffffff" stroke="#e2e6ea" stroke-width="1"/>
+  <text x="34" y="424" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">FinalQuadBuffer</text>
+  <text x="334" y="424" font-size="10" fill="#1a1d21" text-anchor="start">QuadItem2 · 16 B</text>
+  <text x="634" y="424" font-size="10" fill="#1a1d21" text-anchor="start">③</text>
+  <text x="784" y="424" font-size="10" fill="#1a1d21" text-anchor="start">④</text>
+  <rect x="24" y="432" width="1050" height="24" rx="0" fill="#fafbfc" stroke="#e2e6ea" stroke-width="1"/>
+  <text x="34" y="448" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">InstanceBuffer</text>
+  <text x="334" y="448" font-size="10" fill="#1a1d21" text-anchor="start">QuadRenderInstance · 16 B</text>
+  <text x="634" y="448" font-size="10" fill="#1a1d21" text-anchor="start">④</text>
+  <text x="784" y="448" font-size="10" fill="#1a1d21" text-anchor="start">VS</text>
+  <rect x="24" y="456" width="1050" height="24" rx="0" fill="#ffffff" stroke="#e2e6ea" stroke-width="1"/>
+  <text x="34" y="472" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">HoleInstanceBuffer</text>
+  <text x="334" y="472" font-size="10" fill="#1a1d21" text-anchor="start">同上（容量 1/4）</text>
+  <text x="634" y="472" font-size="10" fill="#1a1d21" text-anchor="start">④</text>
+  <text x="784" y="472" font-size="10" fill="#1a1d21" text-anchor="start">VS（洞材质）</text>
+  <rect x="24" y="480" width="1050" height="24" rx="0" fill="#fafbfc" stroke="#e2e6ea" stroke-width="1"/>
+  <text x="34" y="496" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">IndirectArgsBuffer</text>
+  <text x="334" y="496" font-size="10" fill="#1a1d21" text-anchor="start">10 × uint32 = 40 B</text>
+  <text x="634" y="496" font-size="10" fill="#1a1d21" text-anchor="start">② ④</text>
+  <text x="784" y="496" font-size="10" fill="#1a1d21" text-anchor="start">光栅化 IndirectDraw</text>
+  <rect x="24" y="504" width="1050" height="24" rx="0" fill="#ffffff" stroke="#e2e6ea" stroke-width="1"/>
+  <text x="34" y="520" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">VTFeedbackBuffer</text>
+  <text x="334" y="520" font-size="10" fill="#1a1d21" text-anchor="start">uint32 数组</text>
+  <text x="634" y="520" font-size="10" fill="#1a1d21" text-anchor="start">③</text>
+  <text x="784" y="520" font-size="10" fill="#1a1d21" text-anchor="start">VT 流送系统</text>
+  <rect x="24" y="528" width="1050" height="24" rx="0" fill="#fafbfc" stroke="#e2e6ea" stroke-width="1"/>
+  <text x="34" y="544" font-size="10" fill="#1a1d21" text-anchor="start" font-weight="700">StatBuffer</text>
+  <text x="334" y="544" font-size="10" fill="#1a1d21" text-anchor="start">64 × uint32</text>
+  <text x="634" y="544" font-size="10" fill="#1a1d21" text-anchor="start">③ ④</text>
+  <text x="784" y="544" font-size="10" fill="#1a1d21" text-anchor="start">GPU 回读（默认编译关闭）</text>
+</svg>
+<div class="cap">图 7　WorkerQueueInfo 布局与全部缓冲一览</div>
+</div>
+
+<h2 id="s4"><span class="num">四</span>V3 主线：五个阶段</h2>
+
+<h3>4.1 阶段① <code>InitAllBuffersCS</code> —— 把上一帧的痕迹清干净</h3>
+
+<p>一次 <code>[numthreads(1,1,1)]</code> 的 dispatch，把队列、dispatch 参数、实例缓冲全部归零。</p>
+
+<p><strong>为什么单独开一个 pass</strong>：GPU 缓冲是复用的，不并行清零的话，上一帧的残留会让 <code>InterlockedAdd</code> 从错误的基数开始累加。</p>
+
+<p>产出的关键值（<span class="ref">VirtualHeightfieldInitBuffers.usf:61-91</span>）：</p>
+
+<pre>FinalArgsBuffer    = { 0, 1, 1, 0 }
+DispatchArgsBuffer1 = DispatchArgsBuffer2 = { 0, 1, 1, 0 }   （每个 args 槽都重置）
+InstanceArgsBuffer[0..4] = { NumIndices, 0, 0, 0, 0 }         （主材质批次）
+InstanceArgsBuffer[5..9] = { NumIndices, 0, 0, 0, 0 }         （洞材质批次）</pre>
+
+<h3>4.2 阶段② <code>FillLevel4QuadCS</code> —— 播种 64 个根节点</h3>
+
+<div class="fig">
+<svg viewBox="0 0 1120 530" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="530" fill="#ffffff"/>
+  <text x="24" y="32" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">② FillLevel4QuadCS —— 一次 dispatch 铺出 64 个根节点，跳过最粗的 3 层</text>
+  <rect x="24" y="56" width="250" height="132" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="149" y="81.5" font-size="10" fill="#7a828a" text-anchor="middle">numthreads(64, 1, 1)</text>
+  <text x="149" y="99.5" font-size="10" fill="#7a828a" text-anchor="middle">一个线程 = 一个根节点</text>
+  <text x="149" y="117.5" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="149" y="135.5" font-size="10" fill="#7a828a" text-anchor="middle">ThisPackData.x</text>
+  <text x="149" y="153.5" font-size="10" fill="#7a828a" text-anchor="middle">  = ThisThreadID | (Level &lt;&lt; 28)</text>
+  <text x="149" y="171.5" font-size="10" fill="#7a828a" text-anchor="middle">Level = MaxLevel − 3</text>
+  <line x1="276" y1="122" x2="318" y2="122" stroke="#2f6feb" stroke-width="1.4" marker-end="url(#arb)"/>
+  <text x="297" y="144" font-size="9" fill="#2f6feb" text-anchor="middle">当 Morton</text>
+  <text x="297" y="156" font-size="9" fill="#2f6feb" text-anchor="middle">码用</text>
+  <rect x="320" y="76" width="232" height="92" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="436" y="106.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">MortonDecode(tid)</text>
+  <text x="436" y="126.5" font-size="10.5" fill="#7a828a" text-anchor="middle">把整数按位交错展开：</text>
+  <text x="436" y="146.5" font-size="10.5" fill="#7a828a" text-anchor="middle">偶数位 → x，奇数位 → y</text>
+  <line x1="554" y1="122" x2="596" y2="122" stroke="#2f6feb" stroke-width="1.4" marker-end="url(#arb)"/>
+  <text x="575" y="144" font-size="9" fill="#2f6feb" text-anchor="middle">得到</text>
+  <text x="575" y="156" font-size="9" fill="#2f6feb" text-anchor="middle">2D 格子</text>
+  <text x="636" y="62" font-size="11" fill="#1a1d21" text-anchor="start" font-weight="700">8 × 8 = 64 个根节点（格内数字 = Morton 码）</text>
+  <polyline points="649,89 675,89 649,115 675,115 701,89 727,89 701,115 727,115 649,141 675,141 649,167 675,167 701,141 727,141 701,167 727,167 753,89 779,89 753,115 779,115 805,89 831,89 805,115 831,115 753,141 779,141 753,167 779,167 805,141 831,141 805,167 831,167 649,193 675,193 649,219 675,219 701,193 727,193 701,219 727,219 649,245 675,245 649,271 675,271 701,245 727,245 701,271 727,271 753,193 779,193 753,219 779,219 805,193 831,193 805,219 831,219 753,245 779,245 753,271 779,271 805,245 831,245 805,271 831,271" fill="none" stroke="#2f6feb" stroke-width="1" opacity="0.5"/>
+  <rect x="636" y="76" width="26" height="26" rx="0" fill="rgb(234,241,254)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="649" y="93" font-size="8.6" fill="#1a1d21" text-anchor="middle">0</text>
+  <rect x="662" y="76" width="26" height="26" rx="0" fill="rgb(233,239,253)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="675" y="93" font-size="8.6" fill="#1a1d21" text-anchor="middle">1</text>
+  <rect x="636" y="102" width="26" height="26" rx="0" fill="rgb(233,238,253)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="649" y="119" font-size="8.6" fill="#1a1d21" text-anchor="middle">2</text>
+  <rect x="662" y="102" width="26" height="26" rx="0" fill="rgb(232,237,252)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="675" y="119" font-size="8.6" fill="#1a1d21" text-anchor="middle">3</text>
+  <rect x="688" y="76" width="26" height="26" rx="0" fill="rgb(232,235,252)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="701" y="93" font-size="8.6" fill="#1a1d21" text-anchor="middle">4</text>
+  <rect x="714" y="76" width="26" height="26" rx="0" fill="rgb(231,234,251)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="727" y="93" font-size="8.6" fill="#1a1d21" text-anchor="middle">5</text>
+  <rect x="688" y="102" width="26" height="26" rx="0" fill="rgb(231,233,251)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="701" y="119" font-size="8.6" fill="#1a1d21" text-anchor="middle">6</text>
+  <rect x="714" y="102" width="26" height="26" rx="0" fill="rgb(230,232,250)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="727" y="119" font-size="8.6" fill="#1a1d21" text-anchor="middle">7</text>
+  <rect x="636" y="128" width="26" height="26" rx="0" fill="rgb(230,230,250)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="649" y="145" font-size="8.6" fill="#1a1d21" text-anchor="middle">8</text>
+  <rect x="662" y="128" width="26" height="26" rx="0" fill="rgb(229,229,249)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="675" y="145" font-size="8.6" fill="#1a1d21" text-anchor="middle">9</text>
+  <rect x="636" y="154" width="26" height="26" rx="0" fill="rgb(229,228,249)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="649" y="171" font-size="8.6" fill="#1a1d21" text-anchor="middle">10</text>
+  <rect x="662" y="154" width="26" height="26" rx="0" fill="rgb(228,227,248)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="675" y="171" font-size="8.6" fill="#1a1d21" text-anchor="middle">11</text>
+  <rect x="688" y="128" width="26" height="26" rx="0" fill="rgb(228,225,248)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="701" y="145" font-size="8.6" fill="#1a1d21" text-anchor="middle">12</text>
+  <rect x="714" y="128" width="26" height="26" rx="0" fill="rgb(227,224,247)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="727" y="145" font-size="8.6" fill="#1a1d21" text-anchor="middle">13</text>
+  <rect x="688" y="154" width="26" height="26" rx="0" fill="rgb(227,223,247)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="701" y="171" font-size="8.6" fill="#1a1d21" text-anchor="middle">14</text>
+  <rect x="714" y="154" width="26" height="26" rx="0" fill="rgb(226,221,246)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="727" y="171" font-size="8.6" fill="#1a1d21" text-anchor="middle">15</text>
+  <rect x="740" y="76" width="26" height="26" rx="0" fill="rgb(226,220,246)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="753" y="93" font-size="8.6" fill="#1a1d21" text-anchor="middle">16</text>
+  <rect x="766" y="76" width="26" height="26" rx="0" fill="rgb(225,219,245)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="779" y="93" font-size="8.6" fill="#1a1d21" text-anchor="middle">17</text>
+  <rect x="740" y="102" width="26" height="26" rx="0" fill="rgb(225,218,245)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="753" y="119" font-size="8.6" fill="#1a1d21" text-anchor="middle">18</text>
+  <rect x="766" y="102" width="26" height="26" rx="0" fill="rgb(224,216,244)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="779" y="119" font-size="8.6" fill="#1a1d21" text-anchor="middle">19</text>
+  <rect x="792" y="76" width="26" height="26" rx="0" fill="rgb(224,215,244)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="805" y="93" font-size="8.6" fill="#1a1d21" text-anchor="middle">20</text>
+  <rect x="818" y="76" width="26" height="26" rx="0" fill="rgb(224,214,244)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="831" y="93" font-size="8.6" fill="#1a1d21" text-anchor="middle">21</text>
+  <rect x="792" y="102" width="26" height="26" rx="0" fill="rgb(223,213,243)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="805" y="119" font-size="8.6" fill="#1a1d21" text-anchor="middle">22</text>
+  <rect x="818" y="102" width="26" height="26" rx="0" fill="rgb(223,211,243)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="831" y="119" font-size="8.6" fill="#1a1d21" text-anchor="middle">23</text>
+  <rect x="740" y="128" width="26" height="26" rx="0" fill="rgb(222,210,242)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="753" y="145" font-size="8.6" fill="#1a1d21" text-anchor="middle">24</text>
+  <rect x="766" y="128" width="26" height="26" rx="0" fill="rgb(222,209,242)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="779" y="145" font-size="8.6" fill="#1a1d21" text-anchor="middle">25</text>
+  <rect x="740" y="154" width="26" height="26" rx="0" fill="rgb(221,207,241)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="753" y="171" font-size="8.6" fill="#1a1d21" text-anchor="middle">26</text>
+  <rect x="766" y="154" width="26" height="26" rx="0" fill="rgb(221,206,241)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="779" y="171" font-size="8.6" fill="#1a1d21" text-anchor="middle">27</text>
+  <rect x="792" y="128" width="26" height="26" rx="0" fill="rgb(220,205,240)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="805" y="145" font-size="8.6" fill="#1a1d21" text-anchor="middle">28</text>
+  <rect x="818" y="128" width="26" height="26" rx="0" fill="rgb(220,204,240)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="831" y="145" font-size="8.6" fill="#1a1d21" text-anchor="middle">29</text>
+  <rect x="792" y="154" width="26" height="26" rx="0" fill="rgb(219,202,239)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="805" y="171" font-size="8.6" fill="#1a1d21" text-anchor="middle">30</text>
+  <rect x="818" y="154" width="26" height="26" rx="0" fill="rgb(219,201,239)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="831" y="171" font-size="8.6" fill="#1a1d21" text-anchor="middle">31</text>
+  <rect x="636" y="180" width="26" height="26" rx="0" fill="rgb(218,200,238)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="649" y="197" font-size="8.6" fill="#1a1d21" text-anchor="middle">32</text>
+  <rect x="662" y="180" width="26" height="26" rx="0" fill="rgb(218,199,238)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="675" y="197" font-size="8.6" fill="#1a1d21" text-anchor="middle">33</text>
+  <rect x="636" y="206" width="26" height="26" rx="0" fill="rgb(217,197,237)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="649" y="223" font-size="8.6" fill="#1a1d21" text-anchor="middle">34</text>
+  <rect x="662" y="206" width="26" height="26" rx="0" fill="rgb(217,196,237)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="675" y="223" font-size="8.6" fill="#1a1d21" text-anchor="middle">35</text>
+  <rect x="688" y="180" width="26" height="26" rx="0" fill="rgb(216,195,236)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="701" y="197" font-size="8.6" fill="#1a1d21" text-anchor="middle">36</text>
+  <rect x="714" y="180" width="26" height="26" rx="0" fill="rgb(216,194,236)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="727" y="197" font-size="8.6" fill="#1a1d21" text-anchor="middle">37</text>
+  <rect x="688" y="206" width="26" height="26" rx="0" fill="rgb(215,192,235)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="701" y="223" font-size="8.6" fill="#1a1d21" text-anchor="middle">38</text>
+  <rect x="714" y="206" width="26" height="26" rx="0" fill="rgb(215,191,235)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="727" y="223" font-size="8.6" fill="#1a1d21" text-anchor="middle">39</text>
+  <rect x="636" y="232" width="26" height="26" rx="0" fill="rgb(214,190,234)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="649" y="249" font-size="8.6" fill="#1a1d21" text-anchor="middle">40</text>
+  <rect x="662" y="232" width="26" height="26" rx="0" fill="rgb(214,188,234)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="675" y="249" font-size="8.6" fill="#1a1d21" text-anchor="middle">41</text>
+  <rect x="636" y="258" width="26" height="26" rx="0" fill="rgb(214,187,234)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="649" y="275" font-size="8.6" fill="#1a1d21" text-anchor="middle">42</text>
+  <rect x="662" y="258" width="26" height="26" rx="0" fill="rgb(213,186,233)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="675" y="275" font-size="8.6" fill="#1a1d21" text-anchor="middle">43</text>
+  <rect x="688" y="232" width="26" height="26" rx="0" fill="rgb(213,185,233)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="701" y="249" font-size="8.6" fill="#1a1d21" text-anchor="middle">44</text>
+  <rect x="714" y="232" width="26" height="26" rx="0" fill="rgb(212,183,232)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="727" y="249" font-size="8.6" fill="#1a1d21" text-anchor="middle">45</text>
+  <rect x="688" y="258" width="26" height="26" rx="0" fill="rgb(212,182,232)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="701" y="275" font-size="8.6" fill="#1a1d21" text-anchor="middle">46</text>
+  <rect x="714" y="258" width="26" height="26" rx="0" fill="rgb(211,181,231)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="727" y="275" font-size="8.6" fill="#1a1d21" text-anchor="middle">47</text>
+  <rect x="740" y="180" width="26" height="26" rx="0" fill="rgb(211,180,231)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="753" y="197" font-size="8.6" fill="#1a1d21" text-anchor="middle">48</text>
+  <rect x="766" y="180" width="26" height="26" rx="0" fill="rgb(210,178,230)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="779" y="197" font-size="8.6" fill="#1a1d21" text-anchor="middle">49</text>
+  <rect x="740" y="206" width="26" height="26" rx="0" fill="rgb(210,177,230)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="753" y="223" font-size="8.6" fill="#1a1d21" text-anchor="middle">50</text>
+  <rect x="766" y="206" width="26" height="26" rx="0" fill="rgb(209,176,229)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="779" y="223" font-size="8.6" fill="#1a1d21" text-anchor="middle">51</text>
+  <rect x="792" y="180" width="26" height="26" rx="0" fill="rgb(209,174,229)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="805" y="197" font-size="8.6" fill="#1a1d21" text-anchor="middle">52</text>
+  <rect x="818" y="180" width="26" height="26" rx="0" fill="rgb(208,173,228)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="831" y="197" font-size="8.6" fill="#1a1d21" text-anchor="middle">53</text>
+  <rect x="792" y="206" width="26" height="26" rx="0" fill="rgb(208,172,228)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="805" y="223" font-size="8.6" fill="#1a1d21" text-anchor="middle">54</text>
+  <rect x="818" y="206" width="26" height="26" rx="0" fill="rgb(207,171,227)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="831" y="223" font-size="8.6" fill="#1a1d21" text-anchor="middle">55</text>
+  <rect x="740" y="232" width="26" height="26" rx="0" fill="rgb(207,169,227)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="753" y="249" font-size="8.6" fill="#1a1d21" text-anchor="middle">56</text>
+  <rect x="766" y="232" width="26" height="26" rx="0" fill="rgb(206,168,226)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="779" y="249" font-size="8.6" fill="#1a1d21" text-anchor="middle">57</text>
+  <rect x="740" y="258" width="26" height="26" rx="0" fill="rgb(206,167,226)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="753" y="275" font-size="8.6" fill="#1a1d21" text-anchor="middle">58</text>
+  <rect x="766" y="258" width="26" height="26" rx="0" fill="rgb(205,166,225)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="779" y="275" font-size="8.6" fill="#1a1d21" text-anchor="middle">59</text>
+  <rect x="792" y="232" width="26" height="26" rx="0" fill="rgb(205,164,225)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="805" y="249" font-size="8.6" fill="#1a1d21" text-anchor="middle">60</text>
+  <rect x="818" y="232" width="26" height="26" rx="0" fill="rgb(204,163,224)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="831" y="249" font-size="8.6" fill="#1a1d21" text-anchor="middle">61</text>
+  <rect x="792" y="258" width="26" height="26" rx="0" fill="rgb(204,162,224)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="805" y="275" font-size="8.6" fill="#1a1d21" text-anchor="middle">62</text>
+  <rect x="818" y="258" width="26" height="26" rx="0" fill="rgb(204,161,224)" stroke="#9db8dd" stroke-width="1"/>
+  <text x="831" y="275" font-size="8.6" fill="#1a1d21" text-anchor="middle">63</text>
+  <text x="636" y="302" font-size="9.5" fill="#7a828a" text-anchor="start">折线 = Z 序（Morton 顺序）：码相邻 ⇒ 格子也相邻</text>
+  <text x="636" y="320" font-size="9.5" fill="#7a828a" text-anchor="start">PhysicalAddress 先填该层自身地址（三层共用，作为粗层未加载时的回退）</text>
+  <rect x="24" y="344" width="522" height="92" rx="7" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="285" y="375.5" font-size="10.5" fill="#7a828a" text-anchor="middle">同时写出下一轮的 dispatch 参数：</text>
+  <text x="285" y="394.5" font-size="10.5" fill="#7a828a" text-anchor="middle">SubdivideArgsBuffer = { 2, 1, 1, 64 }</text>
+  <text x="285" y="413.5" font-size="10.5" fill="#7a828a" text-anchor="middle">组数 2 = ceil(64 ÷ 32 线程)　·　末位 64 = 待处理节点数</text>
+  <rect x="562" y="344" width="534" height="92" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="829" y="375.5" font-size="10.5" fill="#7a828a" text-anchor="middle">为什么敢从 MaxLevel−3 起？</text>
+  <text x="829" y="394.5" font-size="10.5" fill="#7a828a" text-anchor="middle">更粗的 3 层（1 / 2 / 4 个 quad）在任何视角下要么全屏、要么全剔除，</text>
+  <text x="829" y="413.5" font-size="10.5" fill="#7a828a" text-anchor="middle">遍历它们纯属浪费 —— 用一次预播种换掉 3 轮完整 dispatch。</text>
+  <rect x="24" y="452" width="1072" height="60" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="560" y="475.5" font-size="11" fill="#7a828a" text-anchor="middle">播种完就交给下一阶段：③ 拿到 SubdivideQuadBuffer 里的这 64 个节点，开始一轮一轮往下细分。</text>
+  <text x="560" y="497.5" font-size="11" fill="#7a828a" text-anchor="middle">每个节点携带的 PhysicalAddress 会一路继承下去，直到顶点着色器才被用来定位高度采样。</text>
+</svg>
+<div class="cap">图 8　FillLevel4QuadCS：线程号 → Morton 码 → 8×8 根节点网格</div>
+</div>
+
+<p><strong>一句话</strong>：不遍历最粗的 3 层，直接铺 8×8 = 64 个起点。</p>
+
+<p><strong>为什么可以这么干</strong>：更粗的层级（1 / 2 / 4 个 quad）在任何视角下要么占满全屏、要么被整个剔除，遍历它们纯属浪费。地形这个物体有个天然性质 —— <strong>它一定和视野相交</strong>，所以直接从第 4 层起步永远安全。</p>
+
+<h3>4.3 阶段③ <code>CollectSubdivideQuadsCS</code> —— 核心：一轮一轮往下细分</h3>
+
+<p>这是 VHM 里最重要、也最长的一个阶段。它会被<strong>重复 dispatch 若干轮</strong>，每一轮做同一件事：<strong>读上一轮吐出的节点，决定每个节点「还要不要更细」</strong>。</p>
+
+<div class="fig">
+<svg viewBox="0 0 1120 900" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="900" fill="#ffffff"/>
+  <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">③ CollectSubdivideQuadsCS —— 每一轮：读上一轮的节点，判一次「还要不要更细」</text>
+  <rect x="48" y="56" width="596" height="64" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="346" y="83.5" font-size="12.5" fill="#1a1d21" text-anchor="middle">读本轮待处理节点数</text>
+  <text x="346" y="101.5" font-size="10.5" fill="#7a828a" text-anchor="middle">QuadCount = InDispatchArgsBuffer[InArgsOffset + 3]</text>
+  <line x1="346" y1="120" x2="346" y2="144" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="48" y="144" width="596" height="64" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="346" y="162.5" font-size="12.5" fill="#1a1d21" text-anchor="middle">每线程领一个节点</text>
+  <text x="346" y="180.5" font-size="10.5" fill="#7a828a" text-anchor="middle">IsValidThread = DispatchThreadID.x &lt; QuadCount</text>
+  <text x="346" y="198.5" font-size="10.5" fill="#7a828a" text-anchor="middle">无效线程回退读该组首索引 → 保证组内能收敛</text>
+  <line x1="346" y1="208" x2="346" y2="232" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="48" y="232" width="596" height="64" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="346" y="250.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">解包 → SQuadInfo</text>
+  <text x="346" y="268.5" font-size="10.5" fill="#7a828a" text-anchor="middle">UnPackQuadItem2：MortonDecode 还原 Pos，取 Level</text>
+  <text x="346" y="286.5" font-size="10.5" fill="#7a828a" text-anchor="middle">算出 TexPos / TextureLevel / PhysicalAddress</text>
+  <line x1="346" y1="296" x2="346" y2="320" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="48" y="320" width="596" height="64" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="346" y="338.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">采样高度 + 算距离 LOD</text>
+  <text x="346" y="356.5" font-size="10.5" fill="#7a828a" text-anchor="middle">GetHeight()：查页表 → 物理 UV → 采高度</text>
+  <text x="346" y="374.5" font-size="10.5" fill="#7a828a" text-anchor="middle">GetMinDistanceLod()：quad 内 3×3 共 9 点取最小距离</text>
+  <line x1="346" y1="384" x2="346" y2="414" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <polygon points="346,414 532,448 346,482 160,448" fill="#fdf0ef" stroke="#c0392b"/>
+  <text x="346" y="446" font-size="12" fill="#1a1d21" text-anchor="middle">bCull ?</text>
+  <text x="346" y="462" font-size="10" fill="#7a828a" text-anchor="middle">视锥 AABB 或 Mask &lt; 0.333</text>
+  <polyline points="160,448 44,448" fill="none" stroke="#c0392b" stroke-width="1.4" marker-end="url(#arr)"/>
+  <text x="146" y="440" font-size="10.5" fill="#c0392b" text-anchor="start" font-weight="700">剔除 →</text>
+  <line x1="346" y1="482" x2="346" y2="508" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <polygon points="346,508 558,546 346,584 134,546" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="346" y="544" font-size="12" fill="#1a1d21" text-anchor="middle">bThisSubdivide ?</text>
+  <text x="346" y="560" font-size="10" fill="#7a828a" text-anchor="middle">Level &gt; 0 且 MinDistanceLod &lt; Level</text>
+  <polyline points="134,582 144,582 144,608 144,634" fill="none" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <text x="144" y="572" font-size="10.5" fill="#1f9254" text-anchor="middle" font-weight="700">是（还要更细）</text>
+  <rect x="54" y="638" width="292" height="80" rx="7" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="200" y="655.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">拆成 4 个子节点</text>
+  <text x="200" y="673.5" font-size="10.5" fill="#7a828a" text-anchor="middle">ChildPos = Pos × 2 + (i&amp;1, i&gt;&gt;1)</text>
+  <text x="200" y="691.5" font-size="10.5" fill="#7a828a" text-anchor="middle">ChildLevel = Level − 1</text>
+  <text x="200" y="709.5" font-size="10.5" fill="#7a828a" text-anchor="middle">→ OutSubdivideQuadBuffer</text>
+  <polyline points="558,582 560,582 560,608 560,634" fill="none" stroke="#2f6feb" stroke-width="1.4" marker-end="url(#arb)"/>
+  <text x="560" y="572" font-size="10.5" fill="#2f6feb" text-anchor="middle" font-weight="700">否（够细了）</text>
+  <rect x="466" y="638" width="250" height="80" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="591" y="664.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">收成叶子</text>
+  <text x="591" y="682.5" font-size="10.5" fill="#7a828a" text-anchor="middle">PackQuadItem2(ThisInfo)</text>
+  <text x="591" y="700.5" font-size="10.5" fill="#7a828a" text-anchor="middle">→ FinalQuadBuffer</text>
+  <line x1="200" y1="718" x2="200" y2="740" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <line x1="591" y1="718" x2="591" y2="740" stroke="#2f6feb" stroke-width="1.4" marker-end="url(#arb)"/>
+  <rect x="48" y="740" width="596" height="72" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="346" y="762.5" font-size="12.5" fill="#4a5158" text-anchor="middle" font-weight="600">组内前缀和 → 每组合并一次原子加 → 写下一轮 dispatch 参数</text>
+  <text x="346" y="780.5" font-size="10.5" fill="#7a828a" text-anchor="middle">SubdivideQuadFlag[33] / FinalQuadFlag[33] 存 groupshared，线程 0 扫一遍，</text>
+  <text x="346" y="798.5" font-size="10.5" fill="#7a828a" text-anchor="middle">各线程用 flag[ThisThreadID] 当自己的输出偏移。全局原子操作数因此降到 1/32。</text>
+  <line x1="346" y1="812" x2="346" y2="834" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="48" y="834" width="596" height="64" rx="7" fill="#f5ebfa" stroke="#c39bd3" stroke-width="1"/>
+  <text x="346" y="861.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">写 VT 反馈：告诉 VT 系统「这段地形我需要第 N 级页」</text>
+  <text x="346" y="879.5" font-size="10.5" fill="#7a828a" text-anchor="middle">打包 SampleTexPos / LevelPlusOne / PageTableFeedbackId → VTFeedbackBuffer</text>
+  <rect x="700" y="44" width="396" height="836" rx="10" fill="#f7f8fa" stroke="#e2e6ea"/>
+  <text x="898" y="72" font-size="14" fill="#4a5158" text-anchor="middle" font-weight="700">这一轮读什么 / 写什么</text>
+  <rect x="718" y="76" width="18.2" height="17" rx="8" fill="#eaf1fe"/>
+  <text x="727.1" y="88" font-size="10" fill="#2f6feb" text-anchor="middle" font-weight="700">读</text>
+  <text x="752" y="88" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">SubdivideQuadBuffer[(i) % 2]</text>
+  <text x="752" y="105" font-size="9.5" fill="#7a828a" text-anchor="start">uint4 节点 × 上一轮产出</text>
+  <rect x="718" y="120" width="18.2" height="17" rx="8" fill="#eaf1fe"/>
+  <text x="727.1" y="132" font-size="10" fill="#2f6feb" text-anchor="middle" font-weight="700">读</text>
+  <text x="752" y="132" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">ArgsBuffer[i / 2]</text>
+  <text x="752" y="149" font-size="9.5" fill="#7a828a" text-anchor="start">dispatch 参数（组数 / 节点数）</text>
+  <rect x="718" y="164" width="18.2" height="17" rx="8" fill="#eaf1fe"/>
+  <text x="727.1" y="176" font-size="10" fill="#2f6feb" text-anchor="middle" font-weight="700">读</text>
+  <text x="752" y="176" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">PageTableTexture</text>
+  <text x="752" y="193" font-size="9.5" fill="#7a828a" text-anchor="start">定位物理页</text>
+  <rect x="718" y="208" width="18.2" height="17" rx="8" fill="#eaf1fe"/>
+  <text x="727.1" y="220" font-size="10" fill="#2f6feb" text-anchor="middle" font-weight="700">读</text>
+  <text x="752" y="220" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">HeightTexture</text>
+  <text x="752" y="237" font-size="9.5" fill="#7a828a" text-anchor="start">采高度（算距离用）</text>
+  <rect x="718" y="252" width="18.2" height="17" rx="8" fill="#eaf1fe"/>
+  <text x="727.1" y="264" font-size="10" fill="#2f6feb" text-anchor="middle" font-weight="700">读</text>
+  <text x="752" y="264" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">HeightMinMaxTexture</text>
+  <text x="752" y="281" font-size="9.5" fill="#7a828a" text-anchor="start">构成 AABB 做视锥剔除</text>
+  <rect x="718" y="296" width="18.2" height="17" rx="8" fill="#eaf1fe"/>
+  <text x="727.1" y="308" font-size="10" fill="#2f6feb" text-anchor="middle" font-weight="700">读</text>
+  <text x="752" y="308" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">MaskTexture</text>
+  <text x="752" y="325" font-size="9.5" fill="#7a828a" text-anchor="start">挖洞 / 剔除判据</text>
+  <rect x="718" y="346" width="18.2" height="17" rx="8" fill="#e9f7ef"/>
+  <text x="727.1" y="358" font-size="10" fill="#1f9254" text-anchor="middle" font-weight="700">写</text>
+  <text x="718" y="382" font-size="10.5" fill="#1a1d21" text-anchor="start">· SubdivideQuadBuffer[(i+1) % 2]</text>
+  <text x="730" y="397" font-size="9.5" fill="#7a828a" text-anchor="start">下一轮的输入（双缓冲，读写不打架）</text>
+  <text x="718" y="416" font-size="10.5" fill="#1a1d21" text-anchor="start">· FinalQuadBuffer</text>
+  <text x="730" y="431" font-size="9.5" fill="#7a828a" text-anchor="start">定稿的叶子节点 → 交给 ④</text>
+  <text x="718" y="450" font-size="10.5" fill="#1a1d21" text-anchor="start">· ArgsBuffer[(i+1) / 2]</text>
+  <text x="730" y="465" font-size="9.5" fill="#7a828a" text-anchor="start">下一轮的 dispatch 参数</text>
+  <text x="718" y="484" font-size="10.5" fill="#1a1d21" text-anchor="start">· VTFeedbackBuffer</text>
+  <text x="730" y="499" font-size="9.5" fill="#7a828a" text-anchor="start">VT 页请求</text>
+  <rect x="716" y="530" width="364" height="116" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="898" y="556.5" font-size="10" fill="#7a828a" text-anchor="middle">双缓冲为什么必要：</text>
+  <text x="898" y="574.5" font-size="10" fill="#7a828a" text-anchor="middle">本轮读 i、写 (i+1)，读写区完全分开，</text>
+  <text x="898" y="592.5" font-size="10" fill="#7a828a" text-anchor="middle">否则同一 pass 内就会 Read-After-Write 冲突。</text>
+  <text x="898" y="610.5" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="898" y="628.5" font-size="10" fill="#7a828a" text-anchor="middle">Args 也按 i/2 轮转 —— 一次 dispatch 只处理半轮的量。</text>
+</svg>
+<div class="cap">图 9　CollectSubdivideQuadsCS：单轮流程与数据流向</div>
+</div>
+
+<p><strong>一句话判据</strong>：<code>MinDistanceLod &lt; Level</code> 就继续细分（<span class="ref">VirtualHeightfieldMesh3.usf:335</span>）。 意思是「这个 quad 在当前距离下，屏幕尺寸已经撑不起它所在的层级了，需要更细」。</p>
+
+<p><strong>距离怎么算</strong>：不是取 quad 中心，而是在 quad 内部取 <strong>3×3 = 9 个采样点</strong>求最小距离（<span class="ref">VirtualHeightfieldMesh3.usf:120-129</span>）。这样才能避免「角点远、中心近」导致整块被错误降级。</p>
+
+<p><strong>代入一个具体数字</strong>（<code>r.VHM.LodScale=1</code>、<code>Lod0Distance=500</code>、<code>Lod0Distribution=1</code>、<code>LodDistribution=2</code>）：</p>
+
+<table><thead><tr>
+<th>相机到 quad 的距离</th>
+<th>LodForDistance0</th>
+<th>LodForDistanceN</th>
+<th>最终 LOD</th>
+</tr></thead><tbody>
+<tr><td>250</td><td>saturate(250/500) = 0.5</td><td>log₂(1+0) = 0</td><td><strong>0.5</strong></td></tr>
+<tr><td>500</td><td>saturate(1.0) = 1.0</td><td>log₂(1+0) = 0</td><td><strong>1.0</strong></td></tr>
+<tr><td>1000</td><td>saturate(2.0) = 1.0</td><td>log₂(1+1) = 1</td><td><strong>2.0</strong></td></tr>
+</tbody></table>
+
+<p><strong>组内怎么分配输出位置</strong>：每个线程先在自己组的 <code>groupshared</code> 数组里打标记，线程 0 做一次前缀和扫描，然后各线程用 <code>flag[ThisThreadID]</code> 当自己的写入偏移。这样<strong>整组只需要对全局做常数次原子操作</strong>（<span class="ref">VirtualHeightfieldMesh3.usf:383-407</span>）。</p>
+
+<p><strong>双缓冲为什么必要</strong>：本轮读 <code>i</code>、写 <code>(i+1)</code>，两块内存完全分开。否则同一个 pass 内部就会 Read-After-Write 冲突。</p>
+
+<h3>4.4 阶段④ <code>CullQuadsAndGenerateInstancesCS</code> —— 变成「可以直接画」的实例</h3>
+
+<div class="fig">
+<svg viewBox="0 0 1120 780" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="780" fill="#ffffff"/>
+  <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">④ CullQuadsAndGenerateInstancesCS —— 把叶子节点变成「可以直接画」的实例</text>
+  <rect x="48" y="56" width="596" height="62" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="346" y="82.5" font-size="12.5" fill="#4a5158" text-anchor="middle" font-weight="600">输入：FinalQuadBuffer</text>
+  <text x="346" y="100.5" font-size="10.5" fill="#7a828a" text-anchor="middle">由 ③ 攒下来的叶子节点；节点数写在 FinalQuadArgsBuffer[3]</text>
+  <line x1="346" y1="118" x2="346" y2="142" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="48" y="142" width="596" height="62" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="346" y="168.5" font-size="12.5" fill="#1a1d21" text-anchor="middle">每线程领一个叶子节点，解包成 SQuadInfo</text>
+  <text x="346" y="186.5" font-size="10.5" fill="#7a828a" text-anchor="middle">和 ③ 完全一样的 UnPackQuadItem2 + 查页表流程</text>
+  <line x1="346" y1="204" x2="346" y2="230" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <polygon points="346,230 546,266 346,302 146,266" fill="#fdf0ef" stroke="#c0392b"/>
+  <text x="346" y="264" font-size="12" fill="#1a1d21" text-anchor="middle">再判一次剔除</text>
+  <text x="346" y="280" font-size="10" fill="#7a828a" text-anchor="middle">视锥 AABB / Mask &lt; 0.333（这次按光栅化视图）</text>
+  <polyline points="146,266 44,266" fill="none" stroke="#c0392b" stroke-width="1.4" marker-end="url(#arr)"/>
+  <text x="132" y="258" font-size="10.5" fill="#c0392b" text-anchor="start" font-weight="700">丢弃 →</text>
+  <line x1="346" y1="302" x2="346" y2="328" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <polygon points="346,328 576,366 346,404 116,366" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="346" y="364" font-size="12" fill="#1a1d21" text-anchor="middle">Mask == 1 ?</text>
+  <text x="346" y="380" font-size="10" fill="#7a828a" text-anchor="middle">IsOpacity()：|mask − 1| &lt; 1e-3</text>
+  <polyline points="116,402 144,402 144,428 144,454" fill="none" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <text x="144" y="392" font-size="10.5" fill="#1f9254" text-anchor="middle" font-weight="700">是（不透明地面）</text>
+  <rect x="54" y="458" width="292" height="86" rx="7" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="200" y="480" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">写入 QuadInstanceBuffer</text>
+  <text x="200" y="497" font-size="10.5" fill="#7a828a" text-anchor="middle">用主材质绘制</text>
+  <text x="200" y="514" font-size="10.5" fill="#7a828a" text-anchor="middle">InterlockedAdd(InstanceArgsBuffer[1])</text>
+  <text x="200" y="531" font-size="10.5" fill="#7a828a" text-anchor="middle">→ 主材质批次实例数</text>
+  <polyline points="576,402 560,402 560,428 560,454" fill="none" stroke="#d9741a" stroke-width="1.4" marker-end="url(#aro)"/>
+  <text x="560" y="392" font-size="10.5" fill="#d9741a" text-anchor="middle" font-weight="700">否（被挖掉的洞）</text>
+  <rect x="466" y="458" width="250" height="86" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="591" y="480" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">写入 HoleQuadInstanceBuffer</text>
+  <text x="591" y="497" font-size="10.5" fill="#7a828a" text-anchor="middle">用洞材质绘制</text>
+  <text x="591" y="514" font-size="10.5" fill="#7a828a" text-anchor="middle">InterlockedAdd(InstanceArgsBuffer[6])</text>
+  <text x="591" y="531" font-size="10.5" fill="#7a828a" text-anchor="middle">→ 洞材质批次实例数</text>
+  <line x1="200" y1="544" x2="200" y2="566" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <line x1="591" y1="544" x2="591" y2="566" stroke="#d9741a" stroke-width="1.4" marker-end="url(#aro)"/>
+  <rect x="48" y="566" width="596" height="70" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="346" y="587.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">组装实例：QuadRenderInstance（16 B）</text>
+  <text x="346" y="605.5" font-size="10.5" fill="#7a828a" text-anchor="middle">Instance.PosLevelPacked = Pos.x | (Pos.y &lt;&lt; 14) | (Level &lt;&lt; 28)</text>
+  <text x="346" y="623.5" font-size="10.5" fill="#7a828a" text-anchor="middle">Instance.PhysicalAddress = ThisInfo.PhysicalAddress</text>
+  <rect x="700" y="44" width="396" height="716" rx="10" fill="#f7f8fa" stroke="#e2e6ea"/>
+  <text x="898" y="72" font-size="14" fill="#4a5158" text-anchor="middle" font-weight="700">这一轮读什么 / 写什么</text>
+  <rect x="718" y="76" width="18.2" height="17" rx="8" fill="#eaf1fe"/>
+  <text x="727.1" y="88" font-size="10" fill="#2f6feb" text-anchor="middle" font-weight="700">读</text>
+  <text x="752" y="88" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">FinalQuadBuffer</text>
+  <text x="752" y="105" font-size="9.5" fill="#7a828a" text-anchor="start">叶子节点（uint4）</text>
+  <rect x="718" y="120" width="18.2" height="17" rx="8" fill="#eaf1fe"/>
+  <text x="727.1" y="132" font-size="10" fill="#2f6feb" text-anchor="middle" font-weight="700">读</text>
+  <text x="752" y="132" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">FinalQuadArgsBuffer</text>
+  <text x="752" y="149" font-size="9.5" fill="#7a828a" text-anchor="start">dispatch 参数</text>
+  <rect x="718" y="164" width="18.2" height="17" rx="8" fill="#eaf1fe"/>
+  <text x="727.1" y="176" font-size="10" fill="#2f6feb" text-anchor="middle" font-weight="700">读</text>
+  <text x="752" y="176" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">PageTableTexture / HeightTexture</text>
+  <text x="752" y="193" font-size="9.5" fill="#7a828a" text-anchor="start">剔除需要</text>
+  <rect x="718" y="208" width="18.2" height="17" rx="8" fill="#eaf1fe"/>
+  <text x="727.1" y="220" font-size="10" fill="#2f6feb" text-anchor="middle" font-weight="700">读</text>
+  <text x="752" y="220" font-size="10.5" fill="#1a1d21" text-anchor="start" font-weight="700">HeightMinMaxTexture / MaskTexture</text>
+  <text x="752" y="237" font-size="9.5" fill="#7a828a" text-anchor="start">剔除需要</text>
+  <rect x="718" y="258" width="18.2" height="17" rx="8" fill="#e9f7ef"/>
+  <text x="727.1" y="270" font-size="10" fill="#1f9254" text-anchor="middle" font-weight="700">写</text>
+  <text x="718" y="294" font-size="10.5" fill="#1a1d21" text-anchor="start">· QuadInstanceBuffer</text>
+  <text x="730" y="309" font-size="9.5" fill="#7a828a" text-anchor="start">不透明实例（StructuredBuffer）</text>
+  <text x="718" y="328" font-size="10.5" fill="#1a1d21" text-anchor="start">· HoleQuadInstanceBuffer</text>
+  <text x="730" y="343" font-size="9.5" fill="#7a828a" text-anchor="start">洞实例（容量只有 1/4）</text>
+  <text x="718" y="362" font-size="10.5" fill="#1a1d21" text-anchor="start">· InstanceArgsBuffer[0..4]</text>
+  <text x="730" y="377" font-size="9.5" fill="#7a828a" text-anchor="start">主材质批次的 IndirectDraw 参数</text>
+  <text x="718" y="396" font-size="10.5" fill="#1a1d21" text-anchor="start">· InstanceArgsBuffer[5..9]</text>
+  <text x="730" y="411" font-size="9.5" fill="#7a828a" text-anchor="start">洞材质批次的 IndirectDraw 参数</text>
+  <rect x="716" y="442" width="364" height="150" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="898" y="467.5" font-size="10" fill="#7a828a" text-anchor="middle">为什么在这里分流，而不是在材质里 discard？</text>
+  <text x="898" y="485.5" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="898" y="503.5" font-size="10" fill="#7a828a" text-anchor="middle">TSR / TBDR 上 discard 会破坏 HSR（早期深度测试），</text>
+  <text x="898" y="521.5" font-size="10" fill="#7a828a" text-anchor="middle">移动端代价尤其大。</text>
+  <text x="898" y="539.5" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="898" y="557.5" font-size="10" fill="#7a828a" text-anchor="middle">把分支从「每像素」挪到「每实例」，</text>
+  <text x="898" y="575.5" font-size="10" fill="#7a828a" text-anchor="middle">代价是多了 1 次 IndirectDraw（见图 5）。</text>
+</svg>
+<div class="cap">图 10　CullQuadsAndGenerateInstancesCS：剔除与主/洞两路分流</div>
+</div>
+
+<p><strong>这一阶段有两个产出通道</strong>，对应两次 draw：</p>
+
+<table><thead><tr>
+<th>通道</th>
+<th>条件</th>
+<th>写入</th>
+<th>走哪个材质</th>
+</tr></thead><tbody>
+<tr><td>不透明</td><td><code>Mask == 1</code></td><td><code>QuadInstanceBuffer</code></td><td><code>Material</code></td></tr>
+<tr><td>洞</td><td><code>Mask != 1</code></td><td><code>HoleQuadInstanceBuffer</code></td><td><code>HoleMaterial</code></td></tr>
+</tbody></table>
+
+<p><strong>为什么要在 CS 里分流，而不是在材质里 <code>discard</code></strong>：<code>discard</code> 会破坏 TBDR / TSR 上的 HSR（早期深度测试），移动端代价尤其大。把分支从「每像素」挪到「每实例」，代价是多了一次 IndirectDraw。</p>
+
+<h3>4.5 阶段⑤ 光栅化 —— 顶点是从哪来的</h3>
+
+<p><strong>VHM 没有顶点缓冲。</strong> 整个 VF 是自建的，<code>InitRHI()</code> 里只挂了一个 <code>VertexBuffer = nullptr, Stride = 0</code> 的空顶点流，元素声明列表为空（<span class="ref">VirtualHeightfieldMeshVertexFactory.cpp:153-179</span>）。</p>
+
+<div class="fig">
+<svg viewBox="0 0 1120 560" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="560" fill="#ffffff"/>
+  <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">⑤ 光栅化：顶点着色器怎么把「16 字节的实例」变成「一片起伏的地形」</text>
+  <rect x="24" y="56" width="250" height="96" rx="7" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="149" y="88.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">InstanceBuffer[SV_InstanceID]</text>
+  <text x="149" y="108.5" font-size="10.5" fill="#7a828a" text-anchor="middle">每实例 16 B</text>
+  <text x="149" y="128.5" font-size="10.5" fill="#7a828a" text-anchor="middle">Pos / Level / PhysicalAddress</text>
+  <rect x="24" y="176" width="250" height="96" rx="7" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="149" y="208.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">SV_VertexID</text>
+  <text x="149" y="228.5" font-size="10.5" fill="#7a828a" text-anchor="middle">顶点没有顶点缓冲</text>
+  <text x="149" y="248.5" font-size="10.5" fill="#7a828a" text-anchor="middle">全靠这个序号现算</text>
+  <line x1="274" y1="104" x2="318" y2="104" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <line x1="274" y1="224" x2="318" y2="224" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <rect x="320" y="76" width="268" height="176" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="454" y="96.5" font-size="10.5" fill="#7a828a" text-anchor="middle">VertexCoord = (VID % GRID, VID / GRID)</text>
+  <text x="454" y="120.5" font-size="10.5" fill="#7a828a" text-anchor="middle">LocalUV     = VertexCoord / (GRID − 1)</text>
+  <text x="454" y="144.5" font-size="10.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="454" y="168.5" font-size="10.5" fill="#7a828a" text-anchor="middle">GRID = NumInstanceVertexSide + 1</text>
+  <text x="454" y="192.5" font-size="10.5" fill="#7a828a" text-anchor="middle">一个实例 = GRID × GRID 个顶点的规则网格</text>
+  <text x="454" y="216.5" font-size="10.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="454" y="240.5" font-size="10.5" fill="#7a828a" text-anchor="middle">索引缓冲全实例共享一份</text>
+  <line x1="588" y1="164" x2="632" y2="164" stroke="#2f6feb" stroke-width="1.4" marker-end="url(#arb)"/>
+  <text x="610" y="155" font-size="9.5" fill="#2f6feb" text-anchor="middle">LocalUV</text>
+  <rect x="636" y="56" width="250" height="120" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="761" y="90.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">查页表（查两次）</text>
+  <text x="761" y="110.5" font-size="10.5" fill="#7a828a" text-anchor="middle">floor(SampleLevel) → UV0</text>
+  <text x="761" y="130.5" font-size="10.5" fill="#7a828a" text-anchor="middle">ceil(SampleLevel) → UV1</text>
+  <text x="761" y="150.5" font-size="10.5" fill="#7a828a" text-anchor="middle">采样后 lerp(Height0, Height1, frac)</text>
+  <line x1="886" y1="116" x2="930" y2="116" stroke="#2f6feb" stroke-width="1.4" marker-end="url(#arb)"/>
+  <rect x="934" y="56" width="162" height="120" rx="7" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="1015" y="90.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">高度 H</text>
+  <text x="1015" y="110.5" font-size="10.5" fill="#7a828a" text-anchor="middle">物理页纹理</text>
+  <text x="1015" y="130.5" font-size="10.5" fill="#7a828a" text-anchor="middle">只有 level 0</text>
+  <text x="1015" y="150.5" font-size="10.5" fill="#7a828a" text-anchor="middle">mip 过渡要手工做</text>
+  <line x1="761" y1="176" x2="761" y2="226" stroke="#2f6feb" stroke-width="1.4" marker-end="url(#arb)"/>
+  <text x="830" y="206" font-size="9.5" fill="#2f6feb" text-anchor="start">拿 H 先估一次距离</text>
+  <rect x="636" y="228" width="460" height="116" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="866" y="257.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">算 LOD 并做顶点 Morph（CDLOD）</text>
+  <text x="866" y="279.5" font-size="10.5" fill="#7a828a" text-anchor="middle">LodForDistance = CalculateDistanceLod(距离², LodDistances)</text>
+  <text x="866" y="301.5" font-size="10.5" fill="#7a828a" text-anchor="middle">LodClamped = clamp(LodForDistance − LodBias, Level, MaxLod)</text>
+  <text x="866" y="323.5" font-size="10.5" fill="#7a828a" text-anchor="middle">LocalUV = MorphVertex(LocalUV, ..., LodMorphFloor, LodMorphFrac)</text>
+  <line x1="636" y1="286" x2="592" y2="286" stroke="#d9741a" stroke-width="1.4" marker-end="url(#aro)"/>
+  <text x="614" y="278" font-size="9" fill="#d9741a" text-anchor="middle">重算</text>
+  <text x="614" y="310" font-size="9" fill="#d9741a" text-anchor="middle">位置</text>
+  <rect x="320" y="276" width="268" height="68" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="454" y="295.5" font-size="10" fill="#7a828a" text-anchor="middle">XY = (Pos + LocalUV) × …</text>
+  <text x="454" y="314.5" font-size="10" fill="#7a828a" text-anchor="middle">NormalizedPos = XY × PageTableSize.zw</text>
+  <text x="454" y="333.5" font-size="10" fill="#7a828a" text-anchor="middle">LocalPos = mul(VTPos, UVToLocal)</text>
+  <line x1="454" y1="344" x2="454" y2="384" stroke="#d9741a" stroke-width="1.4" marker-end="url(#aro)"/>
+  <rect x="24" y="384" width="564" height="74" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="306" y="405.5" font-size="12.5" fill="#4a5158" text-anchor="middle" font-weight="600">世界坐标 + 法线</text>
+  <text x="306" y="425.5" font-size="10.5" fill="#7a828a" text-anchor="middle">WorldPos = mul(float4(NormalizedPos, H, 1), VirtualHeightfieldToWorld)</text>
+  <text x="306" y="445.5" font-size="10.5" fill="#7a828a" text-anchor="middle">WorldNormal = float3(0, 0, 1) —— 法线是假的，靠材质里的法线贴图补</text>
+  <rect x="636" y="384" width="460" height="130" rx="7" fill="#fdf0ef" stroke="#c0392b" stroke-width="1"/>
+  <text x="866" y="396.5" font-size="10" fill="#7a828a" text-anchor="middle">两个容易踩的点：</text>
+  <text x="866" y="415.5" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="866" y="434.5" font-size="10" fill="#7a828a" text-anchor="middle">① 分数 LOD 会让顶点跑离三角形所在平面 → 表面闪烁。</text>
+  <text x="866" y="453.5" font-size="10" fill="#7a828a" text-anchor="middle">   引擎注释明说：除非改用重心坐标插值，否则「吸附到整级」才是对的。</text>
+  <text x="866" y="472.5" font-size="10" fill="#7a828a" text-anchor="middle">   VirtualHeightfieldMeshVertexFactory.ush:184-187</text>
+  <text x="866" y="491.5" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="866" y="510.5" font-size="10" fill="#7a828a" text-anchor="middle">② 高度图没有硬件 mip 链，所以必须手动查两次页表再插值。</text>
+</svg>
+<div class="cap">图 11　顶点生成：从 16 字节实例到起伏地形（无顶点缓冲）</div>
+</div>
+
+<p><strong>网格怎么来</strong>：<code>VertexCoord = (VertexId % GRID, VertexId / GRID)</code>，其中 <code>GRID = NumInstanceVertexSide + 1</code>。也就是说，<strong>一个实例 = 一个 GRID×GRID 的规则网格</strong>，顶点坐标全由 <code>SV_VertexID</code> 算出。索引缓冲所有实例共享一份。</p>
+
+<p><strong>高度怎么来</strong>：查两次页表（<code>floor(SampleLevel)</code> 和 <code>ceil(SampleLevel)</code>），各采一次高度，再按 <code>frac</code> 插值（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:208-214</span>）。因为物理页纹理只有 level 0，<strong>没有硬件 mip 链，过渡必须手工做</strong>。</p>
+
+<p><strong>顶点 Morph（消除 LOD 跳变）</strong>：VS 里先采一次高度估算距离，算出应该处的 LOD，然后把顶点 UV 往粗网格方向「吸附」（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:86-101</span>）。</p>
+
+<div class="callout"><p style='margin:0'>源码里有一条很重要的设计注释（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:184-187</span>）： <em>"Removing fractional continuous LOD here... fractional locations come away from the surface of the triangles that they interpolate and we see the resultant surface shimmer."</em> 即：<strong>分数 LOD 会让顶点跑离三角形所在平面，产生表面闪烁</strong>。除非改用重心坐标插值，否则「吸附到整级」反而是更正确的做法。</p></div>
+
+<h3>4.6 可选的 One-Pass 版本</h3>
+
+<p><code>r.VHM.WithOnePass = 1</code> 时（默认 0），阶段③ 换成 <code>CollectQuadsOnePassCS</code>：把「N 次串行 dispatch」换成「一次 dispatch + GPU 内部循环」—— 这和 V1 的做法是一样的（见 §8）。</p>
+
+<p>它还有个尾部优化：剩余任务数 ≤ <code>r.VHM.NumActiveForOnePassStep</code>（默认 640）时主动请求退出，避免最后几个任务时大量线程空转（<span class="ref">VirtualHeightfieldMesh3.usf:755-762</span>）。</p>
+
+<div class="callout"><p style='margin:0'>注意这个 permutation 限 <strong>SM6</strong>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1527</span>），移动端不会编译它。</p></div>
+
+<h2 id="s5"><span class="num">五</span>串起来看：一个 quad 的一生</h2>
+
+<p>前面分阶段讲完了，可能还是有点散。这张图把它们串成一条线：</p>
+
+<div class="fig">
+<svg viewBox="0 0 1120 430" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="430" fill="#ffffff"/>
+  <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">跟着一个 quad 走一遍：它从「页表里的一个页」变成「屏幕上的三角形」</text>
+  <rect x="20" y="66" width="170" height="200" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="105" y="120.14" font-size="11.5" fill="#4a5158" text-anchor="middle" font-weight="600">① VT 里的一页</text>
+  <text x="105" y="140.14" font-size="9.5" fill="#7a828a" text-anchor="middle">虚拟纹理流送决定</text>
+  <text x="105" y="160.14" font-size="9.5" fill="#7a828a" text-anchor="middle">哪些页驻留显存</text>
+  <text x="105" y="180.14" font-size="9.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="105" y="200.14" font-size="9.5" fill="#7a828a" text-anchor="middle">没加载的页 ⇒ 后面</text>
+  <text x="105" y="220.14" font-size="9.5" fill="#7a828a" text-anchor="middle">连几何都不会生成</text>
+  <rect x="20" y="284" width="170" height="44" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="105" y="306" font-size="9.5" fill="#7a828a" text-anchor="middle">页表 + 物理页</text>
+  <line x1="191" y1="150" x2="203" y2="150" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="105" y1="266" x2="105" y2="282" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="204" y="66" width="170" height="200" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="289" y="120.14" font-size="11.5" fill="#1a1d21" text-anchor="middle" font-weight="600">② 四叉树节点</text>
+  <text x="289" y="140.14" font-size="9.5" fill="#7a828a" text-anchor="middle">节点 = 4 个 uint32</text>
+  <text x="289" y="160.14" font-size="9.5" fill="#7a828a" text-anchor="middle">Morton 码 + 层级</text>
+  <text x="289" y="180.14" font-size="9.5" fill="#7a828a" text-anchor="middle">+ 物理页地址</text>
+  <text x="289" y="200.14" font-size="9.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="289" y="220.14" font-size="9.5" fill="#7a828a" text-anchor="middle">16 B</text>
+  <rect x="204" y="284" width="170" height="44" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="289" y="306" font-size="9.5" fill="#7a828a" text-anchor="middle">SubdivideQuadBuffer</text>
+  <line x1="375" y1="150" x2="387" y2="150" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="289" y1="266" x2="289" y2="282" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="388" y="66" width="170" height="200" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="473" y="120.14" font-size="11.5" fill="#1a1d21" text-anchor="middle" font-weight="600">③ 反复问「还要更细吗」</text>
+  <text x="473" y="140.14" font-size="9.5" fill="#7a828a" text-anchor="middle">每轮要么分裂成</text>
+  <text x="473" y="160.14" font-size="9.5" fill="#7a828a" text-anchor="middle">4 个子节点，</text>
+  <text x="473" y="180.14" font-size="9.5" fill="#7a828a" text-anchor="middle">要么就此定稿为叶子</text>
+  <text x="473" y="200.14" font-size="9.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="473" y="220.14" font-size="9.5" fill="#7a828a" text-anchor="middle">循环 MaxLevel−3+1 轮</text>
+  <rect x="388" y="284" width="170" height="44" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="473" y="306" font-size="9.5" fill="#7a828a" text-anchor="middle">SubdivideQuadBuffer（双缓冲）</text>
+  <line x1="559" y1="150" x2="571" y2="150" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="473" y1="266" x2="473" y2="282" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="572" y="66" width="170" height="200" rx="7" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="657" y="120.14" font-size="11.5" fill="#1a1d21" text-anchor="middle" font-weight="600">④ 定稿成叶子</text>
+  <text x="657" y="140.14" font-size="9.5" fill="#7a828a" text-anchor="middle">这一轮没有继续细分</text>
+  <text x="657" y="160.14" font-size="9.5" fill="#7a828a" text-anchor="middle">的节点就是最终几何</text>
+  <text x="657" y="180.14" font-size="9.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="657" y="200.14" font-size="9.5" fill="#7a828a" text-anchor="middle">节点数写在</text>
+  <text x="657" y="220.14" font-size="9.5" fill="#7a828a" text-anchor="middle">FinalQuadArgsBuffer</text>
+  <rect x="572" y="284" width="170" height="44" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="657" y="306" font-size="9.5" fill="#7a828a" text-anchor="middle">FinalQuadBuffer</text>
+  <line x1="743" y1="150" x2="755" y2="150" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="657" y1="266" x2="657" y2="282" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="756" y="66" width="170" height="200" rx="7" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="841" y="120.14" font-size="11.5" fill="#1a1d21" text-anchor="middle" font-weight="600">⑤ 变成渲染实例</text>
+  <text x="841" y="140.14" font-size="9.5" fill="#7a828a" text-anchor="middle">再剔除一次，</text>
+  <text x="841" y="160.14" font-size="9.5" fill="#7a828a" text-anchor="middle">按 Mask 分主 / 洞两路</text>
+  <text x="841" y="180.14" font-size="9.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="841" y="200.14" font-size="9.5" fill="#7a828a" text-anchor="middle">Pos + Level + 物理页</text>
+  <text x="841" y="220.14" font-size="9.5" fill="#7a828a" text-anchor="middle">16 B</text>
+  <rect x="756" y="284" width="170" height="44" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="841" y="306" font-size="9.5" fill="#7a828a" text-anchor="middle">InstanceBuffer / HoleInstanceBuffer</text>
+  <line x1="927" y1="150" x2="939" y2="150" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="841" y1="266" x2="841" y2="282" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="940" y="66" width="170" height="200" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="1025" y="120.14" font-size="11.5" fill="#1a1d21" text-anchor="middle" font-weight="600">⑥ 交给光栅化</text>
+  <text x="1025" y="140.14" font-size="9.5" fill="#7a828a" text-anchor="middle">一次 IndirectDraw</text>
+  <text x="1025" y="160.14" font-size="9.5" fill="#7a828a" text-anchor="middle">画一整批</text>
+  <text x="1025" y="180.14" font-size="9.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="1025" y="200.14" font-size="9.5" fill="#7a828a" text-anchor="middle">VS 把一个实例展开成</text>
+  <text x="1025" y="220.14" font-size="9.5" fill="#7a828a" text-anchor="middle">GRID × GRID 个顶点</text>
+  <rect x="940" y="284" width="170" height="44" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="1025" y="306" font-size="9.5" fill="#7a828a" text-anchor="middle">IndirectArgsBuffer</text>
+  <text x="560" y="350" font-size="9.5" fill="#7a828a" text-anchor="middle">↑ 上面一排 = 数据存在哪个缓冲里</text>
+  <rect x="20" y="362" width="1080" height="52" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="560" y="382.5" font-size="10.5" fill="#7a828a" text-anchor="middle">全程只带一样东西：PhysicalAddress（这个 quad 对应 VT 的哪个物理页）。它在细分时由父节点继承，</text>
+  <text x="560" y="402.5" font-size="10.5" fill="#7a828a" text-anchor="middle">到 VS 才被用来换算采样坐标 —— 这就是「几何跟着页表走」的字面含义。</text>
+</svg>
+<div class="cap">图 12　一个 quad 的一生：从页表到像素，以及它途经的每个缓冲</div>
+</div>
+
+<p><strong>记住一条线索就够了</strong>：从头到尾，这个 quad 携带的唯一「出处信息」就是 <code>PhysicalAddress</code> —— 它对应 VT 的哪个物理页。它在细分时由父节点继承，直到 VS 才被用来换算采样坐标。<strong>这就是「几何跟着页表走」的字面含义。</strong></p>
+
+<h2 id="s6"><span class="num">六</span>CPU 侧：谁在什么时候调度</h2>
+
+<p>CPU 这一侧其实很薄 —— 它<strong>不决定画什么</strong>，只负责把参数准备好、把 pass 挂上去。</p>
+
+<h3>6.1 两个挂载点</h3>
+
+<pre><span class="c">// VirtualHeightfieldMeshSceneProxy.cpp:594-595</span>
+GEngine-&gt;GetPreRenderDelegateEx().AddRaw(this, &amp;...::BeginFrame);
+GEngine-&gt;GetPostRenderDelegateEx().AddRaw(this, &amp;...::EndFrame);</pre>
+
+<p>对应 <span class="ref">DeferredShadingRenderer.cpp:2262</span> 和 <span class="ref">DeferredShadingRenderer.cpp:4434</span> —— 也就是<strong>整个场景渲染的一头一尾</strong>。</p>
+
+<h3>6.2 每帧的时序</h3>
+
+<table><thead><tr>
+<th>时机</th>
+<th>做什么</th>
+<th>位置</th>
+</tr></thead><tbody>
+<tr><td><code>GetDynamicMeshElements</code>（主视图收集期）</td><td><code>AddWork()</code> 取/复用缓冲，<code>AddMesh</code> ×2</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:977</span></td></tr>
+<tr><td><code>PreRenderDelegateEx</code></td><td><code>BeginFrame</code> → <code>SubmitWork_V3</code> 提交整条 CS 链</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:662</span></td></tr>
+<tr><td><code>PostRenderDelegateEx</code></td><td><code>EndFrame</code> 回收缓冲池</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:714</span></td></tr>
+</tbody></table>
+
+<div class="callout warn"><div class="h">注意</div><p style='margin:0'><code>GetDynamicMeshElements</code> 开头有个早退： ``<code>cpp if (GVirtualHeightfieldMeshViewRendererExtension.IsInFrame()) { return; }   // :984 </code>`<code> </code>bInFrame<code> 从 PreRender 一直置位到 PostRender。**主视图的网格收集发生在 </code>BeginInitViews` 窗口内（早于 PreRender），所以不受影响**；但阴影等后续 pass 是否受影响，需要实测确认（见 §12.2）。</p></div>
+
+<h3>6.3 工作项与缓冲池</h3>
+
+<p><code>FWorkDesc { ProxyIndex, MainViewIndex, CullViewIndex, BufferIndex }</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:557-563</span>），排序键：</p>
+
+<pre>SortKey = (ProxyIndex &lt;&lt; 24) | (MainViewIndex &lt;&lt; 16) | (CullViewIndex &lt;&lt; 8) | BufferIndex;</pre>
+
+<p><strong>为什么这样排</strong>：<code>SubmitWork_V3</code> 的外层循环按 Proxy 聚合、内层按 View 聚合，同组的工作项能复用同一套 volatile 缓冲与 UB 填充 —— <strong>排序把「重复计算」变成「复用」</strong>。</p>
+
+<p>缓冲池本身跨帧复用，4 帧未使用才释放（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:636-645</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:730-744</span>）。</p>
+
+<h2 id="s7"><span class="num">七</span>关键数学</h2>
+
+<h3>7.1 LOD 距离函数</h3>
+
+<p>CPU 侧算好四个因子（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:400-414</span>）：</p>
+
+<pre>const float Lod0UVSize    = 1.f / (float)(1 &lt;&lt; MaxLevel);
+const float Lod0WorldSize = UVToWorldScale.XY * Lod0UVSize;
+const float Lod0WorldRadius = Lod0WorldSize.Size();
+const float ScreenMultiple  = max(0.5f * Proj[0][0], 0.5f * Proj[1][1]);
+const float Lod0Distance    = Lod0WorldRadius * ScreenMultiple / Lod0ScreenSize;
+return FVector4f(Lod0Distance, Lod0Distribution, LodDistribution, LodScale);</pre>
+
+<p>GPU 侧消费（<span class="ref">VirtualHeightfieldMesh.ush:120-126</span>）：</p>
+
+<pre>float ScaledDistance   = sqrt(InDistanceSq) * InLodFactors.w;                        <span class="c">// w = LodScale</span>
+float LodForDistance0  = saturate(ScaledDistance / (InLodFactors.x * InLodFactors.y));
+float LodForDistanceN  = log2(1 + max((ScaledDistance / InLodFactors.x - InLodFactors.y), 0))
+                       / log2(InLodFactors.z);
+return LodForDistance0 + LodForDistanceN;</pre>
+
+<p><strong>符号取值来源</strong>：</p>
+
+<ul><li><code>x = Lod0Distance</code>：LOD 0 对应的世界距离（由 UVToWorldScale 和投影矩阵推出）</li><li><code>y = Lod0Distribution</code>：LOD 0 段的距离扩展倍数（组件默认 1.0）</li><li><code>z = LodDistribution</code>：远处对数段的底数（组件默认 2.0，<strong>必须 &gt; 1</strong>，否则 <code>log2(z)</code> 为 0 会除零 —— 这就是组件上 <code>ClampMin = 1.0</code> 的原因）</li><li><code>w = LodScale = ViewLodDistanceFactor × r.VHM.LodScale</code>，其中 <code>ViewLodDistanceFactor</code> 默认强制为 1</li></ul>
+
+<p><strong>近处线性、远处对数</strong> —— 所以近处变化快、远处变化慢，符合屏幕像素分布。</p>
+
+<h3>7.2 LOD Bias（材质驱动的局部加密）</h3>
+
+<pre><span class="c">// VirtualHeightfieldMesh.ush:129-132</span>
+return max((InValue - 0.05f) * InLodBiasScale - 1.f, 0);</pre>
+
+<p><code>LodBiasTexture</code> 在烘焙 MinMax 时一起生成（存的是高度差归一化值）。VS 里用 <code>clamp(LodForDistance - LodBias, Level, MaxLod)</code> 修正 —— <strong>几何起伏大的地方自动加密</strong>。</p>
+
+<h3>7.3 视锥 AABB 测试</h3>
+
+<p><code>PlaneTestAABB</code>（<span class="ref">VirtualHeightfieldMesh.ush:188-205</span>）：对 5 个平面，取 AABB 在平面法线方向上「最远」的那个角，只要它落在任一平面外就剔除。</p>
+
+<pre>PlaneSigns = sign(InPlanes[PlaneIndex].xyz);          <span class="c">// 指向法线正方向的角</span>
+bInsidePlane = dot(plane, float4(center + extent * PlaneSigns, 1.0)) &gt; 0;</pre>
+
+<div class="callout"><p style='margin:0'>注意 <code>extent</code> 按语义应该是<strong>半长</strong>，但 V3 传的是<strong>全长</strong> <code>UVExtern = UVMax - UVMin</code>（<span class="ref">VirtualHeightfieldMesh3.usf:256</span>） → 测试盒被放大 2 倍 → 偏保守（少剔除、不漏画）。这是个「安全方向」的取舍。</p></div>
+
+<h2 id="s8"><span class="num">八</span>V1（Epic 原版）单独讲</h2>
+
+<p>前面七节讲的都是 V3。现在单独看 V1 —— <strong>它和 V3 在数据结构、流程上都不同，唯一相同的是「要解决什么问题」。</strong></p>
+
+<h3>8.1 V1 唯一的根本差异：遍历方式</h3>
+
+<div class="fig">
+<svg viewBox="0 0 1120 500" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="500" fill="#ffffff"/>
+  <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">V1（Epic 原版）的遍历方式：一次 dispatch，线程在 GPU 上「自己循环」</text>
+  <rect x="24" y="66" width="250" height="132" rx="7" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="149" y="86.5" font-size="12.5" fill="#4a5158" text-anchor="middle" font-weight="600">WorkerQueueInfo</text>
+  <text x="149" y="106.5" font-size="10" fill="#7a828a" text-anchor="middle">全局只有一份，12 B</text>
+  <text x="149" y="126.5" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="149" y="146.5" font-size="10" fill="#7a828a" text-anchor="middle">uint Read   ← 消费游标</text>
+  <text x="149" y="166.5" font-size="10" fill="#7a828a" text-anchor="middle">uint Write  ← 生产游标</text>
+  <text x="149" y="186.5" font-size="10" fill="#7a828a" text-anchor="middle">int  NumActive ← 在途任务数</text>
+  <text x="149" y="216" font-size="9.5" fill="#7a828a" text-anchor="middle">三个数全用 InterlockedAdd 原子改</text>
+  <text x="310" y="54" font-size="11.5" fill="#1a1d21" text-anchor="start" font-weight="700">QuadBuffer（环形，用 &amp; (Size−1) 取模）</text>
+  <rect x="310" y="66" width="62" height="46" rx="0" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="341" y="94" font-size="9.5" fill="#7a828a" text-anchor="middle">n0</text>
+  <rect x="372" y="66" width="62" height="46" rx="0" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="403" y="94" font-size="9.5" fill="#7a828a" text-anchor="middle">n1</text>
+  <rect x="434" y="66" width="62" height="46" rx="0" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="465" y="94" font-size="9.5" fill="#7a828a" text-anchor="middle">n2</text>
+  <rect x="496" y="66" width="62" height="46" rx="0" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="527" y="94" font-size="9.5" fill="#7a828a" text-anchor="middle">n3</text>
+  <rect x="558" y="66" width="62" height="46" rx="0" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="589" y="94" font-size="9.5" fill="#7a828a" text-anchor="middle">n4</text>
+  <rect x="620" y="66" width="62" height="46" rx="0" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="651" y="94" font-size="9.5" fill="#7a828a" text-anchor="middle">n5</text>
+  <rect x="682" y="66" width="62" height="46" rx="0" fill="#ffffff" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="713" y="94" font-size="9.5" fill="#7a828a" text-anchor="middle">n6</text>
+  <rect x="744" y="66" width="62" height="46" rx="0" fill="#ffffff" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="775" y="94" font-size="9.5" fill="#7a828a" text-anchor="middle">n7</text>
+  <rect x="806" y="66" width="62" height="46" rx="0" fill="#ffffff" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="837" y="94" font-size="9.5" fill="#7a828a" text-anchor="middle">n8</text>
+  <rect x="868" y="66" width="62" height="46" rx="0" fill="#ffffff" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="899" y="94" font-size="9.5" fill="#7a828a" text-anchor="middle">n9</text>
+  <line x1="465" y1="130" x2="465" y2="114" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <text x="465" y="146" font-size="9.5" fill="#1f9254" text-anchor="middle" font-weight="700">Read</text>
+  <line x1="713" y1="130" x2="713" y2="114" stroke="#d9741a" stroke-width="1.4" marker-end="url(#aro)"/>
+  <text x="713" y="146" font-size="9.5" fill="#d9741a" text-anchor="middle" font-weight="700">Write</text>
+  <text x="310" y="176" font-size="9.5" fill="#7a828a" text-anchor="start">绿色 = 已被消费；空白 = 还没写到。Write 追上 Read 就是本轮结束。</text>
+  <rect x="310" y="196" width="786" height="148" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="326" y="218" font-size="11.5" fill="#1a1d21" text-anchor="start" font-weight="700">CollectQuadsCS 每个线程做的事（持久波）</text>
+  <text x="330" y="240" font-size="10" fill="#4a5158" text-anchor="start">while (NumActive &gt; 0) {</text>
+  <text x="330" y="257" font-size="10" fill="#4a5158" text-anchor="start">    InterlockedAdd(NumActive, -1)   // 抢任务；抢不到就归还</text>
+  <text x="330" y="274" font-size="10" fill="#4a5158" text-anchor="start">    读节点 → 判断「还要不要更细」</text>
+  <text x="330" y="291" font-size="10" fill="#4a5158" text-anchor="start">    要细分 → InterlockedAdd(Write, +4)，4 个子节点压回同一队列</text>
+  <text x="330" y="308" font-size="10" fill="#4a5158" text-anchor="start">    够细了 → 直接写进最终的 InstanceBuffer</text>
+  <text x="330" y="325" font-size="10" fill="#4a5158" text-anchor="start">}</text>
+  <text x="310" y="360" font-size="10" fill="#7a828a" text-anchor="start">线程不因「这一批处理完」而退出，而是继续抢活 —— 直到队列真的空了。</text>
+  <rect x="24" y="376" width="1072" height="112" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="560" y="376.5" font-size="10.5" fill="#7a828a" text-anchor="middle">和 V3 的本质差别：</text>
+  <text x="560" y="396.5" font-size="10.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="560" y="416.5" font-size="10.5" fill="#7a828a" text-anchor="middle">· V1 的遍历深度是「未知」的 —— 所以必须让线程常驻、队列自增长，一次 dispatch 跑完。</text>
+  <text x="560" y="436.5" font-size="10.5" fill="#7a828a" text-anchor="middle">· V3 的深度是「已知」的（MaxLevel 是常量），所以改成 N 次串行 dispatch，每轮一个 kernel，</text>
+  <text x="560" y="456.5" font-size="10.5" fill="#7a828a" text-anchor="middle">  换来的是：没有全局队列争用、每轮工作量可预测、更容易插剔除和统计。</text>
+  <text x="560" y="476.5" font-size="10.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="560" y="496.5" font-size="10.5" fill="#7a828a" text-anchor="middle">代价：V3 的 dispatch 次数随 MaxLevel 线性增长；V1 恒定 1 次。</text>
+</svg>
+<div class="cap">图 13　V1 的持久波工作队列：线程常驻 + 全局环形队列</div>
+</div>
+
+<p>V1 的做法是<strong>持久波（persistent wave）</strong>：</p>
+
+<ul><li>全局只有一份队列状态 <code>WorkerQueueInfo { Read, Write, NumActive }</code>，三个数全用原子操作改。</li><li>队列本体是一个<strong>环形缓冲</strong>，用 <code>&amp; (Size - 1)</code> 取模（<span class="ref">VirtualHeightfieldMesh.usf:137</span>）。</li><li>每个线程在一个 <code>while</code> 循环里：抢任务 → 处理 → 如果还要细分，就把 4 个子节点<strong>压回同一个队列</strong> → 直到队列真的空了才退出。</li><li>整个过程<strong>只需要一次 dispatch</strong>。</li></ul>
+
+<h3>8.2 V1 的节点布局</h3>
+
+<div class="fig">
+<svg viewBox="0 0 1120 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="300" fill="#ffffff"/>
+  <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">V1 的四叉树节点 QuadRenderItem —— 8 字节（uint2），和 V3 的 16 字节不一样</text>
+  <text x="24" y="76" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">uint32 #0</text>
+  <text x="89" y="84" font-size="9.5" fill="#7a828a" text-anchor="middle">24..31</text>
+  <text x="251.5" y="84" font-size="9.5" fill="#7a828a" text-anchor="middle">12..23</text>
+  <text x="446.5" y="84" font-size="9.5" fill="#7a828a" text-anchor="middle">0..11</text>
+  <rect x="24" y="90" width="130" height="46" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="89" y="117" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Level</text>
+  <rect x="154" y="90" width="195" height="46" rx="0" fill="#f7faff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="251.5" y="117" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Pos.y</text>
+  <rect x="349" y="90" width="195" height="46" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="446.5" y="117" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Pos.x</text>
+  <text x="24" y="208" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">uint32 #1</text>
+  <text x="32.125" y="216" font-size="9.5" fill="#7a828a" text-anchor="middle">31</text>
+  <text x="129.625" y="216" font-size="9.5" fill="#7a828a" text-anchor="middle">20..30</text>
+  <text x="381.5" y="216" font-size="9.5" fill="#7a828a" text-anchor="middle">0..19</text>
+  <rect x="24" y="222" width="16.25" height="46" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <line x1="32.125" y1="268" x2="32.125" y2="274" stroke="#7a828a" stroke-width="0.9"/>  <text x="27.125" y="284" font-size="9.5" fill="#1a1d21" text-anchor="start" font-weight="700">bCull</text>
+  <rect x="40.25" y="222" width="178.75" height="46" rx="0" fill="#f7faff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="129.625" y="249" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">—</text>
+  <rect x="219" y="222" width="325" height="46" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="381.5" y="249" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress</text>
+  <text x="24" y="158" font-size="10" fill="#7a828a" text-anchor="start">VirtualHeightfieldMesh.ush:55-72</text>
+  <rect x="584" y="64" width="512" height="200" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="840" y="92.5" font-size="10.5" fill="#7a828a" text-anchor="middle">三个和 V3 不同的地方：</text>
+  <text x="840" y="111.5" font-size="10.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="840" y="130.5" font-size="10.5" fill="#7a828a" text-anchor="middle">① 位置不压 Morton 码，直接存 Pos.x / Pos.y 各 12 位；</text>
+  <text x="840" y="149.5" font-size="10.5" fill="#7a828a" text-anchor="middle">② Level 占 8 位（V3 只占 4 位）；</text>
+  <text x="840" y="168.5" font-size="10.5" fill="#7a828a" text-anchor="middle">③ 多一个 bCull 位 —— 因为 V1 的剔除结果要缓存下来，</text>
+  <text x="840" y="187.5" font-size="10.5" fill="#7a828a" text-anchor="middle">   给阴影视图复用（REUSE_CULL 置换宏）。</text>
+  <text x="840" y="206.5" font-size="10.5" fill="#7a828a" text-anchor="middle"></text>
+  <text x="840" y="225.5" font-size="10.5" fill="#7a828a" text-anchor="middle">两者都是 8 / 16 字节的紧凑打包，但字段切法完全不同，</text>
+  <text x="840" y="244.5" font-size="10.5" fill="#7a828a" text-anchor="middle">不能互相套用。</text>
+</svg>
+<div class="cap">图 14　V1 的 QuadRenderItem 位域布局（8 B）</div>
+</div>
+
+<h3>8.3 V1 的其它不同点</h3>
+
+<table><thead><tr>
+<th>项目</th>
+<th>V1 的做法</th>
+<th>位置</th>
+</tr></thead><tbody>
+<tr><td>起始</td><td>从单个根节点 <code>Level = MaxLevel</code> 出发</td><td><span class="ref">VirtualHeightfieldMesh.usf:87</span></td></tr>
+<tr><td>实例打包</td><td><code>Pos.x | Pos.y&lt;&lt;12 | Level&lt;&lt;24</code>（12/12/8）</td><td><span class="ref">VirtualHeightfieldMesh.usf:412</span></td></tr>
+<tr><td>循环轮数</td><td>由队列长度自己决定，CPU 不知道</td><td>——</td></tr>
+</tbody></table>
+
+<h3>8.4 V1 的反馈写入更「朴素」</h3>
+
+<p>V1 是每个线程各自做一次全局原子加（<span class="ref">VirtualHeightfieldMesh3.usf:202-221</span> 的非优化分支），而 V3 改成了整组合并一次。这是 V3 在 V1 基础上做的优化之一。</p>
+
+<h2 id="s9"><span class="num">九</span>V1 与 V3 对比</h2>
+
+<p>现在两条线都讲完了，可以放在一起看：</p>
+
+<div class="fig">
+<svg viewBox="0 0 1120 430" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="430" fill="#ffffff"/>
+  <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">两种流水线的时序对比：V3 用「多轮 dispatch」换掉 V1 的「线程常驻」</text>
+  <text x="24" y="76" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">V3（本仓库默认，r.VHM.Version = 3）</text>
+  <rect x="24" y="90" width="124" height="40" rx="5" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="86" y="115" font-size="10" fill="#1a1d21" text-anchor="middle">InitAll
+Buffers</text>
+  <rect x="154" y="90" width="124" height="40" rx="5" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="216" y="115" font-size="10" fill="#1a1d21" text-anchor="middle">FillLevel4
+Quad</text>
+  <rect x="284" y="90" width="94" height="40" rx="5" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="331" y="115" font-size="10" fill="#1a1d21" text-anchor="middle">Subdiv ×1</text>
+  <rect x="384" y="90" width="94" height="40" rx="5" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="431" y="115" font-size="10" fill="#1a1d21" text-anchor="middle">Subdiv ×2</text>
+  <rect x="484" y="90" width="94" height="40" rx="5" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="531" y="115" font-size="10" fill="#1a1d21" text-anchor="middle">Subdiv ×…</text>
+  <rect x="584" y="90" width="94" height="40" rx="5" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="631" y="115" font-size="10" fill="#1a1d21" text-anchor="middle">Subdiv ×N</text>
+  <rect x="684" y="90" width="164" height="40" rx="5" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="766" y="115" font-size="10" fill="#1a1d21" text-anchor="middle">Cull &amp; Gen
+Instances</text>
+  <text x="24" y="152" font-size="10" fill="#7a828a" text-anchor="start">dispatch 次数 = 2 + (MaxLevel − 3 + 1) + 1 —— 随最大层级线性增长；每轮只处理上一轮的产出</text>
+  <line x1="24" y1="172" x2="1096" y2="172" stroke="#5a6672" stroke-width="1"/>
+  <text x="24" y="216" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">V1（Epic 原版，r.VHM.Version = 1）</text>
+  <rect x="24" y="230" width="174" height="40" rx="5" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="111" y="255" font-size="10" fill="#1a1d21" text-anchor="middle">InitBuffers</text>
+  <rect x="204" y="230" width="694" height="40" rx="5" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="551" y="255" font-size="10" fill="#1a1d21" text-anchor="middle">CollectQuadsCS —— 持久波，一次 dispatch 内部循环到队列空</text>
+  <rect x="904" y="230" width="164" height="40" rx="5" fill="#e9f7ef" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="986" y="255" font-size="10" fill="#1a1d21" text-anchor="middle">Cull
+Instances</text>
+  <text x="24" y="292" font-size="10" fill="#7a828a" text-anchor="start">dispatch 次数恒为 3，与地形规模无关；代价是全局队列争用 + 每轮工作量不可预测</text>
+  <line x1="24" y1="312" x2="1096" y2="312" stroke="#5a6672" stroke-width="1"/>
+  <rect x="24" y="330" width="522" height="84" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="285" y="348" font-size="10" fill="#7a828a" text-anchor="middle">V3 换来了什么：</text>
+  <text x="285" y="367" font-size="10" fill="#7a828a" text-anchor="middle">· 每轮工作量已知 → 可预测、易插剔除、易做统计</text>
+  <text x="285" y="386" font-size="10" fill="#7a828a" text-anchor="middle">· 没有全局队列争用（改用每轮 args 传递）</text>
+  <text x="285" y="405" font-size="10" fill="#7a828a" text-anchor="middle">· 能按轮次控制精度（前几轮可跳过剔除）</text>
+  <rect x="562" y="330" width="534" height="84" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="829" y="357.5" font-size="10" fill="#7a828a" text-anchor="middle">V3 付出了什么：</text>
+  <text x="829" y="376.5" font-size="10" fill="#7a828a" text-anchor="middle">· dispatch 次数随 MaxLevel 增长（地形越大越多）</text>
+  <text x="829" y="395.5" font-size="10" fill="#7a828a" text-anchor="middle">· 每轮 kernel 尾部的线程空转（可用 One-Pass 版本缓解，见 §4.6）</text>
+</svg>
+<div class="cap">图 15　V1 与 V3 的时序对比</div>
+</div>
+
+<table><thead><tr>
+<th>维度</th>
+<th><strong>V1</strong>（Epic 原版）</th>
+<th><strong>V3</strong>（本仓库默认）</th>
+</tr></thead><tbody>
+<tr><td>Shader 文件</td><td><span class="ref">VirtualHeightfieldMesh.usf</span></td><td><span class="ref">VirtualHeightfieldMesh3.usf</span></td></tr>
+<tr><td>遍历方式</td><td>持久波：1 次 dispatch，线程自己循环</td><td>串行：<code>MaxLevel + 1</code> 次 dispatch</td></tr>
+<tr><td>起点</td><td>单根节点 <code>Level = MaxLevel</code></td><td>64 个 <code>Level = MaxLevel−3</code> 的节点</td></tr>
+<tr><td>节点打包</td><td><code>uint2</code>（12/12/8 分段）</td><td><code>uint4</code>（14/14/4 分段）</td></tr>
+<tr><td>反馈原子操作</td><td>每线程一次</td><td>每组一次（降到 1/32）</td></tr>
+<tr><td>每轮工作量</td><td>不可预测</td><td>可预测</td></tr>
+<tr><td>全局队列争用</td><td>有</td><td>无（改用每轮 args 传递）</td></tr>
+<tr><td>遮挡剔除（Occlusion）</td><td>接了 <code>OcclusionTexture</code></td><td><strong>未接</strong>（<code>bOccludeCull = false</code> 硬编码，<span class="ref">VirtualHeightfieldMesh3.usf:237</span>）</td></tr>
+<tr><td>Mask / 洞</td><td>有（本仓库后加）</td><td>有</td></tr>
+</tbody></table>
+
+<p><strong>该选哪个</strong>：V3 是本仓库默认，因为它把「不可预测的 GPU 内循环」换成了「可预测的多次 dispatch」—— 更容易插剔除、更容易做统计、也更容易定位性能问题。代价是 dispatch 次数随地形规模增长；真嫌多可以临时开 <code>r.VHM.WithOnePass=1</code> 退回类似 V1 的形态。</p>
+
+<h2 id="s10"><span class="num">十</span>本仓库（GR 分叉）的自研改动</h2>
+
+<p>标注体系：<code>#pragma region S1_Engine_Shiyu</code> / <code>Engine CYH</code> / <code>Engine ZXB</code>。</p>
+
+<table><thead><tr>
+<th>贡献者</th>
+<th>改动</th>
+<th>关键位置</th>
+</tr></thead><tbody>
+<tr><td><strong>Shiyu</strong>（主力）</td><td><strong>Mask 纹理 + HoleMaterial 挖洞系统</strong></td><td><span class="ref">HeightfieldMaskRender.usf</span> 全文件；<span class="ref">VirtualHeightfieldMeshComponent.h:53-76</span>；<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:813-824</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1061-1120</span></td></tr>
+<tr><td><strong>Shiyu</strong></td><td><strong>VHM V3 流水线</strong>（整份新增）</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1421-1612</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2117-2436</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2837-2972</span></td></tr>
+<tr><td><strong>Shiyu</strong></td><td><strong>LOD 全局调参 CVar</strong></td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:138-152</span></td></tr>
+<tr><td><strong>Shiyu</strong></td><td><strong><code>NumQuadPerTileOfTwo</code> / <code>ExtSubdivisionLevel</code></strong></td><td><span class="ref">VirtualHeightfieldMeshComponent.h:115-122</span>；<span class="ref">VirtualHeightfieldMeshEnable.cpp:33-38</span></td></tr>
+<tr><td><strong>Shiyu</strong></td><td><strong>One-Pass 持久线程</strong></td><td><span class="ref">VirtualHeightfieldMesh3.usf:648-776</span>；<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:154-173</span></td></tr>
+<tr><td><strong>Shiyu</strong></td><td><strong>GPU Stat 采集</strong></td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:182-212</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2978-3047</span></td></tr>
+<tr><td><strong>CYH</strong></td><td><code>r.VHM.Visualize</code>；<strong>Nanite/VHM 自动互斥框架</strong></td><td><span class="ref">VirtualHeightfieldMeshEnable.cpp:23-31</span>、<span class="ref">VirtualHeightfieldMeshEnable.cpp:43-70</span></td></tr>
+<tr><td><strong>ZXB</strong></td><td><strong>SM5 下不禁用 VHM</strong>（一行关键 patch）</td><td><span class="ref">VirtualHeightfieldMeshEnable.cpp:51-53</span></td></tr>
+<tr><td><strong>JLP</strong></td><td><code>GR_SHOULD_CACHE_VF</code> —— VF permutation 缓存标记</td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.h:93</span></td></tr>
+</tbody></table>
+
+<h3>10.1 移动端能被用起来的关键</h3>
+
+<p><span class="ref">VirtualHeightfieldMeshEnable.cpp</span> 里的这段逻辑值得单独说：</p>
+
+<pre><span class="c">// 非 Editor 构建：Nanite 开着就自动关 VHM</span>
+bNaniteEnabled = (r.Nanite != 0) &amp;&amp; (landscape.RenderNanite != 0);
+<span class="k">#pragma</span> region Engine ZXB for VHM and Nanite auto switch for SM5
+bNaniteEnabled &amp;= GMaxRHIFeatureLevel &gt; ERHIFeatureLevel::SM5;      <span class="c">// :52</span>
+<span class="k">#pragma</span> endregion</pre>
+
+<p>在移动端（ES3.1 / SM5）上 <code>GMaxRHIFeatureLevel &gt; SM5</code> 为 <strong>false</strong>，于是 <code>bNaniteEnabled</code> 被强制置 false，sink 就会自动把 <code>r.VHM.Enable</code> 打开。</p>
+
+<p><strong>这就是「手机上 VHM 能用」的前提</strong> —— Nanite 在移动端跑不了，所以让 VHM 顶上。</p>
+
+<div class="callout"><p style='margin:0'>另外注意：<code>r.VHM.Enable</code> 默认值是 <strong>0</strong>，但它会被这个 sink 在运行时改写（<span class="ref">VirtualHeightfieldMeshEnable.cpp:55-68</span>）。<strong>别只看默认值就判断「没开」。</strong></p></div>
+
+<h2 id="s11"><span class="num">十一</span>已做的优化总结</h2>
+
+<h3>11.1 Epic 原始设计的优化点</h3>
+
+<table><thead><tr>
+<th>#</th>
+<th>优化</th>
+<th>为什么有效</th>
+<th>位置</th>
+</tr></thead><tbody>
+<tr><td>1</td><td><strong>几何量由 VT 驻留量驱动</strong></td><td>显存里只有 N 页，GPU 就只画 N 个 quad —— 几何复杂度与地形总规模解耦</td><td>全程</td></tr>
+<tr><td>2</td><td><strong>MinMax 金字塔做保守剔除</strong></td><td>一个 quad 是否可见只需 2 个 float 的 AABB，O(1) 判定</td><td><span class="ref">VirtualHeightfieldMesh.ush:173-179</span>、<span class="ref">VirtualHeightfieldMesh.ush:188-205</span></td></tr>
+<tr><td>3</td><td><strong>无顶点/索引缓冲的实例化</strong></td><td>顶点由 <code>SV_VertexID</code> 现算，索引缓冲全局共享一份；每实例仅 16 字节</td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.ush:7</span>、<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:128-129</span></td></tr>
+<tr><td>4</td><td><strong>CDLOD 顶点 morph</strong></td><td>消除 LOD 切换的几何跳变</td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.ush:86-101</span></td></tr>
+<tr><td>5</td><td><strong>持久波工作队列</strong>（V1）</td><td>遍历工作量未知也能一次 dispatch 跑完，无需 CPU 回读</td><td><span class="ref">VirtualHeightfieldMesh.usf:137</span></td></tr>
+<tr><td>6</td><td><strong><code>DrawIndexedInstancedIndirect</code></strong></td><td>CPU 完全不知道实例数，无同步点</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1024</span></td></tr>
+<tr><td>7</td><td><strong>VS 内实时算 LOD</strong></td><td>不必逐实例从 CPU 传 LOD；顺带支持 FreezeRendering</td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.ush:170-191</span></td></tr>
+<tr><td>8</td><td><strong>视锥平面预变换到 UV 空间</strong></td><td>每帧每视图只变换 5 个平面，而不是每 quad 变换一次</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2527-2537</span></td></tr>
+</tbody></table>
+
+<h3>11.2 本仓库新增的优化</h3>
+
+<table><thead><tr>
+<th>#</th>
+<th>优化</th>
+<th>收益</th>
+<th>位置</th>
+</tr></thead><tbody>
+<tr><td>1</td><td><strong>V3 起点播种 <code>MaxLevel−3</code></strong></td><td>省掉最粗 3 轮的完整 dispatch</td><td><span class="ref">VirtualHeightfieldMesh3.usf:600-632</span></td></tr>
+<tr><td>2</td><td><strong>直接算组内活跃线程数</strong></td><td>替代逐线程 <code>InterlockedMax</code>，减少原子争用</td><td><span class="ref">VirtualHeightfieldMesh3.usf:294-296</span></td></tr>
+<tr><td>3</td><td><strong>反馈写入按组合并</strong></td><td>全局原子操作数降到 1/32</td><td><span class="ref">VirtualHeightfieldMesh3.usf:411</span>、<span class="ref">VirtualHeightfieldMesh3.usf:419-426</span></td></tr>
+<tr><td>4</td><td><strong>VT 反馈全帧合并成一次提交</strong></td><td>V1 是每个 MainView 一次；V3 所有 work 共用一个 buffer</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2855-2862</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2963-2971</span></td></tr>
+<tr><td>5</td><td><strong>Mask 分流 + 双 IndirectDraw</strong></td><td>剔除在 CS 里做，避免 PS 阶段 discard（移动端 TBDR 上会破坏 HSR）</td><td><span class="ref">VirtualHeightfieldMesh3.usf:509-519</span></td></tr>
+<tr><td>6</td><td><strong>双缓冲 Args / Quad 缓冲</strong></td><td>读写分离，避免同一 pass 内 RAW 冲突</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1861-1872</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2221-2236</span></td></tr>
+<tr><td>7</td><td><strong>One-Pass 持久线程 + 提前退出</strong></td><td>省 N 次 dispatch；尾部主动收敛</td><td><span class="ref">VirtualHeightfieldMesh3.usf:755-762</span></td></tr>
+<tr><td>8</td><td><strong>缓冲池跨帧复用 + 4 帧老化</strong></td><td>避免每帧重建 GPU 缓冲</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:636-645</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:730-744</span></td></tr>
+<tr><td>9</td><td><strong><code>ExtSubdivisionLevel</code>：几何可细于纹理</strong></td><td>同物理页服务多个几何 quad，不增加 VT 内存</td><td><span class="ref">VirtualHeightfieldMesh3.usf:86-88</span></td></tr>
+<tr><td>10</td><td><strong>全局 LOD 调参 CVar</strong></td><td>不改资产就能全局调 LOD 分布</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:138-152</span></td></tr>
+</tbody></table>
+
+<h3>11.3 性能观测</h3>
+
+<p>开 <code>r.VHM.StatEnable=1</code> 后（需 <code>VHM_ENABLE_STAT=1</code> 编译；该宏在 <span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:176-181</span>，<strong>本工作区已打开为 1</strong>，见 <span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:179-180</span>）可读回：</p>
+
+<table class="kv"><thead><tr>
+<th>Stat</th>
+<th>含义</th>
+</tr></thead><tbody>
+<tr><td><code>VHM.BeforeCullInstances</code></td><td>剔除前实例总数</td></tr>
+<tr><td><code>VHM.DrawInstances-ALL</code></td><td>剔除后绘制实例数</td></tr>
+<tr><td><code>VHM.DrawInstances-Opacity</code> / <code>-Mask</code></td><td>主材质 / 洞材质各自的实例数</td></tr>
+<tr><td><code>VHM.DrawInstances-LOD0..9</code></td><td>各 LOD 层的实例分布</td></tr>
+<tr><td><code>VHM.DrawTriangles</code></td><td><code>实例数 × NumInstanceVertexSide² × 6 / 3</code></td></tr>
+</tbody></table>
+
+<div class="callout"><p style='margin:0'><strong>行号基线说明</strong>：本文档中 <span class="ref">VirtualHeightfieldMeshSceneProxy.cpp</span> 的行号对齐的是<strong>本工作区的当前版本（3053 行）</strong>——该文件第 179-180 行被本地加了一行 <code>// [ZXB]</code> 注释并打开了 <code>VHM_ENABLE_STAT</code>，使第 176 行之后的代码整体下移 1 行。若你读的是 depot 版本（3052 行），第 176 行之后的行号需各减 1。</p></div>
+
+<h2 id="s12"><span class="num">十二</span>已知问题与待确认</h2>
+
+<h3>12.1 ⚠️ <code>UnPackMinMaxHeight</code> 与 <code>PackMinMax</code> 互不可逆（Min/Max 互换）</h3>
+
+<p>这是<strong>纯本地源码即可复现</strong>的不一致：</p>
+
+<table><thead><tr>
+<th>端</th>
+<th>位置</th>
+<th>表达式</th>
+</tr></thead><tbody>
+<tr><td>打包</td><td><span class="ref">HeightfieldMinMaxRender.usf:12-21</span></td><td><code>.x=Max&gt;&gt;8, .y=Min&amp;0xff, .z=Min&gt;&gt;8, .w=Max&amp;0xff</code></td></tr>
+<tr><td>逆运算（正确）</td><td><span class="ref">HeightfieldMinMaxRender.usf:23-29</span></td><td><code>( .z&lt;&lt;8 | .y, .x&lt;&lt;8 | .w )</code> → <strong>(Min, Max)</strong></td></tr>
+<tr><td>解包（<strong>不一致</strong>）</td><td><span class="ref">VirtualHeightfieldMesh.ush:173-179</span></td><td><code>( .x&lt;&lt;8 | .y, .z&lt;&lt;8 | .w )</code></td></tr>
+</tbody></table>
+
+<p><strong>数值验证</strong>（Min = 0.25，Max = 0.75）：</p>
+
+<pre>PackMinMax:   MinU = 0x3FFF(16383)，MaxU = 0xBFFF(49151)
+              → RGBA8 = (191, 255, 63, 255)
+
+UnPackMinMaxHeight:  (191&lt;&lt;8|255, 63&lt;&lt;8|255) = (49151, 16383) = (0.750, 0.250)
+                     ↑ 返回的是 (≈Max, ≈Min)，与调用方期望的 (Min, Max) 相反
+
+UnPackMinMax（.usf）:(63&lt;&lt;8|255, 191&lt;&lt;8|255) = (16383, 49151) = (0.250, 0.750)  ✅ 正确</pre>
+
+<p><strong>影响面</strong>：<code>UnPackMinMaxHeight</code> 的 3 个调用点全部把返回值当作 <code>(Min, Max)</code> 用：</p>
+
+<ul><li><span class="ref">VirtualHeightfieldMesh3.usf:252-254</span></li><li><span class="ref">VirtualHeightfieldMesh.usf:200-202</span>、<span class="ref">VirtualHeightfieldMesh.usf:384-386</span></li></ul>
+
+<p>于是 AABB 的 Z 区间被反转（zmin ≈ Max &gt; zmax ≈ Min）。<code>UVCenter</code> 仍然正确（中点对称），但 <code>UVExtern.z</code> 变成负值，<code>PlaneTestAABB</code>（<span class="ref">VirtualHeightfieldMesh.ush:200</span>）测的其实是 <strong>Z 方向镜像的那只角</strong>。</p>
+
+<p><strong>待确认</strong>：(a) 这是否是引入通道打乱时漏改的遗漏；(b) 实际影响是「多剔除」（地形缺块）还是「少剔除」（浪费），需实测 —— 可对比 <code>VHM.DrawInstances-ALL</code> 与相机到视锥边界的距离。</p>
+
+<div class="callout"><p style='margin:0'>若确认是缺陷，最小修复是把 <span class="ref">VirtualHeightfieldMesh.ush:176</span> 改为 <code>.z &lt;&lt; 8 | .y</code> 与 <code>.x &lt;&lt; 8 | .w</code>，与 <span class="ref">HeightfieldMinMaxRender.usf:26</span> 对齐。</p></div>
+
+<h3>12.2 阴影路径需要实测确认</h3>
+
+<p><code>GetDynamicMeshElements</code> 的早退由 <code>bInFrame</code> 控制，而 <code>bInFrame</code> 覆盖 <span class="ref">DeferredShadingRenderer.cpp:2262</span> 到 <span class="ref">DeferredShadingRenderer.cpp:4434</span> 的整段。</p>
+
+<ul><li><strong>确定</strong>：主视图的网格收集在 <code>BeginInitViews</code> 窗口内（早于 2262），不受影响。</li><li><strong>不确定</strong>：阴影视图的收集时机。<code>FinishInitDynamicShadows</code> 在 <span class="ref">DeferredShadingRenderer.cpp:2708</span>（晚于 2262），但阴影视图是作为 culling view 注册的，收集可能仍在 <code>BeginInitViews</code> 内完成。</li></ul>
+
+<p>代码注释（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:986-989</span>）明说 UE5.0 时阴影会被挡掉。<strong>本仓 5.5.4 是否仍如此，建议实测</strong>：RenderDoc 抓一帧，在 ShadowDepth pass 里搜有没有 <code>VirtualHeightfieldMesh</code> 的 draw。</p>
+
+<h3>12.3 其它观察</h3>
+
+<table><thead><tr>
+<th>项</th>
+<th>说明</th>
+<th>位置</th>
+</tr></thead><tbody>
+<tr><td><span class="ref">VHM_CollectQuad.usf</span> 是<strong>死文件</strong></td><td>插件 <code>Source/</code> 与 <code>IMPLEMENT_GLOBAL_SHADER</code> 列表中均无引用</td><td><span class="ref">Shaders/Private/VHM_CollectQuad.usf</span></td></tr>
+<tr><td>V3 无遮挡剔除</td><td><code>bOccludeCull = false</code> 硬编码</td><td><span class="ref">VirtualHeightfieldMesh3.usf:237</span></td></tr>
+<tr><td>V3 视锥测试盒偏大 2 倍</td><td>传全长而非半长，方向保守</td><td><span class="ref">VirtualHeightfieldMesh3.usf:256</span></td></tr>
+<tr><td>容量掩码是「回绕覆盖」而非「丢弃」</td><td><code>&amp; BufferSizeMask</code> 溢出时会覆盖已有数据，容量必须开够</td><td><span class="ref">VirtualHeightfieldMesh3.usf:448</span>、<span class="ref">VirtualHeightfieldMesh3.usf:453</span></td></tr>
+<tr><td>洞实例缓冲容量只有主缓冲的 1/4</td><td>注释："hold instance just little"</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1802</span></td></tr>
+<tr><td><code>VirtualHeightfieldMeshSetting</code> 配置段<strong>悬空</strong></td><td><span class="ref">S1Game/Config/DefaultVirtualHeightfieldMesh.ini</span> 引用的该类在引擎与工程源码中均搜不到</td><td>全仓搜索无结果</td></tr>
+</tbody></table>
+
+<h2 id="s13"><span class="num">十三</span>CVar 速查</h2>
+
+<table><thead><tr>
+<th>CVar</th>
+<th>默认</th>
+<th>作用</th>
+<th>位置</th>
+</tr></thead><tbody>
+<tr><td><code>r.VHM.Enable</code></td><td>0</td><td>总开关（运行时会被 Nanite 逻辑自动改写）</td><td><span class="ref">VirtualHeightfieldMeshEnable.cpp:16-21</span></td></tr>
+<tr><td><code>r.VHM.Visualize</code></td><td>1</td><td>调试用可视化开关</td><td><span class="ref">VirtualHeightfieldMeshEnable.cpp:25-31</span></td></tr>
+<tr><td><code>r.VHM.EnableExtSubdivisionLevel</code></td><td>0</td><td>允许几何细于纹理</td><td><span class="ref">VirtualHeightfieldMeshEnable.cpp:33-38</span></td></tr>
+<tr><td><code>r.VHM.Version</code></td><td><strong>3</strong></td><td>1 = V1 流水线；其它 = V3</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:117-122</span></td></tr>
+<tr><td><code>r.VHM.UseAsyncCompute</code></td><td>1（工程改 <strong>0</strong>）</td><td>计算 pass 走 AsyncCompute</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:46-52</span></td></tr>
+<tr><td><code>r.VHM.WithOnePass</code></td><td>0</td><td>启用 One-Pass 持久线程遍历</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:154-160</span></td></tr>
+<tr><td><code>r.VHM.NumActiveForOnePassStep</code></td><td>640</td><td>One-Pass 尾部收敛阈值</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:167-173</span></td></tr>
+<tr><td><code>r.VHM.DisableCull</code></td><td>0</td><td>关闭剔除（调试）</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:131-136</span></td></tr>
+<tr><td><code>r.VHM.CloseMorphVertexForDebug</code></td><td>0</td><td>关闭顶点 morph</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:124-129</span></td></tr>
+<tr><td><code>r.VHM.LodScale</code></td><td>1.0</td><td>全局 LOD 缩放</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:62-67</span></td></tr>
+<tr><td><code>r.VHM.AddLodDistribution</code></td><td>0（工程 <strong>-0.3</strong>）</td><td>LOD 分布全局偏移</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:138-144</span></td></tr>
+<tr><td><code>r.VHM.AddLod0LevelBias</code></td><td>0（工程 <strong>2</strong>）</td><td>Lod0 层级偏置</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:146-152</span></td></tr>
+<tr><td><code>r.VHM.EnableViewLodFactor</code></td><td>0</td><td>是否乘 <code>View.LODDistanceFactor</code>（默认关，防 FOV 双计）</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:73-80</span></td></tr>
+<tr><td><code>r.VHM.Occlusion</code></td><td>1</td><td>硬件遮挡查询（V1 生效）</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:82-87</span></td></tr>
+<tr><td><code>r.VHM.MaxRenderInstances</code></td><td>65536（工程 <strong>262144</strong>）</td><td>实例 / quad 缓冲容量</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:89-94</span></td></tr>
+<tr><td><code>r.VHM.MaxFeedbackItems</code></td><td>40960（工程 <strong>81920</strong>）</td><td>VT 反馈缓冲容量</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:96-101</span></td></tr>
+<tr><td><code>r.VHM.MaxPersistentQueueItems</code></td><td>65536（工程 <strong>262144</strong>）</td><td>工作队列容量（<strong>必须是 2 的幂</strong>）</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:103-108</span></td></tr>
+<tr><td><code>r.VHM.CollectPassWavefronts</code></td><td>16</td><td>One-Pass 的 wavefront 数</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:110-115</span></td></tr>
+<tr><td><code>r.VHM.StatEnable</code></td><td>0</td><td>GPU Stat 采集</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:206-211</span></td></tr>
+<tr><td><code>r.VHM.CaptureBuildTexture</code></td><td>0</td><td>构建时挂 RenderDoc 捕获</td><td><span class="ref">HeightfieldMinMaxTextureBuild.cpp:22-28</span></td></tr>
+</tbody></table>
+
+<h2 id="s14"><span class="num">十四</span>网络资料勘误</h2>
+
+<table><thead><tr>
+<th>#</th>
+<th>网络说法</th>
+<th>本地核实结果</th>
+</tr></thead><tbody>
+<tr><td>1</td><td>"VHM 依赖 WorldHeight 类型的 RVT"</td><td>✅ <strong>准确</strong>。不满足则完全不创建 VF（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:870</span>）</td></tr>
+<tr><td>2</td><td>"VHM 在顶点着色器采样 height RVT 置换几何"</td><td>✅ <strong>准确</strong>（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:208-214</span>）</td></tr>
+<tr><td>3</td><td>"GPU Driven Pipeline，构建 Indirect Args 后以 Instance 绘制"</td><td>✅ <strong>准确</strong>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1024</span>）</td></tr>
+<tr><td>4</td><td>"只做 Z 轴位移、无碰撞；碰撞由 Landscape 提供"</td><td>✅ <strong>准确</strong>。<code>WorldNormal = float3(0,0,1)</code>，插件无碰撞代码</td></tr>
+<tr><td>5</td><td>"需在项目设置开启 virtual texture support"</td><td>✅ <strong>准确</strong>（<span class="ref">VirtualHeightfieldMeshEnable.cpp:132</span>）</td></tr>
+<tr><td>6</td><td>"官方说法将替代传统 landscape rendering"</td><td>⚠️ <strong>属旧版本口径</strong>。本仓库已改为 <strong>VHM 与 Nanite 按平台互斥</strong>（<span class="ref">VirtualHeightfieldMeshEnable.cpp:44-68</span>）</td></tr>
+<tr><td>7</td><td>论坛帖："UE 5.8 VHM 的 LOD popping 是因为 <span class="ref">VirtualHeightfieldMesh.usf</span> 未同步 <code>VirtualTextureFeedbackBias</code>"</td><td>❌ <strong>对本仓库不适用</strong>。本仓为 <strong>UE 5.5.4</strong>（CL 1128341），<span class="ref">Engine/Shaders/Shared/VirtualTextureDefinitions.h</span> <strong>不存在</strong>，<code>VirtualTextureFeedbackBias</code> <strong>全仓无定义</strong>。因此这里用 <code>LevelPlusOne = SampleTextureLevel + 1</code>（<span class="ref">VirtualHeightfieldMesh3.usf:213</span>）是<strong>正确</strong>的。<strong>若日后同步到 5.8+ 引擎，此处必须一并处理。</strong></td></tr>
+<tr><td>8</td><td>"四叉树用 indirection texture 烘焙、动态调整 sector 大小"</td><td>❌ <strong>张冠李戴</strong>。该描述来自 <em>Advances in Real-Time Rendering 2023</em>（ATVI《Large Scale Terrain Rendering》），讲的是该商用引擎自己的方案。UE VHM <strong>没有</strong> indirection texture 的逐帧 delta 更新；它是每帧重新遍历 RVT 页表现场构建四叉树。</td></tr>
+<tr><td>9</td><td>部分中文博文称 VHM 内有"LRU / free / locked 页链表、每帧算四叉树 delta"</td><td>❌ <strong>不成立</strong>。这些是 <strong>UE 通用 Virtual Texture 系统</strong>的机制，VHM <strong>只是消费者</strong>，自身代码里没有任何页表管理/淘汰逻辑。</td></tr>
+<tr><td>10</td><td>各类文章提到的 <code>r.VHM.*</code> CVar</td><td>⚠️ <strong>需以本仓为准</strong>。本仓比公开资料多出自研 CVar：<code>r.VHM.Version</code>、<code>r.VHM.WithOnePass</code>、<code>r.VHM.NumActiveForOnePassStep</code>、<code>r.VHM.DisableCull</code>、<code>r.VHM.AddLodDistribution</code>、<code>r.VHM.AddLod0LevelBias</code>、<code>r.VHM.Visualize</code>、<code>r.VHM.EnableExtSubdivisionLevel</code>、<code>r.VHM.StatEnable</code>。</td></tr>
+</tbody></table>
+
+<h2 id="s15"><span class="num">十五</span>一页总结</h2>
+
+<pre>   输入                       V3 每帧五个阶段                         产出
+  ─────────────────────────────────────────────────────────────────────────
+  页表 / 物理页 ──┐
+  MinMax 纹理   ──┼──► ① InitAllBuffersCS ──► 清零
+  Mask 纹理     ──┤            │
+                  │            ▼
+                  └──► ② FillLevel4QuadCS ──► 64 个根节点（8×8）
+                               │
+                               ▼
+                     ③ CollectSubdivideQuadsCS × (MaxLevel−2) 轮
+                        ┌─ 够细了 → 收成叶子 → FinalQuadBuffer
+                        └─ 还要更细 → 拆 4 子节点 → 下一轮
+                               │
+                               ▼
+                     ④ CullQuadsAndGenerateInstancesCS
+                        ├─ Mask == 1 → QuadInstanceBuffer（主材质）
+                        └─ 其它      → HoleQuadInstanceBuffer（洞材质）
+                               │
+                               ▼
+                     ⑤ DrawIndexedInstancedIndirect ×2
+                        └─ VS：SV_VertexID 现算顶点 + 采高度 + Morph</pre>
+
+<p><strong>三句话记住 VHM</strong>：</p>
+
+<ol><li><strong>几何来源是页表，不是 Mesh</strong> —— 画什么由 VT 已驻留的页决定。</li><li><strong>LOD 是「边遍历边细分」</strong> —— 从 64 个粗 quad 出发，够近就分裂。</li><li><strong>CPU 只出参数，GPU 决定一切</strong> —— 实例数、剔除、LOD 全在 CS 里定。</li></ol>
+
+<p><strong>本仓库要特别留意的三点</strong>：</p>
+
+<ul><li>VHM 在移动端是 <strong>Nanite 的替代</strong>，<span class="ref">VirtualHeightfieldMeshEnable.cpp:51-53</span> 是「SM5 不禁用 VHM」的关键。</li><li><strong>Mask / Hole 是自研能力</strong>，公开资料里没有。</li><li>§12.1 的 <strong>MinMax 解包互换</strong>是本地可复现的不一致，建议实测确认影响面。</li></ul>
+
+<h2 id="s16"><span class="num">十六</span>参考</h2>
+
+<ul><li>本地源码：<code>D:\GR_DevTest\UE5EA\Engine\Plugins\Experimental\VirtualHeightfieldMesh\</code>（UE 5.5.4 / CL 1128341）</li><li>[UVirtualHeightfieldMeshComponent — Epic 官方 API 文档](https://dev.epicgames.com/documentation/unreal-engine/API/Plugins/VirtualHeightfieldMesh/UVirtualHeightfieldMeshComponent)</li><li>[UHeightfieldMinMaxTexture — Epic 官方 API 文档](https://dev.epicgames.com/documentation/unreal-engine/API/Plugins/VirtualHeightfieldMesh/UHeightfieldMinMaxTexture)</li><li>[UE 5.8: VirtualHeightfieldMesh terrain LOD popping（Epic 开发者社区）](https://forums.unrealengine.com/t/ue-5-8-virtualheightfieldmesh-terrain-lod-popping-cause-and-fix/2737099)（<strong>仅适用 5.8+</strong>，见 §14 第 7 条）</li><li>[UE5 VirtualHeightfieldMesh 简述（知乎）](https://zhuanlan.zhihu.com/p/575398476)</li><li>[Virtual Texture for everything（知乎）](https://zhuanlan.zhihu.com/p/567526654)</li><li>[Advances in Real-Time Rendering 2023 — Large Scale Terrain Rendering（ATVI）](https://advances.realtimerendering.com/s2023/Etienne(ATVI)-Large%20Scale%20Terrain%20Rendering%20with%20notes%20(Advances%202023).pdf)（<strong>与 UE VHM 非同一方案</strong>，见 §14 第 8 条）</li></ul>
+
+<p><em>文档生成时间：2026-09-24　·　核对基线 UE 5.5.4 / CL 1128341 @ P4 workspace <code>DJANGOZHAN-PCFW_GR_DevTest</code></em></p>
+
+<footer>
+  生成于 2026-09-24　·　核对基线 UE 5.5.4 / CL 1128341 @ P4 workspace <code>DJANGOZHAN-PCFW_GR_DevTest</code><br>
+  共 14 张内联 SVG 插图（无外部依赖，离线可看）。
+</footer>
+
+</div>
+</body>
+</html>
