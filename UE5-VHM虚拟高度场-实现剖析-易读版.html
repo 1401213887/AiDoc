@@ -234,7 +234,7 @@
 <p>地形高度不是一张大图，而是被切成一个个 <strong>页（page）</strong>，按需流送到显存。要取某个位置的高度，得先查一张 <strong>页表</strong> 才知道该去哪一页取。</p>
 
 <div class="fig">
-<svg viewBox="0 0 1120 400" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<svg viewBox="0 0 1120 470" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
   <defs>
     <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
     <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
@@ -243,62 +243,180 @@
     <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
     <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
   </defs>
-  <rect x="0" y="0" width="1120" height="400" fill="#ffffff"/>
-  <text x="24" y="34" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">地形 UV（0~1 覆盖整块地形）</text>
-  <rect x="24" y="48" width="200" height="200" rx="6" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
-  <line x1="74" y1="48" x2="74" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
-  <line x1="24" y1="98" x2="224" y2="98" stroke="#e2e6ea" stroke-width="0.8"/>
-  <line x1="124" y1="48" x2="124" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
-  <line x1="24" y1="148" x2="224" y2="148" stroke="#e2e6ea" stroke-width="0.8"/>
-  <line x1="174" y1="48" x2="174" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
-  <line x1="24" y1="198" x2="224" y2="198" stroke="#e2e6ea" stroke-width="0.8"/>
-  <rect x="124" y="98" width="50" height="50" rx="0" fill="#eaf1fe" stroke="#2f6feb" stroke-width="1"/>
-  <text x="149" y="128" font-size="11" fill="#2f6feb" text-anchor="middle" font-weight="700">UV</text>
-  <line x1="232" y1="148" x2="268" y2="148" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
-  <text x="250" y="140" font-size="9.5" fill="#5a6672" text-anchor="middle">① 按 LOD 选层级</text>
-  <text x="276" y="34" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">页表纹素（uint32）</text>
-  <text x="383.143" y="48" font-size="9.5" fill="#7a828a" text-anchor="middle">8..27</text>
-  <text x="511.714" y="48" font-size="9.5" fill="#7a828a" text-anchor="middle">4..7</text>
-  <text x="554.571" y="48" font-size="9.5" fill="#7a828a" text-anchor="middle">0..3</text>
-  <rect x="276" y="54" width="214.286" height="44" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
-  <text x="383.143" y="80" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">PageY</text>
-  <text x="383.143" y="111" font-size="9.5" fill="#7a828a" text-anchor="middle">高位：页 Y</text>
-  <rect x="490.286" y="54" width="42.8571" height="44" rx="0" fill="#f7faff" stroke="#9db8dd" stroke-width="1"/>
-  <text x="511.714" y="80" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">PageX</text>
-  <text x="511.714" y="111" font-size="9.5" fill="#7a828a" text-anchor="middle">页 X</text>
-  <rect x="533.143" y="54" width="42.8571" height="44" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
-  <text x="554.571" y="80" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Lv</text>
-  <text x="276" y="152" font-size="9.5" fill="#7a828a" text-anchor="start">（NumAddressBits=6 或 8 时 PageX 占 6/8 位）</text>
-  <text x="276" y="178" font-size="11" fill="#1a1d21" text-anchor="start">PhysicalAddress = PageTableTexture.Load(...)</text>
-  <line x1="586" y1="148" x2="622" y2="148" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
-  <text x="604" y="140" font-size="9.5" fill="#5a6672" text-anchor="middle">② 解出物理页</text>
-  <text x="636" y="34" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">物理页纹理（HeightTexture）</text>
-  <rect x="636" y="48" width="300" height="200" rx="6" fill="#ffffff" stroke="#8fc9a8" stroke-width="1"/>
-  <line x1="711" y1="48" x2="711" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
-  <line x1="636" y1="98" x2="936" y2="98" stroke="#e2e6ea" stroke-width="0.8"/>
-  <line x1="786" y1="48" x2="786" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
-  <line x1="636" y1="148" x2="936" y2="148" stroke="#e2e6ea" stroke-width="0.8"/>
-  <line x1="861" y1="48" x2="861" y2="248" stroke="#e2e6ea" stroke-width="0.8"/>
-  <line x1="636" y1="198" x2="936" y2="198" stroke="#e2e6ea" stroke-width="0.8"/>
-  <rect x="711" y="148" width="75" height="50" rx="0" fill="#e9f7ef" stroke="#1f9254" stroke-width="1"/>
-  <text x="748" y="178" font-size="11" fill="#1f9254" text-anchor="middle" font-weight="700">该页</text>
-  <text x="636" y="268" font-size="9.5" fill="#7a828a" text-anchor="start">VirtualToPhysicalUV()：把虚拟 UV 换算成该页内的纹理坐标</text>
-  <line x1="944" y1="148" x2="980" y2="148" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
-  <rect x="986" y="112" width="118" height="72" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
-  <text x="1045" y="135.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">Height</text>
-  <text x="1045" y="152.5" font-size="10.5" fill="#7a828a" text-anchor="middle">SampleLevel</text>
-  <text x="1045" y="169.5" font-size="10.5" fill="#7a828a" text-anchor="middle">(PointSampler)</text>
-  <text x="24" y="300" font-size="11.5" fill="#8e44ad" text-anchor="start" font-weight="700">关键：地形有多细，由「页表里有哪些页」决定 —— 没加载的页，连几何都不会生成。</text>
-  <text x="24" y="326" font-size="10.5" fill="#7a828a" text-anchor="start">页表由 RVT 系统流送；VHM 只做「读页表」，不参与页的淘汰/加载。</text>
-  <rect x="24" y="344" width="1080" height="40" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
-  <text x="564" y="368.5" font-size="10.5" fill="#7a828a" text-anchor="middle">一个 quad 的 PhysicalAddress 会在 CS 里逐级继承/下传，最终由 VS 用它去定位高度采样位置</text>
+  <rect x="0" y="0" width="1120" height="470" fill="#ffffff"/>
+  <text x="24" y="40" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">地形 UV（0~1 覆盖整块地形）</text>
+  <rect x="24" y="56" width="190" height="190" rx="6" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <line x1="71.5" y1="56" x2="71.5" y2="246" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="24" y1="103.5" x2="214" y2="103.5" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="119" y1="56" x2="119" y2="246" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="24" y1="151" x2="214" y2="151" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="166.5" y1="56" x2="166.5" y2="246" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="24" y1="198.5" x2="214" y2="198.5" stroke="#e2e6ea" stroke-width="0.8"/>
+  <rect x="119" y="103.5" width="48" height="48" rx="0" fill="#eaf1fe" stroke="#2f6feb" stroke-width="1"/>
+  <text x="142.75" y="132.5" font-size="11" fill="#2f6feb" text-anchor="middle" font-weight="700">UV</text>
+  <line x1="218" y1="151" x2="258" y2="151" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="238" y="143" font-size="9.5" fill="#7a828a" text-anchor="middle">① 选层级</text>
+  <text x="264" y="40" font-size="11.5" fill="#1a1d21" text-anchor="start" font-weight="700">页表纹素（一个 PhysicalAddress）</text>
+  <text x="264" y="70" font-size="10.5" fill="#4a5158" text-anchor="start" font-weight="700">① UInt32 格式 —— 纹素通道 32 位（PF_R32_UINT）</text>
+  <text x="324" y="86" font-size="9.5" fill="#7a828a" text-anchor="middle">20..31</text>
+  <text x="424" y="86" font-size="9.5" fill="#7a828a" text-anchor="middle">12..19</text>
+  <text x="504" y="86" font-size="9.5" fill="#7a828a" text-anchor="middle">4..11</text>
+  <text x="564" y="86" font-size="9.5" fill="#7a828a" text-anchor="middle">0..3</text>
+  <rect x="264" y="92" width="120" height="40" rx="0" fill="#f4f4f4" stroke="#b9c2cb" stroke-width="1"/>
+  <text x="324" y="116" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">无字段</text>
+  <rect x="384" y="92" width="80" height="40" rx="0" fill="#f7faff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="424" y="116" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">PageY</text>
+  <rect x="464" y="92" width="80" height="40" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="504" y="116" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">PageX</text>
+  <rect x="544" y="92" width="40" height="40" rx="0" fill="#f7faff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="564" y="116" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Lv</text>
+  <text x="264" y="158" font-size="10.5" fill="#4a5158" text-anchor="start" font-weight="700">② UInt16 格式 —— 纹素通道 16 位（PF_R16_UINT）</text>
+  <text x="294" y="174" font-size="9.5" fill="#7a828a" text-anchor="middle">10..15</text>
+  <text x="354" y="174" font-size="9.5" fill="#7a828a" text-anchor="middle">4..9</text>
+  <text x="404" y="174" font-size="9.5" fill="#7a828a" text-anchor="middle">0..3</text>
+  <rect x="264" y="180" width="60" height="40" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="294" y="204" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">PageY</text>
+  <rect x="324" y="180" width="60" height="40" rx="0" fill="#f7faff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="354" y="204" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">PageX</text>
+  <rect x="384" y="180" width="40" height="40" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="404" y="204" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Lv</text>
+  <text x="444" y="186" font-size="11" fill="#1f9254" text-anchor="start" font-weight="700">4 + 6 + 6 = 16</text>
+  <text x="444" y="204" font-size="10.5" fill="#1f9254" text-anchor="start" font-weight="700">刚好占满，没有空位</text>
+  <text x="264" y="250" font-size="10" fill="#7a828a" text-anchor="start">X 与 Y 位宽相同（都是 PageCoordinateBitCount）</text>
+  <text x="264" y="270" font-size="10" fill="#7a828a" text-anchor="start">写端最大只到第 20 位，故 UInt32 高 12 位恒 0（写端不写、读端不读）。</text>
+  <text x="264" y="292" font-size="10" fill="#4a5158" text-anchor="start">PageX = (pa &gt;&gt; 4) &amp; ((1 &lt;&lt; PCB) − 1)　　PageY = pa &gt;&gt; (4 + PCB)</text>
+  <line x1="600" y1="151" x2="640" y2="151" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="612" y="143" font-size="9.5" fill="#7a828a" text-anchor="middle">② 解页表</text>
+  <text x="644" y="40" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">物理页纹理（HeightTexture）</text>
+  <rect x="644" y="56" width="272" height="190" rx="6" fill="#ffffff" stroke="#8fc9a8" stroke-width="1"/>
+  <line x1="712" y1="56" x2="712" y2="246" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="644" y1="103.5" x2="916" y2="103.5" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="780" y1="56" x2="780" y2="246" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="644" y1="151" x2="916" y2="151" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="848" y1="56" x2="848" y2="246" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="644" y1="198.5" x2="916" y2="198.5" stroke="#e2e6ea" stroke-width="0.8"/>
+  <rect x="712" y="151" width="68" height="48" rx="0" fill="#e9f7ef" stroke="#1f9254" stroke-width="1"/>
+  <text x="746" y="180" font-size="11" fill="#1f9254" text-anchor="middle" font-weight="700">该页</text>
+  <text x="644" y="264" font-size="10" fill="#7a828a" text-anchor="start">VirtualToPhysicalUV()：把虚拟 UV 换算成该页内的纹理坐标</text>
+  <line x1="920" y1="151" x2="956" y2="151" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="962" y="112" width="134" height="78" rx="7" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="1029" y="137.5" font-size="12.5" fill="#1a1d21" text-anchor="middle" font-weight="600">Height</text>
+  <text x="1029" y="155.5" font-size="10.5" fill="#7a828a" text-anchor="middle">SampleLevel</text>
+  <text x="1029" y="173.5" font-size="10.5" fill="#7a828a" text-anchor="middle">(PointSampler)</text>
+  <text x="24" y="334" font-size="11.5" fill="#8e44ad" text-anchor="start" font-weight="700">关键：地形有多细，由「页表里有哪些页」决定 —— 没加载的页，连几何都不会生成。</text>
+  <text x="24" y="358" font-size="10.5" fill="#7a828a" text-anchor="start">页表由 RVT 系统流送并淘汰；VHM 只做两件事：读页表、写反馈。</text>
+  <rect x="24" y="376" width="1072" height="78" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="560" y="400.5" font-size="10.5" fill="#7a828a" text-anchor="middle">打包式（PageTableUpdate.usf:67-81）：Page = vLevel | (pPage.x &lt;&lt; 4) | (pPage.y &lt;&lt; (4 + PCB))</text>
+  <text x="560" y="419.5" font-size="10.5" fill="#7a828a" text-anchor="middle">纹素通道宽度由格式决定（VirtualTextureSpace.cpp:37-48）；VHM 侧 PCB 由 GetPageTableFormat() 给出：UInt16 → 6，UInt32 → 8（VirtualHeightfieldMeshSceneProxy.cpp:922）</text>
+  <text x="560" y="438.5" font-size="10.5" fill="#7a828a" text-anchor="middle">8 位用不满：物理纹理先被纹理维度上限、再被页池 1&lt;&lt;15 两道钳制夹住，实际上限 181×181（VirtualTextureSystem.cpp:1049-1060）</text>
 </svg>
-<div class="cap">图 2　虚拟纹理寻址：四叉树节点怎样变成一个高度采样点</div>
+<div class="cap">图 2　虚拟纹理寻址：页表纹素 → 物理页 → 高度采样点</div>
 </div>
+
+<p><strong>页表纹素怎么拆</strong></p>
+
+<p>一个页表纹素 = 一个 <code>PhysicalAddress</code>。<strong>它的容器宽度由页表格式决定，两种格式并不一样</strong>：</p>
+
+<table><thead><tr>
+<th>页表格式</th>
+<th>纹素通道宽度</th>
+<th>决定它的地方</th>
+</tr></thead><tbody>
+<tr><td><code>EVTPageTableFormat::UInt32</code></td><td><strong>32 位</strong>（<code>PF_R32_UINT</code> 等）</td><td><span class="ref">VirtualTextureSpace.cpp:37-48</span> <code>GetFormatForNumLayers()</code></td></tr>
+<tr><td><code>EVTPageTableFormat::UInt16</code></td><td><strong>16 位</strong>（<code>PF_R16_UINT</code> 等）</td><td>同上</td></tr>
+</tbody></table>
+
+<p>格式本身由物理空间大小挑选 —— 只有每维 tile 数 ≤ 64 才够格用 16 位 （<span class="ref">VirtualTexturePhysicalSpace.h:121</span> <code>DoesSupport16BitPageTable()</code>）， 这个选择落在 <span class="ref">AllocatedVirtualTexture.cpp:138</span>。</p>
+
+<p>打包装在 <span class="ref">PageTableUpdate.usf:67-81</span>（VHM 两个文件的注释都指向它）：</p>
+
+<pre><span class="k">#if</span> USE_16BIT
+    <span class="c">// We can assume pPage fits in 6 bits and pack the final output to 16 bits</span>
+    const uint PageCoordinateBitCount = 6;
+<span class="k">#else</span>
+    const uint PageCoordinateBitCount = 8;
+<span class="k">#endif</span>
+
+uint Page = vLevel;
+Page |= pPage.x &lt;&lt; 4;
+Page |= pPage.y &lt;&lt; (4 + PageCoordinateBitCount);</pre>
+
+<p>展开成位域（<code>PageCoordinateBitCount</code> 下称 PCB；<code>PageX</code> 与 <code>PageY</code> <strong>同宽</strong>）：</p>
+
+<table><thead><tr>
+<th>页表格式</th>
+<th>容器</th>
+<th><code>Lv</code></th>
+<th><code>PageX</code></th>
+<th><code>PageY</code></th>
+<th>容器剩余</th>
+</tr></thead><tbody>
+<tr><td><code>UInt32</code>（PCB = 8）</td><td>32 位</td><td>bit[3:0] · 4 位</td><td>bit[11:4] · <strong>8 位</strong></td><td>bit[19:12] · <strong>8 位</strong></td><td>bit[31:20] 共 12 位<strong>无字段</strong>，恒 0</td></tr>
+<tr><td><code>UInt16</code>（PCB = 6）</td><td>16 位</td><td>bit[3:0] · 4 位</td><td>bit[9:4] · <strong>6 位</strong></td><td>bit[15:10] · <strong>6 位</strong></td><td><strong>没有 —— 4 + 6 + 6 = 16，刚好占满</strong></td></tr>
+</tbody></table>
+
+<p>这里有两个容易画错的地方：</p>
+
+<ul><li><strong>两种格式不是都占 32 位。</strong> <code>UInt16</code> 的纹素本身就是 16 位，根本不存在 bit[16..31]。</li><li><strong><code>UInt32</code> 的高 12 位没有任何字段。</strong> 写端最大只到第 20 位（<code>pPage.x/y</code> 各 8 位，</li></ul>
+
+<p><span class="ref">PageTableUpdate.usf:56-57</span>；<code>vLevel</code> 4 位），读端也没有任何一处取 bit ≥ 20 （<span class="ref">VirtualTextureCommon.ush:891</span>、<span class="ref">VirtualTextureCommon.ush:900</span>、<span class="ref">VirtualTextureCommon.ush:904-905</span>）。</p>
+
+<p>为什么 <code>PageX</code> 与 <code>PageY</code> 一定同宽？页表是 N×N 的正方形，X、Y 天然对称； <code>PageY</code> 顶上不加掩码，只是因为那几位恒为 0。</p>
+
+<p>VHM 侧解码（<span class="ref">VirtualHeightfieldMesh.ush:135-146</span>）：</p>
+
+<pre>Level = pa &amp; 0xf
+PageX = (pa &gt;&gt; 4) &amp; ((1u &lt;&lt; NumAddressBits) - 1)
+PageY = pa &gt;&gt; (4 + NumAddressBits)      <span class="c">// 高位恒为 0，所以不加掩码也能取对</span></pre>
+
+<p><code>NumAddressBits</code> 就是 <code>PageCoordinateBitCount</code>，取自 <code>GetPageTableFormat()</code>： <code>UInt16 → 6</code>、<code>UInt32 → 8</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:922</span>）。</p>
+
+<p>引擎自己读这两条时用的掩码，正好印证上表 —— <code>UInt32</code> 走 <code>(pa &gt;&gt; 4) &amp; 0xff</code> / <code>(pa &gt;&gt; 12) &amp; 0xff</code>， <code>UInt16</code> 走 <code>(pa &gt;&gt; 4) &amp; 0x3f</code> / <code>(pa &gt;&gt; 10) &amp; 0x3f</code>（<span class="ref">VirtualTextureCommon.ush:904-905</span>）。</p>
 
 <p><strong>这里有个关键的推论</strong>：既然几何是「照着页表生成」的，那么 <strong>没被加载的页，连几何都不会存在</strong>。地形的精细程度本质上由「VT 流送了哪些页」决定，而不是由某个 LOD 参数直接决定。</p>
 
 <p>页表由 RVT 系统负责流送和淘汰；VHM 只做两件事：<strong>读页表</strong>、<strong>写反馈</strong>（告诉 VT 系统「这段地形我需要第几级页」）。</p>
+
+<p><strong>物理纹理能有多大 —— 8 位地址其实用不满</strong></p>
+
+<p><code>PageX</code>/<code>PageY</code> 各 8 位，编码上限是 <code>256 × 256</code> 个 tile。但<strong>实际跑不到</strong>， 因为尺寸在「挑页表格式」之前，先被两道钳制夹过 —— 都在 <span class="ref">VirtualTextureSystem.cpp</span>：</p>
+
+<pre><span class="c">// :1049-1053  ① 纹理维度上限</span>
+if (TileWidthHeight * InDesc.TileSize &gt; GetMax2DTextureDimension())
+    TileWidthHeight = FMath::DivideAndRoundDown(GetMax2DTextureDimension(), InDesc.TileSize);
+
+<span class="c">// :1057-1060  ② tile 总数上限  ← 真正的瓶颈</span>
+<span class="c">// Page table encoding limits this to 1&lt;&lt;16. But FTexturePagePool::FreeHeap</span>
+<span class="c">// being 16bit and needing an overflow bit reduces us to 1&lt;&lt;15.</span>
+const int32 MaxTiles = 1 &lt;&lt; 15;
+const int32 MaxTilesSqrt = 181; <span class="c">//sqrt(1&lt;&lt;15)</span>
+TileWidthHeight = FMath::Min(TileWidthHeight, MaxTilesSqrt);</pre>
+
+<p>② 那句注释把两件事说全了：</p>
+
+<ul><li><strong>页表编码</strong>给的是 <code>1&lt;&lt;16</code>，开方正好 <strong>256</strong> —— 这就是 8 位地址的由来；</li><li>但<strong>页池的堆</strong>是 <code>FBinaryHeap&lt;uint32, uint16&gt; FreeHeap</code>（<span class="ref">TexturePagePool.h:230</span>），</li></ul>
+
+<p>16 位索引还要留一位溢出位 → 只剩 <code>1&lt;&lt;15</code> → 开方 <strong>181</strong>。</p>
+
+<p>所以实际上限是 <strong>181 × 181 = 32761 个 tile</strong>，不是 256×256。</p>
+
+<p>顺序很关键：<strong>先</strong>算出尺寸、被两道钳制夹完，<strong>再</strong>拿 <code>GetSizeInTiles()</code> 去挑页表格式 （<span class="ref">AllocatedVirtualTexture.cpp:119-138</span>：<code>&lt;= 64</code> → <code>UInt16</code>，否则 <code>UInt32</code>）。 推论就是 —— <strong>8 位编码宽度从来不是瓶颈</strong>：<code>SizeInTiles</code> 最大 181，8 位绰绰有余， 真正卡死的是页池那 <code>1&lt;&lt;15</code>。</p>
+
+<p>而且很多时候连 181 都到不了。物理纹理边长 = <code>SizeInTiles × TileSize</code> （<span class="ref">VirtualTexturePhysicalSpace.h:117</span>），而 RVT 的 tile 尺寸只能在 64 ~ 1024 之间取 —— <span class="ref">RuntimeVirtualTexture.h:112</span> <code>GetClampedTileSize()</code> = <code>1 &lt;&lt; Clamp(InTileSize + 6, 6, 10)</code>， 默认值 <strong>256</strong>（<span class="ref">RuntimeVirtualTexture.h:33</span>）。代入纹理维度上限（<span class="ref">RHIGlobals.h:912-915</span>， 设备相关，桌面常见 16384）：</p>
+
+<table><thead><tr>
+<th>TileSize</th>
+<th>被 ① 纹理维度钳</th>
+<th>被 ② 181 钳</th>
+<th>最终</th>
+<th>落到哪种页表</th>
+</tr></thead><tbody>
+<tr><td><strong>256</strong>（默认）</td><td>16384 / 256 = 64</td><td>—</td><td><strong>64 × 64</strong></td><td><code>UInt16</code>（≤ 64）</td></tr>
+<tr><td>128</td><td>16384 / 128 = 128</td><td>—</td><td><strong>128 × 128</strong></td><td><code>UInt32</code></td></tr>
+<tr><td>64</td><td>16384 / 64 = 256</td><td><strong>181</strong></td><td><strong>181 × 181</strong></td><td><code>UInt32</code></td></tr>
+</tbody></table>
+
+<p>也就是说：<strong>默认 tile 尺寸下，物理纹理反而停在 64×64，还在 16 位页表的射程之内</strong> —— 想真正吃到那 8 位地址，得把 TileSize 调到 128 或更小。移动端纹理上限更低，就更够不着。</p>
 
 <h3>2.2 MinMax 金字塔 —— 为什么需要它</h3>
 
@@ -307,7 +425,7 @@
 <p>于是离线烘焙一张 <strong>MinMax 纹理</strong>：每个格子只存两个数 —— 这块地的<strong>最低点</strong>和<strong>最高点</strong>。</p>
 
 <div class="fig">
-<svg viewBox="0 0 1120 330" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<svg viewBox="0 0 1120 480" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
   <defs>
     <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
       <path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/>
@@ -373,11 +491,114 @@
   <text x="534" y="308" font-size="11" fill="#c0392b" text-anchor="middle">消费端 UnPackMinMaxHeight（VirtualHeightfieldMesh.ush:173-179）与 PackMinMax 互不可逆 → 见 §10.1</text>
 
   <line x1="534" y1="256" x2="534" y2="284" stroke="#c0392b" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <line x1="12" y1="340" x2="1108" y2="340" stroke="#c9d8ee" stroke-width="1"/>
+  <text x="16" y="364" font-size="13" font-weight="700" fill="#1f3a63">运行时消费（IsCullQuad · VirtualHeightfieldMesh3.usf:252-257）</text>
+
+  <rect x="12" y="380" width="252" height="72" rx="8" fill="#eaf1fe" stroke="#9db8dd"/>
+  <text x="138" y="403" font-size="11" fill="#1a1d21" text-anchor="middle">SampleLevel(…, UV0, TextureLevel)</text>
+  <text x="138" y="422" font-size="10.5" fill="#4a5158" text-anchor="middle">mip 索引 = 这个 quad 自己的 VT 层级</text>
+  <text x="138" y="440" font-size="10" fill="#7a828a" text-anchor="middle">VirtualHeightfieldMesh3.usf:90</text>
+
+  <line x1="264" y1="416" x2="290" y2="416" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="292" y="380" width="330" height="72" rx="8" fill="#e9f7ef" stroke="#8fc9a8"/>
+  <text x="457" y="403" font-size="11" fill="#1a1d21" text-anchor="middle">MinMax mip L 的 1 texel ≡ 页表 mip L 的 1 tile</text>
+  <text x="457" y="422" font-size="10.5" fill="#5f7a68" text-anchor="middle">纹素落点正好罩住这个 quad 的 footprint</text>
+  <text x="457" y="440" font-size="10.5" fill="#c0392b" text-anchor="middle">必须 SF_Point —— 极值插值会漏剔（破洞）</text>
+
+  <line x1="624" y1="416" x2="650" y2="416" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="652" y="380" width="240" height="72" rx="8" fill="#eaf1fe" stroke="#9db8dd"/>
+  <text x="772" y="403" font-size="11" fill="#1a1d21" text-anchor="middle">(UV0,min) – (UV1,max) = AABB</text>
+  <text x="772" y="422" font-size="10.5" fill="#4a5158" text-anchor="middle">PlaneTestAABB 做视锥剔除</text>
+
+  <line x1="894" y1="416" x2="920" y2="416" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="922" y="380" width="186" height="72" rx="8" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="1015" y="403" font-size="11" fill="#1a1d21" text-anchor="middle">留下 / 细分 / 剔除</text>
+  <text x="1015" y="422" font-size="10" fill="#7a828a" text-anchor="middle">进入下一阶段</text>
+
+  <text x="16" y="472" font-size="10.5" fill="#7a828a">注：V1 额外加 MinMaxLevelOffset = NumMips − 1 − MaxLevel 做 mip 索引重定位（VirtualHeightfieldMeshSceneProxy.cpp:2493），V3 的 TextureLevel 已与 mip 索引对齐，无需该偏移。</text>
 </svg>
 <div class="cap">图 3　MinMax 金字塔离线烘焙链路</div>
 </div>
 
 <p>有了 <code>[min, max]</code>，一个 quad 就是一个立体的 AABB，做视锥剔除只需要 O(1) 的判断，<strong>不用采一次高度图</strong>。</p>
+
+<p><strong>这里是全文最容易漏掉的一环：它有 mip，而且采样的 mip 级正好等于这个 quad 的层级。</strong> 「O(1)」能成立全靠这一点。</p>
+
+<h4>它是一条完整的 mip 链</h4>
+
+<p>构建时逐级归并，<strong>每级取上一级 2×2 的 min/max</strong> —— 是真正的极值下采样，不插值：</p>
+
+<pre><span class="c">// HeightfieldMinMaxRender.cpp:214-227</span>
+void GenerateMinMaxTextureMips(FRDGBuilder&amp; GraphBuilder, FRDGTexture* Texture, FIntPoint SrcSize, int32 NumMips)
+{
+    FIntPoint Size = SrcSize;
+    for (int32 MipLevel = 1; MipLevel &lt; NumMips; ++MipLevel)
+    {
+        FRDGTextureSRVRef SRV = GraphBuilder.CreateSRV(FRDGTextureSRVDesc::CreateForMipLevel(Texture, MipLevel - 1));
+        FRDGTextureUAVRef UAV = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(Texture, MipLevel));
+        AddMinMaxMipPass&lt;TMinMaxTextureCS_RGBA8ToRGBA8&gt;(GraphBuilder, SRV, Size, MipLevel, UAV);
+        <span class="c">// ...</span>
+    }
+}</pre>
+
+<p>mip 数在烘焙时定死（<span class="ref">HeightfieldMinMaxTextureBuild.cpp:255-257</span>）：</p>
+
+<pre>const int32 NumTilesX = ((VTDesc.WidthInBlocks * VTDesc.BlockWidthInTiles) &lt;&lt; IncLevels) &gt;&gt; DecLevels;
+const int32 NumTilesY = /* 同上 */;
+const int32 NumMips = (int32)FMath::CeilLogTwo(FMath::Max(NumTilesX, NumTilesY)) + 1;</pre>
+
+<p>所以：<strong>mip0 一个纹素 = 一个虚拟 tile</strong>，每级缩一半，最后一级 <code>1×1</code> 就是全地形的 min/max。</p>
+
+<h4>运行时：采样哪一级 mip，由 quad 自己的层级决定</h4>
+
+<p>V3 的核心就这一行（<span class="ref">VirtualHeightfieldMesh3.usf:252</span>，在 <code>IsCullQuad</code> 里）：</p>
+
+<pre>float2 MinMaxHeight = UnPackMinMaxHeight(HeightMinMaxTexture.SampleLevel(PointSampler, UV0, ThisInfo.TextureLevel));
+const float3 UVMin = float3(UV0, MinMaxHeight.x);
+const float3 UVMax = float3(UV1, MinMaxHeight.y);
+const float3 UVCenter = (UVMin + UVMax) * 0.5;
+const float3 UVExtern = UVMax - UVMin;
+const bool bFrustumCull = !PlaneTestAABB(VHMParam.FrustumPlanes, UVCenter, UVExtern);</pre>
+
+<p>注意 <code>SampleLevel</code> 的<strong>第三个参数是 <code>ThisInfo.TextureLevel</code></strong> —— 就是这个 quad 自己的 VT 层级 （<span class="ref">VirtualHeightfieldMesh3.usf:90</span>：<code>TextureLevel = max(TmpLevel - RVTMinLevel, 0)</code>）。 采样用的 <code>UV0</code> 也是按同一级算出来的（<span class="ref">VirtualHeightfieldMesh3.usf:246</span>）。</p>
+
+<p><strong>为什么一次采样就够</strong>：MinMax <strong>mip L 的一个纹素</strong>覆盖的面积，正好等于页表 <strong>mip L 的一个 tile</strong> 覆盖的面积 （两边都是 <code>NumTiles &gt;&gt; L</code>）。所以纹素的落点刚好罩住这个 quad 的 footprint —— 粗 quad 采粗 mip、细 quad 采细 mip，既不用重采样，也不会取到比 quad 更大的范围而过度保守。</p>
+
+<h4>为什么必须点采样</h4>
+
+<p><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1999</span>（V1 同一处 <span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2055</span>）绑的是 <code>TStaticSamplerState&lt;SF_Point&gt;::GetRHI()</code>，V3 直接用内置的 <code>PointSampler</code>。</p>
+
+<p><strong>Min/Max 是极值，一旦双线性插值，min 会被抬高、max 会被压低</strong> —— AABB 不再保守， 就会<strong>漏剔</strong>：本该可见的 quad 被剔掉，地形上直接破洞。这是这个设计里少数「写错就出画面问题」的地方。</p>
+
+<h4>V1 比 V3 多一层 mip 索引重定位</h4>
+
+<p>V1 要在层级上再加一个 <code>MinMaxLevelOffset</code>（<span class="ref">VirtualHeightfieldMesh.usf:199-201</span>）：</p>
+
+<pre>float MinMaxTextureLevel = max((float)TextureLevel + (float)MinMaxLevelOffset, 0);
+float2 MinMaxHeight = UnPackMinMaxHeight(HeightMinMaxTexture.SampleLevel(MinMaxTextureSampler, UV0, MinMaxTextureLevel));</pre>
+
+<p>偏移在 CPU 侧算（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2493</span>）：</p>
+
+<pre>ProxyDesc.MinMaxLevelOffset = ProxyDesc.HeightMinMaxTexture-&gt;GetNumMips() - 1 - AllocatedVirtualTexture-&gt;GetMaxLevel();</pre>
+
+<p>它的语义是<strong>把「页表层级索引」重定位到「MinMax mip 索引」</strong>：最粗的 VT 层 <code>TextureLevel = MaxLevel</code> （整个 VT 一个 tile）落到最后一级 mip <code>NumMips - 1</code>（<code>1×1</code>，全地形 min/max）—— 代进去就能验证。</p>
+
+<p>V3 <strong>不需要</strong>这一层：V3 的参数结构里根本没有 <code>MinMaxLevelOffset</code> （<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1492</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1601</span> 两处只绑了 <code>HeightMinMaxTexture</code>），直接把 <code>TextureLevel</code> 当 mip 用。 两者等价的条件是 <code>NumMips - 1 == MaxLevel</code>，此时偏移为 0 —— 默认配置正是如此 （<code>NumMinMaxTextureBuildLevels = 0</code>，<span class="ref">VirtualHeightfieldMeshComponent.h:47</span>）。</p>
+
+<h4>顺带一张同构的 LodBias MinMax 金字塔</h4>
+
+<p><code>LodBiasMinMaxTexture</code> 用的是<strong>同一套 min/max mip 链</strong>，但存的是 <strong>LOD 偏置的极值</strong>，不是高度 （构建见 <span class="ref">HeightfieldMinMaxTexture.cpp:162</span> 起，mip 链在 <span class="ref">HeightfieldMinMaxTexture.cpp:194</span> 起）。</p>
+
+<p>V1 的 VS 在同一级 mip 上取它，实现「地势起伏大的地方自动加密」：</p>
+
+<pre><span class="c">// VirtualHeightfieldMesh.usf:201</span>
+float2 MinMaxLodBias = UnPackMinMaxLodBias(LodBiasMinMaxTexture.SampleLevel(MinMaxTextureSampler, UV0, MinMaxTextureLevel), LodBiasScale);</pre>
+
+<p>消费点在 <span class="ref">VirtualHeightfieldMesh.usf:261</span>（细分判断）与 <span class="ref">VirtualHeightfieldMesh.usf:301-302</span>（反馈层级范围）。</p>
 
 <div class="callout warn"><div class="h">注意</div><p style='margin:0'>这张纹理的打包方式在本仓库里有个<strong>可复现的不一致</strong>，详见 §12.1。</p></div>
 
@@ -454,7 +675,7 @@
 <p>这是<strong>交给光栅化的最终态</strong>，在 <code>InstanceBuffer</code> 里。</p>
 
 <div class="fig">
-<svg viewBox="0 0 1120 330" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<svg viewBox="0 0 1120 384" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
   <defs>
     <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
     <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
@@ -463,7 +684,7 @@
     <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
     <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
   </defs>
-  <rect x="0" y="0" width="1120" height="330" fill="#ffffff"/>
+  <rect x="0" y="0" width="1120" height="384" fill="#ffffff"/>
   <text x="24" y="30" font-size="12.5" fill="#1a1d21" text-anchor="start" font-weight="700">QuadRenderInstance —— 一个 quad 最终占 16 字节（4 × uint32）</text>
   <text x="24" y="64" font-size="12" fill="#1a1d21" text-anchor="start" font-weight="700">uint32 #0  PosLevelPacked</text>
   <text x="59" y="72" font-size="9.5" fill="#7a828a" text-anchor="middle">28..31</text>
@@ -481,13 +702,17 @@
   <rect x="24" y="214" width="186.667" height="46" rx="0" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
   <text x="117.333" y="228" font-size="10.5" fill="#7a828a" text-anchor="middle">[0]</text>
   <text x="117.333" y="245" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.x</text>
-  <text x="117.333" y="273" font-size="9.5" fill="#7a828a" text-anchor="middle">对齐 QuadItem2 的 .yzw</text>
+  <text x="117.333" y="273" font-size="9.5" fill="#7a828a" text-anchor="middle">本层</text>
   <rect x="210.667" y="214" width="186.667" height="46" rx="0" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
   <text x="304" y="228" font-size="10.5" fill="#7a828a" text-anchor="middle">[1]</text>
   <text x="304" y="245" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.y</text>
+  <text x="304" y="273" font-size="9.5" fill="#7a828a" text-anchor="middle">父层</text>
   <rect x="397.333" y="214" width="186.667" height="46" rx="0" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
   <text x="490.667" y="228" font-size="10.5" fill="#7a828a" text-anchor="middle">[2]</text>
   <text x="490.667" y="245" font-size="10.5" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.z</text>
+  <text x="490.667" y="273" font-size="9.5" fill="#7a828a" text-anchor="middle">祖父层</text>
+  <text x="24" y="288" font-size="10" fill="#7a828a" text-anchor="start">三代祖先的页表物理地址；当前渲染路径只消费 .x（其余为跨层 morph 预留）</text>
+  <text x="24" y="306" font-size="10" fill="#7a828a" text-anchor="start">VirtualHeightfieldMesh3.usf:620-621 · VirtualHeightfieldMeshVertexFactory.ush:152</text>
   <text x="620" y="76" font-size="11" fill="#1a1d21" text-anchor="start">谁写：④ CullQuadsAndGenerateInstancesCS</text>
   <text x="620" y="98" font-size="10" fill="#7a828a" text-anchor="start">VirtualHeightfieldMesh3.usf:556</text>
   <text x="620" y="130" font-size="11" fill="#1a1d21" text-anchor="start">谁读：VS —— GetQuadRenderInstance()</text>
@@ -498,11 +723,83 @@
   <text x="858" y="254.5" font-size="10.5" fill="#7a828a" text-anchor="middle">Pos 用 14 位而不是中间态的 12 位：</text>
   <text x="858" y="271.5" font-size="10.5" fill="#7a828a" text-anchor="middle">中间态 QuadItem2 要跨 LOD 携带 Level 做比较，用 4 位就够（最大 15）；</text>
   <text x="858" y="288.5" font-size="10.5" fill="#7a828a" text-anchor="middle">而 Pos 需要更多位来容纳更细的层。</text>
+  <text x="620" y="326" font-size="11" fill="#1f9254" text-anchor="start" font-weight="700">一个实例的索引数 = NumInstanceVertexSide² × 6 = 16² × 6 = 1536</text>
+  <text x="620" y="346" font-size="10" fill="#7a828a" text-anchor="start">索引缓冲全局只有一份，所有实例共享（VirtualHeightfieldMeshVertexFactory.cpp:139）</text>
 </svg>
 <div class="cap">图 5　QuadRenderInstance 位域布局（最终渲染实例，16 B）</div>
 </div>
 
 <div class="callout"><p style='margin:0'><strong>别把这两个搞混</strong>：它们都是 16 字节，但位域划分完全不同。 <code>QuadItem2</code> 要跨层级携带 Morton 位置（28 位），所以 <code>Level</code> 只有 4 位； <code>QuadRenderInstance</code> 的 <code>Level</code> 只用于 VS 里算 Morph，4 位够用，多出来的位给了 <code>Pos</code>。</p></div>
+
+<p><strong><code>QuadRenderInstance</code> 到底装了什么</strong>（<span class="ref">VirtualHeightfieldMesh.ush:96-106</span>）：</p>
+
+<pre>/** Final render instance description used by the DrawInstancedIndirect(). */
+struct QuadRenderInstance
+{
+	uint PosLevelPacked;
+	uint3 PhysicalAddress;
+};</pre>
+
+<p>4 × uint32 = 16 字节，正好是 <code>StructuredBuffer&lt;float4&gt;</code> 的一个元素 —— VS 里读进来先拆开 （<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:24-27</span>：<code>asuint(Data.x)</code> / <code>asuint(Data.yzw)</code>）。</p>
+
+<p><strong>它到底是什么地址</strong>：就是 <strong>RVT 页表纹素里存的那个值</strong> —— 指向 RVT <strong>物理纹理</strong>里的<strong>页格子</strong>。 VHM 侧把物理纹理绑成 <code>HeightTexture</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:886</span>），页表绑成 <code>PageTableTexture</code> （<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:885</span>）。</p>
+
+<p>它不是字节地址、也不是行跨距地址，而是 <code>{层级, PageX, PageY}</code> 的位打包（拆法见 §2.1）。 VHM 用 <code>GetVirtualToPhysicalUVTransform()</code> 把它换算成<strong>物理纹理内的 UV</strong>， 再去 <code>HeightTexture.SampleLevel(HeightSampler, LocalPhysicalUV, 0)</code> 取高度 （<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:147-155</span>、<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:168</span>）。</p>
+
+<p><strong>它的 3 个槽 = 本层 / 父层 / 祖父层</strong></p>
+
+<p>存的是<strong>同一块地形在连续三层的页表物理地址</strong>，靠一根「平移寄存器」维持：</p>
+
+<ul><li><strong>本层</strong>：每个节点自己重新采一次页表，<strong>只填 <code>[0]</code></strong></li></ul>
+
+<p>（<code>Info.PhysicalAddress.x = PhysicalAddress;</code>，<span class="ref">VirtualHeightfieldMesh3.usf:174</span>； 采样点是 <code>PageTableTexture.Load(int3(Info.SampleTexPos, Info.SampleTextureLevel))</code>，<span class="ref">VirtualHeightfieldMesh3.usf:173</span>）</p>
+
+<ul><li><strong>父层 / 祖父层</strong>：细分时整体平移一位继承下来（<span class="ref">VirtualHeightfieldMesh3.usf:445-447</span>）</li></ul>
+
+<pre>ChildPackData.y = 0;                            <span class="c">// 子节点自己的地址，等本层采样后再填</span>
+ChildPackData.z = ThisInfo.PhysicalAddress.x;   <span class="c">// 子节点[1] ← 父节点[0]（父层）</span>
+ChildPackData.w = ThisInfo.PhysicalAddress.y;   <span class="c">// 子节点[2] ← 父节点[1]（祖父层）</span></pre>
+
+<p>种子处还没有祖先，于是拿本层地址占位 —— 注释原话（<span class="ref">VirtualHeightfieldMesh3.usf:620-621</span>）：</p>
+
+<div class="callout"><p style='margin:0'><em>"for first item, three layer has same PhysicalAddress, three layer is : this layer, parent layer, parent parent layer"</em></p></div>
+
+<p>占位代码就是那条 <code>.xxx</code> 广播（<span class="ref">VirtualHeightfieldMesh3.usf:622</span>）。</p>
+
+<p><strong>但这三层目前并没有真正被用起来</strong>，两条证据：</p>
+
+<ul><li>渲染路径<strong>只读 <code>[0]</code></strong>（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:152</span>）—— <code>[1]</code> / <code>[2]</code> 全程无人读。</li><li>V1 那边本来就只有一个地址，写实例时直接广播进三个槽，还留了句 TODO</li></ul>
+
+<p>（<span class="ref">VirtualHeightfieldMesh.usf:413</span>：<code>OutInstance.PhysicalAddress.xyz = Item.PhysicalAddress; // todo:just record one address</code>）。</p>
+
+<p>结论：<strong>V3 在数据结构上预留了「三层」，当前渲染只消费最细的那一层。</strong></p>
+
+<p><strong>每个实例画多少索引</strong></p>
+
+<p>索引缓冲<strong>全局只有一份，所有实例共享</strong>（<span class="ref">VirtualHeightfieldMeshVertexFactory.cpp:139</span> 在 VF 构造时建一次）：</p>
+
+<table><thead><tr>
+<th>量</th>
+<th>值</th>
+<th>出处</th>
+</tr></thead><tbody>
+<tr><td>一个实例的 quad 数</td><td><code>NumInstanceVertexSide²</code> = 16 × 16 = <strong>256</strong></td><td>——</td></tr>
+<tr><td>每个 quad 的索引数</td><td><strong>6</strong>（2 个三角形）</td><td>——</td></tr>
+<tr><td><strong>一个实例的索引数</strong></td><td><strong>1536</strong></td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2041</span>、<span class="ref">VirtualHeightfieldMeshVertexFactory.cpp:75</span></td></tr>
+<tr><td>一个实例的三角形数</td><td>256 × 2 = <strong>512</strong></td><td>——</td></tr>
+</tbody></table>
+
+<p>这个 1536 会写进间接参数的第一项当 <code>IndexCountPerInstance</code>（<span class="ref">VirtualHeightfieldInitBuffers.usf:35</span>）， 所以一次 draw 就是「<strong>1536 个索引 × InstanceCount 个实例</strong>」。</p>
+
+<p>两个顺带的实现细节：</p>
+
+<ul><li><strong>索引按 Morton 序生成</strong>，为的是提升顶点复用率 —— 源码注释给了实测数字：</li></ul>
+
+<p><em>"roughly 75% reuse rate vs 66% of naive scanline approach"</em>（<span class="ref">VirtualHeightfieldMeshVertexFactory.cpp:25</span>）。</p>
+
+<ul><li><strong>默认走 16 位索引</strong>：<code>NumQuadsPerSide &lt; 256</code> 时用 <code>uint16</code>，否则才用 <code>uint32</code></li></ul>
+
+<p>（<span class="ref">VirtualHeightfieldMeshVertexFactory.cpp:78</span>、<span class="ref">VirtualHeightfieldMeshVertexFactory.cpp:82</span>）。 默认 <code>NumInstanceVertexSide = 16 &lt; 256</code>，所以索引缓冲只有 1536 × 2 = <strong>3 KB</strong>。</p>
 
 <h3>3.3 <code>IndirectArgsBuffer</code>（40 字节）—— 两批 draw 的参数</h3>
 
@@ -1108,6 +1405,22 @@ InstanceArgsBuffer[5..9] = { NumIndices, 0, 0, 0, 0 }         （洞材质批次
 
 <p><strong>为什么要在 CS 里分流，而不是在材质里 <code>discard</code></strong>：<code>discard</code> 会破坏 TBDR / TSR 上的 HSR（早期深度测试），移动端代价尤其大。把分支从「每像素」挪到「每实例」，代价是多了一次 IndirectDraw。</p>
 
+<p><strong>两个通道各自一块独立缓冲，大小还不一样</strong>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1789</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1803</span>）：</p>
+
+<table><thead><tr>
+<th>通道</th>
+<th>CS 侧写哪个 UAV</th>
+<th>落到哪块 RHI 缓冲</th>
+<th>大小</th>
+</tr></thead><tbody>
+<tr><td>不透明</td><td><code>QuadInstanceBuffer</code></td><td><code>InstanceBuffer</code></td><td><code>MaxRenderItems × 16 B</code></td></tr>
+<tr><td>洞</td><td><code>HoleQuadInstanceBuffer</code></td><td><code>HoleInstanceBuffer</code></td><td><code>MaxRenderItems × 16 B / 4</code></td></tr>
+</tbody></table>
+
+<p>洞缓冲小 4 倍 —— 源码注释写得很直白：<em>"hold instance just little"</em>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1802</span>），洞是少数，没必要按满量开。</p>
+
+<div class="callout"><p style='margin:0'>CS 侧的名字（<code>QuadInstanceBuffer</code> / <code>HoleQuadInstanceBuffer</code>）与 RHI 侧的名字（<code>InstanceBuffer</code> / <code>HoleInstanceBuffer</code>）不是同一个标识符，别当成两条不同的缓冲。 两条 draw 怎么各自读到属于自己那份实例，见 §4.5 末尾。</p></div>
+
 <h3>4.5 阶段⑤ 光栅化 —— 顶点是从哪来的</h3>
 
 <p><strong>VHM 没有顶点缓冲。</strong> 整个 VF 是自建的，<code>InitRHI()</code> 里只挂了一个 <code>VertexBuffer = nullptr, Stride = 0</code> 的空顶点流，元素声明列表为空（<span class="ref">VirtualHeightfieldMeshVertexFactory.cpp:153-179</span>）。</p>
@@ -1186,13 +1499,947 @@ InstanceArgsBuffer[5..9] = { NumIndices, 0, 0, 0, 0 }         （洞材质批次
 <div class="cap">图 11　顶点生成：从 16 字节实例到起伏地形（无顶点缓冲）</div>
 </div>
 
-<p><strong>网格怎么来</strong>：<code>VertexCoord = (VertexId % GRID, VertexId / GRID)</code>，其中 <code>GRID = NumInstanceVertexSide + 1</code>。也就是说，<strong>一个实例 = 一个 GRID×GRID 的规则网格</strong>，顶点坐标全由 <code>SV_VertexID</code> 算出。索引缓冲所有实例共享一份。</p>
+<div class="fig">
+<svg viewBox="0 0 1120 856" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="856" fill="#ffffff"/>
+  <text x="24" y="30" font-size="13.5" fill="#1a1d21" text-anchor="start" font-weight="700">三层数据流：一个实例，怎么变成地形上的一块网格</text>
+  <text x="24" y="50" font-size="10.5" fill="#7a828a" text-anchor="start">每层只干一件事 —— 上层给「铺在哪」，中层给「高度从哪取」，下层是结果</text>
+  <rect x="24" y="68" width="1072" height="150" rx="8" fill="#f7faff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="44" y="92" font-size="11.5" fill="#2f6feb" text-anchor="start" font-weight="700">① Instance 数据（GPU 缓冲 · InstanceBuffer[InstanceId] · 16 字节 · 一个实例一块网格）</text>
+  <text x="48" y="116" font-size="10.5" fill="#4a5158" text-anchor="start" font-weight="700">PosLevelPacked（uint32）—— 只描述「第几格」</text>
+  <text x="73" y="130" font-size="9.5" fill="#7a828a" text-anchor="middle">28..31</text>
+  <text x="185.5" y="130" font-size="9.5" fill="#7a828a" text-anchor="middle">14..27</text>
+  <text x="360.5" y="130" font-size="9.5" fill="#7a828a" text-anchor="middle">0..13</text>
+  <rect x="48" y="136" width="50" height="34" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="73" y="157" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Level</text>
+  <rect x="98" y="136" width="175" height="34" rx="0" fill="#f7faff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="185.5" y="157" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Pos.y</text>
+  <rect x="273" y="136" width="175" height="34" rx="0" fill="#eaf1fe" stroke="#9db8dd" stroke-width="1"/>
+  <text x="360.5" y="157" font-size="11" fill="#1a1d21" text-anchor="middle" font-weight="700">Pos.x</text>
+  <text x="48" y="182" font-size="10" fill="#7a828a" text-anchor="start">整数序号，不是世界坐标 —— 世界尺度在最后的矩阵里</text>
+  <text x="500" y="116" font-size="10.5" fill="#4a5158" text-anchor="start" font-weight="700">PhysicalAddress（uint3）—— 只 [0] 参与渲染</text>
+  <rect x="500" y="126" width="184" height="34" rx="3" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="592" y="141" font-size="10" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.x</text>
+  <text x="592" y="155" font-size="9.5" fill="#7a828a" text-anchor="middle">本层</text>
+  <rect x="692" y="126" width="184" height="34" rx="3" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="784" y="141" font-size="10" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.y</text>
+  <text x="784" y="155" font-size="9.5" fill="#7a828a" text-anchor="middle">父层</text>
+  <rect x="884" y="126" width="184" height="34" rx="3" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="976" y="141" font-size="10" fill="#1a1d21" text-anchor="middle" font-weight="700">PhysicalAddress.z</text>
+  <text x="976" y="155" font-size="9.5" fill="#7a828a" text-anchor="middle">祖父层</text>
+  <text x="500" y="182" font-size="10" fill="#7a828a" text-anchor="start">指向 RVT 物理纹理里的「页格子」</text>
+  <text x="44" y="206" font-size="10.5" fill="#4a5158" text-anchor="start">289 个顶点不存储 —— 由各自的 SV_VertexID 当场算（无顶点缓冲）</text>
+  <line x1="300" y1="218" x2="300" y2="268" stroke="#2f6feb" stroke-width="1.4" marker-end="url(#arb)"/>
+  <text x="312" y="240" font-size="10.5" fill="#4a5158" text-anchor="start">① (Pos + LocalUV) → NormalizedPos</text>
+  <text x="312" y="256" font-size="10" fill="#7a828a" text-anchor="start">    换算比例：这一层的「格」= 2^(Level−4) 个 tile</text>
+  <line x1="820" y1="218" x2="820" y2="268" stroke="#2f6feb" stroke-width="1.4" marker-end="url(#arb)"/>
+  <text x="832" y="240" font-size="10.5" fill="#4a5158" text-anchor="start">② PhysicalAddress 决定高度去哪个</text>
+  <text x="832" y="256" font-size="10" fill="#7a828a" text-anchor="start">    物理 tile 取（页表查的就是它）</text>
+  <rect x="24" y="268" width="1072" height="274" rx="8" fill="#f4fbf6" stroke="#8fc9a8" stroke-width="1"/>
+  <text x="44" y="292" font-size="11.5" fill="#1f9254" text-anchor="start" font-weight="700">② RVT（Runtime Virtual Texture）—— 页表 + 物理纹理</text>
+  <text x="48" y="316" font-size="10.5" fill="#4a5158" text-anchor="start" font-weight="700">PageTableTexture（页表）</text>
+  <rect x="48" y="326" width="300" height="130" rx="3" fill="#ffffff" stroke="#8fc9a8" stroke-width="1"/>
+  <line x1="98" y1="326" x2="98" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="48" y1="347.667" x2="348" y2="347.667" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="148" y1="326" x2="148" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="48" y1="369.333" x2="348" y2="369.333" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="198" y1="326" x2="198" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="48" y1="391" x2="348" y2="391" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="248" y1="326" x2="248" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="48" y1="412.667" x2="348" y2="412.667" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="298" y1="326" x2="298" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="48" y1="434.333" x2="348" y2="434.333" stroke="#e2e6ea" stroke-width="0.7"/>
+  <rect x="248" y="369.333" width="50" height="21.6667" rx="0" fill="#e9f7ef" stroke="#1f9254" stroke-width="1"/>
+  <text x="198" y="474" font-size="10" fill="#7a828a" text-anchor="middle">按 NormalizedPos 查表 → 返回 PhysicalAddress</text>
+  <text x="198" y="490" font-size="9.5" fill="#7a828a" text-anchor="middle">（VHM 在 floor / ceil 两个 mip 各查一次）</text>
+  <line x1="358" y1="391" x2="410" y2="391" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <text x="424" y="316" font-size="10.5" fill="#4a5158" text-anchor="start" font-weight="700">HeightTexture（物理纹理）</text>
+  <rect x="424" y="326" width="560" height="130" rx="3" fill="#ffffff" stroke="#8fc9a8" stroke-width="1"/>
+  <line x1="494" y1="326" x2="494" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="424" y1="352" x2="984" y2="352" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="564" y1="326" x2="564" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="424" y1="378" x2="984" y2="378" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="634" y1="326" x2="634" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="424" y1="404" x2="984" y2="404" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="704" y1="326" x2="704" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="424" y1="430" x2="984" y2="430" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="774" y1="326" x2="774" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="424" y1="456" x2="984" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="844" y1="326" x2="844" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="424" y1="482" x2="984" y2="482" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="914" y1="326" x2="914" y2="456" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="424" y1="508" x2="984" y2="508" stroke="#e2e6ea" stroke-width="0.7"/>
+  <rect x="634" y="378" width="70" height="26" rx="0" fill="#e9f7ef" stroke="#1f9254" stroke-width="1"/>
+  <text x="704" y="474" font-size="10" fill="#7a828a" text-anchor="middle">每个格子 = 一张 tile（默认 256 × 256 纹素）</text>
+  <text x="704" y="490" font-size="9.5" fill="#1f9254" text-anchor="middle" font-weight="700">高亮 = 本实例的那张 tile</text>
+  <text x="44" y="512" font-size="10" fill="#7a828a" text-anchor="start">「一个实例 = 一张物理 tile」由 patch 与页的边界咬合保证：patch 边长 2^(Level−4) 整除页边长 2^SampleLevel（见下节）</text>
+  <text x="44" y="530" font-size="10" fill="#7a828a" text-anchor="start">但顶点的最终高度并不靠 instance 级地址 —— 每个顶点会拿自己的 NormalizedPos 重查一次页表</text>
+  <line x1="300" y1="542" x2="300" y2="596" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <line x1="300" y1="542" x2="300" y2="596" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <text x="312" y="562" font-size="10.5" fill="#4a5158" text-anchor="start">③ 在该 tile 内采样 → Height</text>
+  <text x="312" y="578" font-size="10" fill="#7a828a" text-anchor="start">    该 tile 内 UV = 页原点 UV + LocalUV × 页尺寸</text>
+  <line x1="820" y1="542" x2="820" y2="596" stroke="#1f9254" stroke-width="1.4" marker-end="url(#arg)"/>
+  <text x="612" y="560" font-size="10.5" fill="#4a5158" text-anchor="start">④ 乘 UV→世界 矩阵</text>
+  <text x="612" y="577" font-size="9.5" fill="#7a828a" text-anchor="start">mul((NormalizedPos, Height),</text>
+  <text x="612" y="591" font-size="9.5" fill="#7a828a" text-anchor="start">    VirtualHeightfieldToWorld)</text>
+  <rect x="24" y="596" width="1072" height="236" rx="8" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="44" y="620" font-size="11.5" fill="#d9741a" text-anchor="start" font-weight="700">③ 地形（世界空间）—— 高亮的那一块就是这个实例</text>
+  <rect x="48" y="634" width="380" height="130" rx="3" fill="#ffffff" stroke="#e2a15c" stroke-width="1"/>
+  <line x1="111.333" y1="634" x2="111.333" y2="764" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="48" y1="655.667" x2="428" y2="655.667" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="174.667" y1="634" x2="174.667" y2="764" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="48" y1="677.333" x2="428" y2="677.333" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="238" y1="634" x2="238" y2="764" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="48" y1="699" x2="428" y2="699" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="301.333" y1="634" x2="301.333" y2="764" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="48" y1="720.667" x2="428" y2="720.667" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="364.667" y1="634" x2="364.667" y2="764" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="48" y1="742.333" x2="428" y2="742.333" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="48" y1="634" x2="111.333" y2="655.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="48" y1="655.667" x2="111.333" y2="677.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="48" y1="677.333" x2="111.333" y2="699" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="48" y1="699" x2="111.333" y2="720.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="48" y1="720.667" x2="111.333" y2="742.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="48" y1="742.333" x2="111.333" y2="764" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="111.333" y1="634" x2="174.667" y2="655.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="111.333" y1="655.667" x2="174.667" y2="677.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="111.333" y1="677.333" x2="174.667" y2="699" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="111.333" y1="699" x2="174.667" y2="720.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="111.333" y1="720.667" x2="174.667" y2="742.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="111.333" y1="742.333" x2="174.667" y2="764" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="174.667" y1="634" x2="238" y2="655.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="174.667" y1="655.667" x2="238" y2="677.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="174.667" y1="677.333" x2="238" y2="699" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="174.667" y1="699" x2="238" y2="720.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="174.667" y1="720.667" x2="238" y2="742.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="174.667" y1="742.333" x2="238" y2="764" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="238" y1="634" x2="301.333" y2="655.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="238" y1="655.667" x2="301.333" y2="677.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="238" y1="677.333" x2="301.333" y2="699" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="238" y1="699" x2="301.333" y2="720.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="238" y1="720.667" x2="301.333" y2="742.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="238" y1="742.333" x2="301.333" y2="764" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="301.333" y1="634" x2="364.667" y2="655.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="301.333" y1="655.667" x2="364.667" y2="677.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="301.333" y1="677.333" x2="364.667" y2="699" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="301.333" y1="699" x2="364.667" y2="720.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="301.333" y1="720.667" x2="364.667" y2="742.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="301.333" y1="742.333" x2="364.667" y2="764" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="364.667" y1="634" x2="428" y2="655.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="364.667" y1="655.667" x2="428" y2="677.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="364.667" y1="677.333" x2="428" y2="699" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="364.667" y1="699" x2="428" y2="720.667" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="364.667" y1="720.667" x2="428" y2="742.333" stroke="#e2e6ea" stroke-width="0.5"/>
+  <line x1="364.667" y1="742.333" x2="428" y2="764" stroke="#e2e6ea" stroke-width="0.5"/>
+  <rect x="111.333" y="655.667" width="63.3333" height="21.6667" rx="0" fill="#fff8ef" stroke="#d9741a" stroke-width="1"/>
+  <text x="238" y="784" font-size="10.5" fill="#d9741a" text-anchor="middle" font-weight="700">这块 patch = 289 个顶点 / 1536 个索引</text>
+  <text x="238" y="800" font-size="9.5" fill="#7a828a" text-anchor="middle">整个地形由若干这样的 patch 拼成</text>
+  <rect x="460" y="634" width="620" height="130" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="770" y="647.5" font-size="10" fill="#7a828a" text-anchor="middle">同一条链，换个角度读：</text>
+  <text x="770" y="663.5" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="770" y="679.5" font-size="10" fill="#7a828a" text-anchor="middle">· Pos（整数格号） + LocalUV（格内 0~1） → 地形 UV</text>
+  <text x="770" y="695.5" font-size="10" fill="#7a828a" text-anchor="middle">· 地形 UV 查页表 → 拿到物理 tile 的地址</text>
+  <text x="770" y="711.5" font-size="10" fill="#7a828a" text-anchor="middle">· 在该 tile 内采样 → 高度</text>
+  <text x="770" y="727.5" font-size="10" fill="#7a828a" text-anchor="middle">· (地形 UV, 高度) 乘矩阵 → 世界坐标</text>
+  <text x="770" y="743.5" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="770" y="759.5" font-size="10" fill="#7a828a" text-anchor="middle">Pos 只需要 14 位：它只说「第几格」，与地形多大无关。</text>
+</svg>
+<div class="cap">图 12　三层数据流：Instance 数据 → RVT（页表 + 物理纹理）→ 地形</div>
+</div>
 
-<p><strong>高度怎么来</strong>：查两次页表（<code>floor(SampleLevel)</code> 和 <code>ceil(SampleLevel)</code>），各采一次高度，再按 <code>frac</code> 插值（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:208-214</span>）。因为物理页纹理只有 level 0，<strong>没有硬件 mip 链，过渡必须手工做</strong>。</p>
+<p>上面那张讲的是「<strong>一个实例内部</strong>」长什么样；这张讲「<strong>这个实例在地形上处于什么位置、高度从哪取</strong>」， 分三层，读图顺序就是数据流：</p>
+
+<table><thead><tr>
+<th>层</th>
+<th>回答什么问题</th>
+<th>关键数据</th>
+</tr></thead><tbody>
+<tr><td>① Instance 数据</td><td>铺在哪？</td><td><code>Pos</code>（整数格号）+ <code>PhysicalAddress</code></td></tr>
+<tr><td>② RVT（页表 + 物理纹理）</td><td>高度去哪个物理 tile 取？</td><td>页表查 <code>NormalizedPos</code> → <code>PhysicalAddress</code></td></tr>
+<tr><td>③ 地形（世界空间）</td><td>结果长什么样？</td><td><code>(NormalizedPos, Height) × VirtualHeightfieldToWorld</code></td></tr>
+</tbody></table>
+
+<p>一句话串起来：<strong><code>Pos</code> 说「铺在哪」，页表说「高度去哪取」，矩阵说「世界有多大」</strong> —— 三者互不替代。</p>
+
+<p><strong>网格怎么来</strong>：<code>VertexCoord = (VertexId % GRID, VertexId / GRID)</code>，其中 <code>GRID = NumInstanceVertexSide + 1</code>（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:128-129</span>、<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:7</span>）。也就是说，<strong>一个实例 = 一个 GRID×GRID 的规则网格</strong>，顶点坐标全由 <code>SV_VertexID</code> 算出。索引缓冲所有实例共享一份。</p>
+
+<h4>GRID 到底多大 —— 一个 tile 对应多少顶点</h4>
+
+<div class="fig">
+<svg viewBox="0 0 1120 452" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="452" fill="#ffffff"/>
+  <text x="24" y="30" font-size="13" fill="#1a1d21" text-anchor="start" font-weight="700">一个 RVT tile（一个 VT 页）对应多少个 VHM quad / 顶点？</text>
+  <text x="24" y="50" font-size="10.5" fill="#7a828a" text-anchor="start">默认参数：RVT TileSize = 256，NumQuadPerTileOfTwo = 4</text>
+  <text x="24" y="68" font-size="11" fill="#4a5158" text-anchor="start" font-weight="700">① 一个 RVT tile：256 × 256 纹素</text>
+  <rect x="24" y="74" width="252" height="252" rx="2" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <line x1="39.75" y1="74" x2="39.75" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="89.75" x2="276" y2="89.75" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="55.5" y1="74" x2="55.5" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="105.5" x2="276" y2="105.5" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="71.25" y1="74" x2="71.25" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="121.25" x2="276" y2="121.25" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="87" y1="74" x2="87" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="137" x2="276" y2="137" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="102.75" y1="74" x2="102.75" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="152.75" x2="276" y2="152.75" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="118.5" y1="74" x2="118.5" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="168.5" x2="276" y2="168.5" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="134.25" y1="74" x2="134.25" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="184.25" x2="276" y2="184.25" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="150" y1="74" x2="150" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="200" x2="276" y2="200" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="165.75" y1="74" x2="165.75" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="215.75" x2="276" y2="215.75" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="181.5" y1="74" x2="181.5" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="231.5" x2="276" y2="231.5" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="197.25" y1="74" x2="197.25" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="247.25" x2="276" y2="247.25" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="213" y1="74" x2="213" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="263" x2="276" y2="263" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="228.75" y1="74" x2="228.75" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="278.75" x2="276" y2="278.75" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="244.5" y1="74" x2="244.5" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="294.5" x2="276" y2="294.5" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="260.25" y1="74" x2="260.25" y2="326" stroke="#e2e6ea" stroke-width="0.7"/>
+  <line x1="24" y1="310.25" x2="276" y2="310.25" stroke="#e2e6ea" stroke-width="0.7"/>
+  <rect x="24" y="74" width="15.75" height="15.75" rx="0" fill="#eaf1fe" stroke="#2f6feb" stroke-width="1"/>
+  <text x="150" y="346" font-size="10" fill="#7a828a" text-anchor="middle">每个小格 = 1 个 quad = 16 × 16 纹素</text>
+  <text x="150" y="364" font-size="11" fill="#2f6feb" text-anchor="middle" font-weight="700">16 × 16 = 256 个 quad / tile</text>
+  <line x1="288" y1="200" x2="338" y2="200" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="313" y="188" font-size="9.5" fill="#7a828a" text-anchor="middle">顶点</text>
+  <text x="354" y="68" font-size="11" fill="#4a5158" text-anchor="start" font-weight="700">② 顶点网格：GRID_SIZE × GRID_SIZE</text>
+  <rect x="354" y="74" width="252" height="252" rx="2" fill="#ffffff" stroke="#8fc9a8" stroke-width="1"/>
+  <circle cx="366" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="86" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="100.25" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="114.5" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="128.75" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="143" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="157.25" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="171.5" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="185.75" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="200" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="214.25" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="228.5" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="242.75" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="257" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="271.25" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="285.5" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="299.75" r="2.4" fill="#1f9254"/>
+  <circle cx="366" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="380.25" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="394.5" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="408.75" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="423" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="437.25" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="451.5" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="465.75" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="480" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="494.25" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="508.5" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="522.75" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="537" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="551.25" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="565.5" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="579.75" cy="314" r="2.4" fill="#1f9254"/>
+  <circle cx="594" cy="314" r="2.4" fill="#1f9254"/>
+  <text x="480" y="346" font-size="10" fill="#7a828a" text-anchor="middle">GRID_SIZE = NumInstanceVertexSide + 1 = 17</text>
+  <text x="480" y="364" font-size="11" fill="#1f9254" text-anchor="middle" font-weight="700">17 × 17 = 289 个顶点 · 1536 个索引</text>
+  <text x="648" y="68" font-size="11" fill="#4a5158" text-anchor="start" font-weight="700">③ 这两个数怎么来的</text>
+  <rect x="648" y="74" width="460" height="176" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="878" y="94.5" font-size="10" fill="#7a828a" text-anchor="middle">NumInstanceVertexSide = 1 &lt;&lt; (TileSizeLog2 − NumQuadsPerTileOfTwo)</text>
+  <text x="878" y="110.5" font-size="10" fill="#7a828a" text-anchor="middle">  （VirtualHeightfieldMeshSceneProxy.cpp:882）</text>
+  <text x="878" y="126.5" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="878" y="142.5" font-size="10" fill="#7a828a" text-anchor="middle">代入默认值：TileSize = 256 → TileSizeLog2 = 8；NumQuadPerTileOfTwo = 4</text>
+  <text x="878" y="158.5" font-size="10" fill="#7a828a" text-anchor="middle">  = 1 &lt;&lt; (8 − 4) = 16</text>
+  <text x="878" y="174.5" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="878" y="190.5" font-size="10" fill="#7a828a" text-anchor="middle">· 一个 quad 覆盖 2^NumQuadsPerTileOfTwo = 16 个纹素</text>
+  <text x="878" y="206.5" font-size="10" fill="#7a828a" text-anchor="middle">· 一个 tile 有 16 × 16 = 256 个 quad</text>
+  <text x="878" y="222.5" font-size="10" fill="#7a828a" text-anchor="middle">· 索引数 = NumInstanceVertexSide² × 6 = 1536</text>
+  <text x="878" y="238.5" font-size="10" fill="#7a828a" text-anchor="middle">  （VirtualHeightfieldMeshSceneProxy.cpp:2041）</text>
+  <rect x="24" y="382" width="1084" height="52" rx="7" fill="#fff8ef" stroke="#e2a15c" stroke-width="1"/>
+  <text x="566" y="403.5" font-size="10.5" fill="#7a828a" text-anchor="middle">高度采样用 SF_Bilinear（VirtualHeightfieldMeshSceneProxy.cpp:887）；MinMax 与 LodBias 用 SF_Point（同文件 :1999 / :889）</text>
+  <text x="566" y="421.5" font-size="10.5" fill="#7a828a" text-anchor="middle">只切 LOD 时才手工 lerp：查两次页表采两次高度后插值，因为物理页纹理没有 mip 链（VirtualHeightfieldMeshVertexFactory.ush:208-214）</text>
+</svg>
+<div class="cap">图 13　一个 RVT tile ↔ quad 数 ↔ 顶点数（默认参数）</div>
+</div>
+
+<p><code>NumInstanceVertexSide = 1 &lt;&lt; (TileSizeLog2 - NumQuadsPerTileOfTwo)</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:882</span>）， 其中 <code>TileSizeLog2 = FloorLog2(RVT TileSize)</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:877</span>）。 代入默认值就能看出 <code>NumQuadsPerTileOfTwo</code> 的几何含义：</p>
+
+<table><thead><tr>
+<th>量</th>
+<th>默认值</th>
+<th>出处</th>
+</tr></thead><tbody>
+<tr><td>RVT <code>TileSize</code></td><td><strong>256 × 256 纹素</strong>（默认索引 2 → <code>1 &lt;&lt; (2+6)</code>）</td><td><span class="ref">RuntimeVirtualTexture.h:33</span>、<span class="ref">RuntimeVirtualTexture.h:112</span></td></tr>
+<tr><td><code>TileSizeLog2</code></td><td>8</td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:877</span></td></tr>
+<tr><td><code>NumQuadPerTileOfTwo</code></td><td><strong>4</strong>（可配 0~7）</td><td><span class="ref">VirtualHeightfieldMeshComponent.h:117</span></td></tr>
+<tr><td><code>NumInstanceVertexSide</code></td><td><code>1 &lt;&lt; (8 - 4)</code> = <strong>16</strong></td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:882</span></td></tr>
+</tbody></table>
+
+<h4>⚠️ 先分清两种「纹素」—— 不然后面全乱</h4>
+
+<table class="kv"><thead><tr>
+<th>说法</th>
+<th>指什么</th>
+</tr></thead><tbody>
+<tr><td><strong>地形纹素</strong></td><td>地面上的高度采样点。整个地形横跨 <code>TileCount × TileSize</code> = 256 × 256 = <strong>65536 个地形纹素</strong></td></tr>
+<tr><td><strong>物理纹理纹素</strong></td><td>RVT 物理纹理里真正存的那个像素。<strong>一张 tile = <code>TileSize × TileSize</code> 个</strong> —— 与层级无关，但 <code>TileSize</code> 本身是可配的（见下框）</td></tr>
+</tbody></table>
+
+<p><strong>两者用不同的尺子，同一个 quad 量出来差 <code>2^Level</code> 倍</strong> —— 之前文档只写「纹素」没区分，就是这么读岔的。</p>
+
+<p>用两种尺子分别量一遍（默认参数）：</p>
+
+<table><thead><tr>
+<th>尺子</th>
+<th>一个 quad</th>
+<th>一个 patch（16 × 16 个 quad）</th>
+<th>一张 tile</th>
+</tr></thead><tbody>
+<tr><td><strong>物理纹理纹素</strong></td><td><strong>恒 = 1 个</strong></td><td>16 × 16 = <strong>256 个</strong></td><td>256 × 256 = 65536 个</td></tr>
+<tr><td><strong>地形纹素</strong></td><td><code>2^Level</code> 个</td><td><code>16 × 2^Level</code> 个</td><td><code>2^(Level+8)</code> 个</td></tr>
+</tbody></table>
+
+<p><strong>「一个 quad = 一个物理纹素」不随层级变，这是构造出来的恒等式</strong>： <code>NumInstanceVertexSide = 2^(TileSizeLog2 − k)</code>、patch 占一张 tile 的 <code>1/2^k</code>， 两者一除正好抵消 —— 所以几何和纹理在每一级都是<strong>逐像素对齐</strong>的。 （这个恒等式<strong>与 <code>TileSize</code> 取多少无关</strong>，是这三节里唯一不受配置影响的结论。）</p>
+
+<div class="callout warn"><div class="h">注意</div><p style='margin:0'>###  别把 <code>TileSize</code> 记成常量 256 它是 <strong>RVT 资产上的一个属性</strong>，每个资产可以不一样（<span class="ref">RuntimeVirtualTexture.h:31-33</span>）： ``<code>cpp /** Page tile size. (Actual values increase in powers of 2) */ UPROPERTY(EditAnywhere, BluePrintGetter = GetTileSize, Category = Size, meta = (UIMin = "0", UIMax = "4", ...)) int32 TileSize = 2; // 256 static int32 GetClampedTileSize(int32 InTileSize) { return 1 &lt;&lt; FMath::Clamp(InTileSize + 6, 6, 10); } </code>`<code> 资产里存的是**索引**，实际纹素数 = </code>1 &lt;&lt; (索引 + 6)<code>，可配索引 0~4 ⇒ **64 / 128 / 256 / 512 / 1024**， 默认索引 2 ⇒ **256**。 **而且运行时还会被 DeviceProfile 再偏置一次** —— 同一份资产在不同设备/画质档位下， 实际 tile 大小可以不同（</code>RuntimeVirtualTexture.cpp:349-350<code>）： </code>`<code>cpp // Apply LODGroup TileSize bias here. const int32 TileSizeBias = UDeviceProfileManager::Get().GetActiveProfile()-&gt;GetTextureLODSettings()-&gt;GetTextureLODGroup(LODGroup).VirtualTextureTileSizeBias; OutDesc.TileSize = GetClampedTileSize(TileSize + TileSizeBias); </code>`<code> （偏置字段默认 0，</code>TextureLODSettings.h:117<code>；每一档 DeviceProfile 的每个 LODGroup 都能单独设。 旁边的 </code>VirtualTextureTileCountBias<code> 对 </code>TileCount<code> 同理。） **本节所有具体数字**（一张 tile 256×256、16 × 16 quad、17 × 17 = 289 顶点、1536 索引） **都是 </code>TileSize = 256<code> 这组默认值的代入结果**，换资产、换档位就会变 —— 因为 </code>NumInstanceVertexSide = 1 &lt;&lt; (TileSizeLog2 − NumQuadsPerTileOfTwo)<code> 里本来就有 </code>TileSizeLog2`。</p></div>
+
+<h4>patch 与 tile 的关系：一张 tile 被 256 个 patch 共用</h4>
+
+<p><code>patch</code> <strong>不是</strong>一张 tile。看 <code>GetVirtualToPhysicalUVTransform()</code>（<span class="ref">VirtualHeightfieldMesh.ush:158-169</span>）：</p>
+
+<pre>uint LodShift = (uint)max((int)GetVirtualLevelFromPhysicalAddress(InPhysicalAddress) - (int)InLevel, 0);
+float PosDivider = InPosDivider / (float)(1u &lt;&lt; LodShift);
+float2 MinVirtualUV = frac((float2)InPos * PosDivider);</pre>
+
+<p><code>InPosDivider</code> = <code>SampleGeoToTexLevelOffsetInv</code> = <code>1/2^RVTMinLevel</code> = <strong>1/16</strong>（<code>Level ≤ MaxLod − RVTMinLevel</code> 时）。 <code>frac(Pos / 16)</code> 说明 —— <strong>一张 tile 在每维被切成 16 格，也就是 16 × 16 = 256 个 patch 共用同一张 tile</strong>。</p>
+
+<p>所以准确说法是：</p>
+
+<ul><li>一张 <strong>tile</strong>（页）的<strong>覆盖范围随层级变大</strong> —— 它始终是 256 × 256 个<strong>物理纹理纹素</strong>，</li></ul>
+
+<p>但 mip 0 的 tile 只盖 256 个地形纹素，mip L 的 tile 盖 <code>2^L × 256</code> 个地形纹素</p>
+
+<ul><li>而一个 <strong>patch 始终只占某个层级那一张 tile 的 1/16</strong>（每维），不是「跨了多个 tile」</li></ul>
+
+<div class="callout"><p style='margin:0'>之前写成「一个 Pos 单位 = 2^(Level−4) 个 tile」是把 <strong>mip0 的 tile 当固定尺子</strong>去量第 L 级的东西， 数字当然会随层级翻倍 —— 但<strong>同一片地上，tile 本身也在随层级变大</strong>，这种说法会把关系讲反。</p></div>
+
+<p><strong>「一个实例 = 一个 tile」只在一个特定层级成立</strong> —— 一个实例是一个<strong>规则的 16×16 网格</strong>， 它覆盖的地面范围随几何层级变化（下面会看到，它是 <code>2^(Level−RVTMinLevel)</code> 个 tile）。</p>
+
+<p>因为 <strong>一个 quad 覆盖 <code>2^Level</code> 个纹素</strong>（Level 是这个几何层级），于是：</p>
+
+<table class="kv"><thead><tr>
+<th>量</th>
+<th>纹素数</th>
+</tr></thead><tbody>
+<tr><td>一个 quad</td><td><code>2^Level</code></td></tr>
+<tr><td>一个 patch（<code>NumInstanceVertexSide</code> 个 quad）</td><td><code>16 × 2^Level</code></td></tr>
+<tr><td>折成 tile（÷ 256）</td><td><code>2^(Level − 4)</code></td></tr>
+</tbody></table>
+
+<p>代入看就很清楚：</p>
+
+<table><thead><tr>
+<th>几何层级</th>
+<th>一个实例 patch 覆盖</th>
+<th>式子</th>
+</tr></thead><tbody>
+<tr><td><code>Level &lt; RVTMinLevel</code>（4）</td><td><strong>不足一个 tile</strong>（几何比纹理细）</td><td><code>2^(Level−4) &lt; 1</code></td></tr>
+<tr><td><code>Level = 4</code></td><td><strong>正好 1 个 RVT tile</strong></td><td><code>2^0 = 1</code></td></tr>
+<tr><td><code>Level &gt; 4</code></td><td><strong><code>2^(Level−4)</code> 个 tile</strong>（一个 VT 页跨多个 tile）</td><td>Level 6 → 4 个 tile</td></tr>
+</tbody></table>
+
+<p>配套两条机制：<code>GeoToTexLevelOffset = max(RVTMinLevel - Level, 0)</code> （<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:131</span>）负责「几何比纹理细」那条路径； <code>uint2 TexPos = Item.Pos &gt;&gt; GeoToTexLevelOffset;</code>（<span class="ref">VirtualHeightfieldMesh3.usf:91</span>） 负责把几何坐标折回<strong>页坐标</strong>。</p>
+
+<p>验算一遍（默认 <code>RVTMinLevel = 4</code>，取 RVT 为 256 × 256 tile、TileSize 256）：</p>
+
+<ul><li>最粗层级 patch 只有 1 个、要盖满全地形 → <code>16 × 2^Level = 256 × 256</code> ⇒ <code>Level = 12</code></li></ul>
+
+<p>—— 而 <code>MaxLevel = FloorLog2(TileCount) + NumQuadsPerTileOfTwo = 8 + 4 = 12</code> ✓</p>
+
+<ul><li>最细层级 <code>Level = 0</code> → 每个 patch 只 16 个纹素，全地形 <code>65536 / 16 = 4096</code> 个 patch ✓</li></ul>
+
+<h4>为什么一个实例只用一个 <code>PhysicalAddress</code> 就够 —— 它不会跨页 / 跨 tile</h4>
+
+<p>结论：<strong>一个 patch 的所有顶点，采到的都是同一张物理 tile。</strong> 保证来自三层结构。</p>
+
+<p><strong>① patch 的足迹 ≤ 它查询的那个页</strong></p>
+
+<p>patch 覆盖的 tile 数 = <code>2^(SampleLevel − SampleGeoToTexLevelOffset)</code>。代入默认参数 （<code>RVTMinLevel = 4</code>、<code>ExtSubdivisionLevel = 0</code>、<code>MaxLod = 12</code>）：</p>
+
+<table><thead><tr>
+<th>几何层级</th>
+<th><code>SampleLevel</code> = <code>min(L, MaxLod−4)</code></th>
+<th><code>SampleGeoToTexLevelOffset</code> = <code>min(4, MaxLod−L)</code></th>
+<th>patch 覆盖</th>
+</tr></thead><tbody>
+<tr><td>12</td><td>8</td><td>0</td><td>256 tile（整块地形）</td></tr>
+<tr><td>9</td><td>8</td><td>3</td><td>32 tile</td></tr>
+<tr><td>8</td><td>8</td><td>4</td><td>16 tile</td></tr>
+<tr><td>6</td><td>6</td><td>4</td><td>4 tile</td></tr>
+<tr><td><strong>4</strong></td><td>4</td><td>4</td><td><strong>1 tile</strong></td></tr>
+<tr><td>0</td><td>0</td><td>4</td><td>1/16 tile</td></tr>
+</tbody></table>
+
+<p>而 patch 查询的页在 mip <code>SampleLevel</code>，覆盖 <code>2^SampleLevel</code> 个 tile。<strong>恒有 <code>SampleLevel ≥ Level − RVTMinLevel</code></strong>（逐档验证：Level ≤ MaxLod−4 时 <code>min</code> 取 <code>Level</code>； 否则取 <code>MaxLod−4 ≥ Level−4</code>）—— 所以 <strong>页 ≥ patch</strong>，patch 塞得进一个页。</p>
+
+<p><strong>② 光"塞得下"还不够 —— 还得看两种切分线会不会错开</strong></p>
+
+<p>把地形按 tile 编号，这时候有两种切分线：</p>
+
+<ul><li><strong>页的边界</strong>：每 <code>2^SampleLevel</code> 个 tile 划一条</li><li><strong>patch 的边界</strong>：每 <code>2^(Level−4)</code> 个 tile 划一条</li></ul>
+
+<p>要出现跨界，必须有一条 <strong>patch 的边线落在两条页边线中间</strong>。但如果<strong>页边界的位置本身也是 patch 边长的整数倍</strong>， 页边线就必然与某条 patch 边线<strong>重合</strong> —— 两套线互相咬合，patch 根本没有跨界的余地。</p>
+
+<p>而「<code>2^SampleLevel</code> 是 <code>2^(Level−4)</code> 的整数倍」在 2 的幂这件事上，就等价于 ①（<code>SampleLevel ≥ Level−4</code>）。</p>
+
+<p><strong>代入具体数字</strong>（<code>Level = 6</code> → patch 是 4 个 tile，页是 64 个 tile）：</p>
+
+<pre>tile 编号  0 ──────────────── 64 ──────────────── 128
+patch 线   0   4   8   12 ...  64   68  ...
+页线       0                   64                  128
+                             ↑
+                    64 同时是 patch 线，也是页线 —— 两套线咬合
+           └── 前 16 个 patch ──┘</pre>
+
+<p>页线 64 正好落在一条 patch 线上，所以第 16 个 patch 从页边界<strong>刚好</strong>开始，谁也没被切开。</p>
+
+<p><strong>反例</strong>：假设 patch 是 3 个 tile、页是 64 个 tile。 patch 线落在 <code>0, 3, 6, …, 63, 66</code>，页线落在 <code>0, 64</code> —— 第 22 个 patch 覆盖 tile <code>63~66</code>， <strong>横跨了 64 这条页边界</strong>。2 的幂之所以安全，就是因为除得尽，出不了这种错位。</p>
+
+<p><strong>③ 一个页 = 物理纹理里的一张 tile</strong></p>
+
+<p>VT 的本质就是「虚拟页 → 物理 tile」的映射，页表纹素存的就是这个映射（§2.1）。 于是「patch ⊆ 一个页」直接推得 <strong>「patch 的全部顶点都从同一张物理 tile 采样」</strong> —— 这正是 <code>Item.PhysicalAddress[0]</code> 可以只存<strong>一个</strong>地址就给整片网格建 UV 变换的原因 （<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:147-155</span>）。</p>
+
+<p><strong>④ 那 morph 之后顶点换页了呢？—— 不影响</strong></p>
+
+<p>因为<strong>最终高度根本不过这个地址</strong>。看 <span class="ref">VirtualHeightfieldMeshVertexFactory.ush:208-213</span>，每个顶点是拿自己的 <code>NormalizedPos</code> <strong>重新查一次页表</strong>、再用 <code>VTComputePhysicalUVs()</code> 换成物理 UV 的 —— 逐顶点独立解析， 跨页与否由顶点自己解决。</p>
+
+<p><code>PhysicalAddress[0]</code> 只用在 morph <strong>之前</strong>那次「估算距离」的预采样 （<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:167-168</span>），而那个高度只喂给 <code>DistanceSq</code>，粗一点无所谓。</p>
+
+<p><strong>⑤ 参数侧还有一道护栏</strong></p>
+
+<p><code>NumQuadsPerTileOfTwo</code> 被钳到不超过 <code>TileSizeLog2 + ExtSubdivisionLevel - 1</code> （<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:879</span>），保证 <code>NumInstanceVertexSide ≥ 2</code>； 而 <code>RVTMinLevel</code> 与 <code>MaxLevel</code> 都由 <code>NumQuadsPerTileOfTwo</code> 推出 （<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:880</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:881</span>）—— 三者绑死，用户在外面调不出破坏对齐的组合。</p>
+
+<h4>一个 <code>Pos</code> 怎么算出 289 个顶点</h4>
+
+<p>实例里只有一个 <code>Pos</code>，但这不是「一个实例一个点」—— 它是这块 16×16 网格的<strong>原点</strong>， 每个顶点额外带着自己的 <code>SV_VertexID</code>，两者相加才是这个顶点的位置。</p>
+
+<pre><span class="c">// VirtualHeightfieldMeshVertexFactory.ush:128-129</span>
+uint2 VertexCoord = uint2(Input.VertexId % GRID_SIZE, Input.VertexId / GRID_SIZE);
+float2 LocalUV = (float2)VertexCoord / (float)(GRID_SIZE - 1);</pre>
+
+<p><code>GRID_SIZE = 17</code>，所以 <code>VertexId</code> 0…288 → <code>VertexCoord</code> (0…16, 0…16) → <strong><code>LocalUV ∈ [0,1]²</code></strong> （网格内归一化坐标）。</p>
+
+<pre><span class="c">// VirtualHeightfieldMeshVertexFactory.ush:142-143</span>
+float2 XY = ((float2)Pos + LocalUV) * SampleGeoToTexLevelOffsetInv * (1u &lt;&lt; (uint)SampleLevel);
+float2 NormalizedPos = (XY * VHM.PageTableSize.zw);</pre>
+
+<p><strong>先澄清最容易误解的一点：<code>Pos</code> 不是世界坐标，也不是 UV —— 它就是「我在方格图里的第几格」。</strong> <code>Pos</code> 是 <code>uint2</code>，一个整数格号。</p>
+
+<div class="fig">
+<svg viewBox="0 0 1120 508" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/></marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2f6feb"/></marker>
+    <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f9254"/></marker>
+    <marker id="aro" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#d9741a"/></marker>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c0392b"/></marker>
+    <marker id="arp" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8e44ad"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="508" fill="#ffffff"/>
+  <text x="24" y="30" font-size="13.5" fill="#1a1d21" text-anchor="start" font-weight="700">「一个 Pos 单位 = 2^(Level−4) 个 tile」到底在说什么</text>
+  <text x="24" y="52" font-size="10.5" fill="#7a828a" text-anchor="start">同一片地，在不同几何层级下被切成不同大小的格子。Pos 就是「我在这张方格图里的第几格」。</text>
+  <text x="48" y="76" font-size="11.5" fill="#2f6feb" text-anchor="start" font-weight="700">几何层级 Level = 4：地形切成 256×256 格</text>
+  <rect x="48" y="86" width="320" height="320" rx="3" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <line x1="88" y1="86" x2="88" y2="406" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="48" y1="126" x2="368" y2="126" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="128" y1="86" x2="128" y2="406" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="48" y1="166" x2="368" y2="166" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="168" y1="86" x2="168" y2="406" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="48" y1="206" x2="368" y2="206" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="208" y1="86" x2="208" y2="406" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="48" y1="246" x2="368" y2="246" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="248" y1="86" x2="248" y2="406" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="48" y1="286" x2="368" y2="286" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="288" y1="86" x2="288" y2="406" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="48" y1="326" x2="368" y2="326" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="328" y1="86" x2="328" y2="406" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="48" y1="366" x2="368" y2="366" stroke="#e2e6ea" stroke-width="0.8"/>
+  <rect x="128" y="126" width="40" height="40" rx="0" fill="#eaf1fe" stroke="#2f6feb" stroke-width="1"/>
+  <text x="208" y="428" font-size="10.5" fill="#2f6feb" text-anchor="middle" font-weight="700">高亮的一格 = 1 个 tile</text>
+  <text x="208" y="446" font-size="10" fill="#7a828a" text-anchor="middle">Pos 从 0 数到 255 —— 数完正好 256 个 tile</text>
+  <text x="208" y="462" font-size="10" fill="#7a828a" text-anchor="middle">（这里只画 8×8 示意，真实是 256×256）</text>
+  <text x="488" y="76" font-size="11.5" fill="#1f9254" text-anchor="start" font-weight="700">几何层级 Level = 6：同一片地只切 64×64 格</text>
+  <rect x="488" y="86" width="320" height="320" rx="3" fill="#ffffff" stroke="#8fc9a8" stroke-width="1"/>
+  <line x1="568" y1="86" x2="568" y2="406" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="488" y1="166" x2="808" y2="166" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="648" y1="86" x2="648" y2="406" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="488" y1="246" x2="808" y2="246" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="728" y1="86" x2="728" y2="406" stroke="#e2e6ea" stroke-width="0.8"/>
+  <line x1="488" y1="326" x2="808" y2="326" stroke="#e2e6ea" stroke-width="0.8"/>
+  <rect x="568" y="86" width="80" height="80" rx="0" fill="#e9f7ef" stroke="#1f9254" stroke-width="1"/>
+  <text x="648" y="428" font-size="10.5" fill="#1f9254" text-anchor="middle" font-weight="700">高亮的一格 = 2×2 = 4 个 tile</text>
+  <text x="648" y="446" font-size="10" fill="#7a828a" text-anchor="middle">同样的地面，格子边长翻了倍、数量少了 16 倍</text>
+  <text x="648" y="462" font-size="10" fill="#7a828a" text-anchor="middle">Pos 只从 0 数到 63 —— 每数一格跨过 4 个 tile</text>
+  <line x1="388" y1="246" x2="468" y2="246" stroke="#5a6672" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="872" y="76" width="224" height="320" rx="7" fill="#ffffff" stroke="#9db8dd" stroke-width="1"/>
+  <text x="984" y="113" font-size="10" fill="#7a828a" text-anchor="middle">规律：</text>
+  <text x="984" y="128" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="984" y="143" font-size="10" fill="#7a828a" text-anchor="middle">层级 +1</text>
+  <text x="984" y="158" font-size="10" fill="#7a828a" text-anchor="middle">  格子边长 ×2</text>
+  <text x="984" y="173" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="984" y="188" font-size="10" fill="#7a828a" text-anchor="middle">Level 4 → 1 tile</text>
+  <text x="984" y="203" font-size="10" fill="#7a828a" text-anchor="middle">Level 5 → 2 tile</text>
+  <text x="984" y="218" font-size="10" fill="#7a828a" text-anchor="middle">Level 6 → 4 tile</text>
+  <text x="984" y="233" font-size="10" fill="#7a828a" text-anchor="middle">Level 7 → 8 tile</text>
+  <text x="984" y="248" font-size="10" fill="#7a828a" text-anchor="middle">Level 8 → 16 tile</text>
+  <text x="984" y="263" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="984" y="278" font-size="10" fill="#7a828a" text-anchor="middle">写成式子就是</text>
+  <text x="984" y="293" font-size="10" fill="#7a828a" text-anchor="middle">  2^(Level − 4)</text>
+  <text x="984" y="308" font-size="10" fill="#7a828a" text-anchor="middle"></text>
+  <text x="984" y="323" font-size="10" fill="#7a828a" text-anchor="middle">那个 4 不是魔法数：</text>
+  <text x="984" y="338" font-size="10" fill="#7a828a" text-anchor="middle">它是「一格刚好 = 1 个 tile」</text>
+  <text x="984" y="353" font-size="10" fill="#7a828a" text-anchor="middle">的那一层（即 RVTMinLevel，</text>
+  <text x="984" y="368" font-size="10" fill="#7a828a" text-anchor="middle">默认值就是 4）。</text>
+  <text x="24" y="486" font-size="10.5" fill="#4a5158" text-anchor="start">所以「Pos = (12, 5)」在 Level 4 是「第 12 列第 5 行那个 tile」，在 Level 6 是「第 12 列第 5 行那块 4-tile 区域」—— 同一个坐标，指的地方不一样大。</text>
+</svg>
+<div class="cap">图 14　Pos 的「一格」在不同几何层级下有多大</div>
+</div>
+
+<p><strong>关键在于：每一层的「格」不一样大。</strong> 地形一共 256 × 256 个 tile，VHM 按几何层级把它切成方格：</p>
+
+<table><thead><tr>
+<th>几何层级</th>
+<th>切成多少格</th>
+<th><strong>每一格覆盖多少 tile</strong></th>
+<th><code>Pos</code> 能取到</th>
+</tr></thead><tbody>
+<tr><td>4</td><td>256 × 256</td><td><strong>1 个 tile</strong></td><td>0 … 255</td></tr>
+<tr><td>5</td><td>128 × 128</td><td><strong>2 个 tile</strong></td><td>0 … 127</td></tr>
+<tr><td>6</td><td>64 × 64</td><td><strong>4 个 tile</strong></td><td>0 … 63</td></tr>
+<tr><td>8</td><td>16 × 16</td><td><strong>16 个 tile</strong></td><td>0 … 15</td></tr>
+<tr><td>12</td><td>1 × 1</td><td><strong>整块地形（256 × 256 个 tile）</strong></td><td>0</td></tr>
+</tbody></table>
+
+<p><strong>规律是：层级每 +1，格子边长翻倍、格数少 4 倍。</strong> 所以在 Level 4 一格 = 1 个 tile， 往上就是 1 → 2 → 4 → 8 → 16。写成式子：<strong>每一格的边长 = <code>2^(Level − 4)</code> 个 tile</strong>。</p>
+
+<div class="callout"><p style='margin:0'>那个 <strong>4</strong> 不是魔法数 —— 它是「<strong>一格刚好等于 1 个 tile</strong>」的那一层，也就是 <code>RVTMinLevel</code> 的默认值。</p></div>
+
+<p>同一个 <code>Pos = (12, 5)</code>，在 Level 4 指的是「第 12 列第 5 行<strong>那个 tile</strong>」， 在 Level 6 指的是「第 12 列第 5 行<strong>那块 4-tile 区域</strong>」—— <strong>坐标一样，指的地方大小不一样</strong>。</p>
+
+<p>代码里那个系数 <code>SampleGeoToTexLevelOffsetInv * (1u &lt;&lt; SampleLevel)</code> 就是上表「每格覆盖多少 tile」的算式：</p>
+
+<table><thead><tr>
+<th>量</th>
+<th>含义</th>
+<th>出处</th>
+</tr></thead><tbody>
+<tr><td><code>SampleLevel</code></td><td>该节点对应的页表 mip</td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.ush:139</span></td></tr>
+<tr><td><code>SampleGeoToTexLevelOffset</code></td><td>几何坐标折回页坐标要右移几位</td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.ush:140</span></td></tr>
+<tr><td>系数 = <code>2^SampleLevel / 2^SampleGeoToTexLevelOffset</code></td><td><strong>每格覆盖多少个 RVT tile</strong></td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.ush:142</span></td></tr>
+</tbody></table>
+
+<p><strong>第二步</strong>是把 tile 空间折成 UV：</p>
+
+<pre><span class="c">// VirtualHeightfieldMeshSceneProxy.cpp:904-906</span>
+const float PageTableSizeX = AllocatedVirtualTexture-&gt;GetWidthInTiles();
+UniformParams.PageTableSize = FVector4f(PageTableSizeX, PageTableSizeY, 1.f / PageTableSizeX, 1.f / PageTableSizeY);</pre>
+
+<p>即 <strong>1 个 XY 单位 = 1 个 RVT tile</strong>，除以 <code>WidthInTiles</code> 就归一化到 <code>[0,1]</code> 的整块地形 UV。</p>
+
+<p><strong>把一个具体数字走一遍</strong>（RVT = 256 × 256 tile，几何层级 <code>Level = 6</code>）：</p>
+
+<pre>Pos        = (12, 5)              该层级网格里第 12 列、第 5 行的节点
+LocalUV    = (0.25, 0.5)          顶点在这块 patch 的 1/4、1/2 处
+           ↓ (Pos + LocalUV) × 4  （Level 6：一个节点占 4 个 tile）
+XY         = (12.25, 5.5) × 4  = (49, 22)     ← tile 空间
+           ↓ × (1/256)            （PageTableSize.zw）
+NormalizedPos = (0.1914, 0.0859)              ← 整块地形的 UV</pre>
+
+<p>同一个 patch 的 289 个顶点，就是拿各自的 <code>LocalUV</code> 代进这同一个式子，得到各自的地形 UV。</p>
+
+<p><strong>最后一步：UV → 世界坐标，靠矩阵而不是靠 <code>Pos</code>。</strong></p>
+
+<pre><span class="c">// VirtualHeightfieldMeshVertexFactory.ush:169</span>
+float3 WorldPos = mul(float4(NormalizedPos, Height, 1), VHM.VirtualHeightfieldToWorld).xyz;</pre>
+
+<p><code>VirtualHeightfieldToWorld</code> 就是 <code>UVToWorld</code>，来自组件的虚拟纹理变换 （<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:792-795</span>：<code>const FTransform VirtualTextureTransform = InComponent-&gt;GetVirtualTextureTransform();</code>）。 <strong>地形的世界尺寸、位置、缩放全在这个矩阵里</strong> —— 这也解释了为什么 <code>Pos</code> 可以只是一个 14 位的小整数： 它只描述"第几格"，跟世界尺度无关。</p>
+
+<p>最后两段合成顶点位置：</p>
+
+<pre><span class="c">// VirtualHeightfieldMeshVertexFactory.ush:241（morph 前的预采样路径用 :169 的等价写法）</span>
+Intermediates.VTPos = float3(NormalizedPos, Height);
+<span class="c">// VirtualHeightfieldMeshVertexFactory.ush:244</span>
+Intermediates.LocalPos = mul(float4(Intermediates.VTPos, 1), VHM.VirtualHeightfieldToLocal).xyz;</pre>
+
+<p>即 <strong><code>(地形UV.x, 地形UV.y, 采到的高度)</code></strong> 经 <code>VirtualHeightfieldToLocal</code> / <code>VirtualHeightfieldToWorld</code> 变换到世界。</p>
+
+<p><strong>顺序上有一步不能漏</strong>：高度采完之后，<code>LocalUV</code> 还会被 CDLOD morph 往粗网格方向吸附一次， 然后 <strong>用 morph 后的 <code>LocalUV</code> 重算 <code>XY</code> 和 <code>NormalizedPos</code></strong>，才去采最终高度：</p>
+
+<pre><span class="c">// VirtualHeightfieldMeshVertexFactory.ush:191-195</span>
+LocalUV = MorphVertex(LocalUV, GRID_SIZE - 1, (uint)LodMorphFloor, LodMorphFrac);
+XY = ((float2)Pos + LocalUV) * SampleGeoToTexLevelOffsetInv * (1u &lt;&lt; (uint)SampleLevel);
+NormalizedPos = (XY * VHM.PageTableSize.zw);</pre>
+
+<p>所以顶点位置最终是「<strong>morph 之后的 <code>LocalUV</code></strong>」算出来的。<code>MorphVertex()</code> 本身很简单 （<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:86-101</span>）：按 <code>GRID_SIZE &gt;&gt; LodMorphFloor</code> 把 UV 取模， 减去余数就吸附到粗网格交点上；再按 <code>LodMorphFrac</code> 做一次部分吸附，实现两档之间的过渡。</p>
+
+<h4>高度怎么来 —— 采样器用的是哪一个</h4>
+
+<p>分两层，别混（<strong>页内是双线性，跨 LOD 是手工插值</strong>）：</p>
+
+<table><thead><tr>
+<th>层次</th>
+<th>采样器</th>
+<th>依据</th>
+</tr></thead><tbody>
+<tr><td><strong>页内取高度</strong></td><td><strong><code>SF_Bilinear</code>（双线性插值）</strong></td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:887</span></td></tr>
+<tr><td>跨 mip 过渡</td><td><strong>手工 <code>lerp</code></strong>，不是硬件 mip</td><td><span class="ref">VirtualHeightfieldMeshVertexFactory.ush:208-214</span></td></tr>
+</tbody></table>
+
+<p>页内这次采样<strong>永远采 mip 0</strong>：<code>VHM.HeightTexture.SampleLevel(VHM.HeightSampler, LocalPhysicalUV, 0)</code> （<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:168</span>）—— 物理页纹理本身没有 mip 链。</p>
+
+<p>因为拿不到硬件 mip 过渡，切 LOD 只能在 shader 里手工做：查两次页表（<code>floor(SampleLevel)</code> / <code>ceil(SampleLevel)</code>）， 各采一次高度，再按 <code>frac(SampleLevel)</code> 插值：</p>
+
+<pre><span class="c">// VirtualHeightfieldMeshVertexFactory.ush:208-214</span>
+VTPageTableResult VTResult0 = TextureLoadVirtualPageTableLevel(VHM.PageTableTexture, PageTableUniform, NormalizedPos, VTADDRESSMODE_CLAMP, VTADDRESSMODE_CLAMP, floor(SampleLevel) - GetGlobalVirtualTextureMipBias());
+float2 UV0 = VTComputePhysicalUVs(VTResult0, 0, Uniform);
+float Height0 = VHM.HeightTexture.SampleLevel(VHM.HeightSampler, UV0, 0);
+VTPageTableResult VTResult1 = TextureLoadVirtualPageTableLevel(VHM.PageTableTexture, PageTableUniform, NormalizedPos, VTADDRESSMODE_CLAMP, VTADDRESSMODE_CLAMP, ceil(SampleLevel) - GetGlobalVirtualTextureMipBias());
+float2 UV1 = VTComputePhysicalUVs(VTResult1, 0, Uniform);
+float Height1 = VHM.HeightTexture.SampleLevel(VHM.HeightSampler, UV1, 0);
+float Height = lerp(Height0.x, Height1.x, frac(SampleLevel));</pre>
+
+<p>注意这里<strong>不是</strong>复用前面那次预采样的 UV，而是<strong>拿 morph 之后的 <code>NormalizedPos</code> 重查一遍页表</strong>， 再用 <code>VTComputePhysicalUVs()</code> 换成物理 UV —— 因为顶点在 morph 之后已经移动过了。</p>
+
+<div class="callout"><p style='margin:0'>引擎自己在紧邻的注释里承认了这个双线性的代价（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:186</span>）： <em>"A fix for this while keeping fractional LOD is to use some sort of triangle barycentric interpolation when sampling the height texture <strong>instead of bilinear</strong>."</em> —— 双线性会让顶点偏离它所插值的三角形平面，于是出现表面闪烁。</p></div>
+
+<p><strong>对照：另外两张纹理是点采样，不能混用。</strong> MinMax（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1999</span>） 和 LodBias（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:889</span>）都是 <code>SF_Point</code> —— 它们存的是<strong>极值 / 参数</strong>， 一旦插值语义就错了（MinMax 插值会导致 AABB 不保守而漏剔）。</p>
 
 <p><strong>顶点 Morph（消除 LOD 跳变）</strong>：VS 里先采一次高度估算距离，算出应该处的 LOD，然后把顶点 UV 往粗网格方向「吸附」（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:86-101</span>）。</p>
 
 <div class="callout"><p style='margin:0'>源码里有一条很重要的设计注释（<span class="ref">VirtualHeightfieldMeshVertexFactory.ush:184-187</span>）： <em>"Removing fractional continuous LOD here... fractional locations come away from the surface of the triangles that they interpolate and we see the resultant surface shimmer."</em> 即：<strong>分数 LOD 会让顶点跑离三角形所在平面，产生表面闪烁</strong>。除非改用重心坐标插值，否则「吸附到整级」反而是更正确的做法。</p></div>
+
+<h4>两条 draw 的实例索引各从哪来</h4>
+
+<p>VHM 一帧有两次 <code>DrawIndexedInstancedIndirect</code>（不透明 + 洞），<strong>共用同一个 VS</strong>。VS 侧写的是：</p>
+
+<pre><span class="c">// VirtualHeightfieldMeshVertexFactory.ush:48</span>
+uint InstanceId : SV_InstanceID;                     <span class="c">// 输入声明</span>
+<span class="c">// :121</span>
+const QuadRenderInstance Item = GetQuadRenderInstance(Input.InstanceId);
+<span class="c">// :24</span>
+float4 Data = VHMInst.InstanceBuffer[InstanceId];    <span class="c">// 取到 16 B 的 QuadRenderInstance</span></pre>
+
+<p><strong>索引就是 <code>SV_InstanceID</code> 本身</strong> —— 不减基址、不做判定、不查表。 「该读哪块 buffer」在 <strong>CPU 侧就定死了</strong>：两条 <code>FMeshBatch</code> 各自把一个<strong>不同的 SRV</strong> 塞进 per-batch 的 uniform buffer。</p>
+
+<table><thead><tr>
+<th>批次</th>
+<th>间接参数偏移</th>
+<th>绑定的实例缓冲 SRV</th>
+<th>出处</th>
+</tr></thead><tbody>
+<tr><td>不透明</td><td><code>0</code></td><td><code>InstanceBufferSRV</code></td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1025</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1037</span></td></tr>
+<tr><td>洞</td><td><code>5 * sizeof(uint32)</code></td><td><code>HoleInstanceBufferSRV</code></td><td><span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1083</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1096</span></td></tr>
+</tbody></table>
+
+<p><code>VHMInst</code> 对应的全局 uniform buffer 结构 <code>FVirtualHeightfieldMeshVertexFactoryParameters2</code> <strong>只有一个成员</strong> （<span class="ref">VirtualHeightfieldMeshVertexFactory.h:40-42</span>）。两次 draw 各 <code>CreateUniformBufferImmediate</code> 出一份， 分别挂到自己 <code>FMeshBatchElement</code> 的 <code>UserData-&gt;InstantceBuf</code> 上 （<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1038</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1097</span>）， 最后在顶点工厂里绑进 shader：</p>
+
+<pre><span class="c">// VirtualHeightfieldMeshVertexFactory.cpp:117</span>
+ShaderBindings.Add(Shader-&gt;GetUniformBufferParameter&lt;FVirtualHeightfieldMeshVertexFactoryParameters2&gt;(), UserData-&gt;InstantceBuf);</pre>
+
+<p><strong>同名参数、不同绑定</strong> —— 所以 VS 里那句 <code>VHMInst.InstanceBuffer[InstanceId]</code>，在两次 draw 里指向两块不同的内存。</p>
+
+<p><strong>为什么 <code>SV_InstanceID</code> 可以直接当下标</strong>：因为两条 draw 的 <code>StartInstanceLocation</code> 恒为 0。 D3D 的 indirect 参数是五元组 <code>{IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation}</code>， 初始化时直接写死：</p>
+
+<pre><span class="c">// VirtualHeightfieldInitBuffers.usf:35-46</span>
+InstanceArgsBuffer[0] = VHMParam.NumIndices;   <span class="c">//  0 IndexCountPerInstance</span>
+InstanceArgsBuffer[1] = 0;                     <span class="c">//  1 InstanceCount（每帧由 CS 累加）</span>
+InstanceArgsBuffer[2] = 0;                     <span class="c">//  2 StartIndexLocation</span>
+InstanceArgsBuffer[3] = 0;                     <span class="c">//  3 BaseVertexLocation</span>
+InstanceArgsBuffer[4] = 0;                     <span class="c">//  4 StartInstanceLocation ← 恒 0</span>
+const int MaskQuadArgsOffset = 5;              <span class="c">//  洞那一份从 [5] 开始，同样 [9] = 0</span></pre>
+
+<p>CS 侧<strong>只累加 InstanceCount，从不碰 <code>[4]</code></strong>：</p>
+
+<pre><span class="c">// VirtualHeightfieldMesh3.usf:533-534（双缓冲版本同构，见 :548-549）</span>
+InterlockedAdd(InstanceArgsBuffer[s_IndirectDrawOffset],     QuadInstanceFlag[...], QuadInstanceOffset);
+InterlockedAdd(InstanceArgsBuffer[5 + s_IndirectDrawOffset], HoleQuadInstanceFlag[...], HoleQuadInstanceOffset);</pre>
+
+<p>其中 <code>#define s_IndirectDrawOffset 1</code>（<span class="ref">VirtualHeightfieldMesh3.usf:12</span>）—— 所以写的是 <code>[1]</code>（不透明 InstanceCount） 和 <code>[6]</code>（洞 InstanceCount），正好落在五元组的第二项上。</p>
+
+<p>于是 <code>SV_InstanceID</code> 从 0 连续递增到 <code>InstanceCount - 1</code>，<strong>恰好就是各自 buffer 的下标</strong>，两条 draw 互不干扰。</p>
 
 <h3>4.6 可选的 One-Pass 版本</h3>
 
@@ -1287,7 +2534,7 @@ InstanceArgsBuffer[5..9] = { NumIndices, 0, 0, 0, 0 }         （洞材质批次
   <text x="560" y="382.5" font-size="10.5" fill="#7a828a" text-anchor="middle">全程只带一样东西：PhysicalAddress（这个 quad 对应 VT 的哪个物理页）。它在细分时由父节点继承，</text>
   <text x="560" y="402.5" font-size="10.5" fill="#7a828a" text-anchor="middle">到 VS 才被用来换算采样坐标 —— 这就是「几何跟着页表走」的字面含义。</text>
 </svg>
-<div class="cap">图 12　一个 quad 的一生：从页表到像素，以及它途经的每个缓冲</div>
+<div class="cap">图 15　一个 quad 的一生：从页表到像素，以及它途经的每个缓冲</div>
 </div>
 
 <p><strong>记住一条线索就够了</strong>：从头到尾，这个 quad 携带的唯一「出处信息」就是 <code>PhysicalAddress</code> —— 它对应 VT 的哪个物理页。它在细分时由父节点继承，直到 VS 才被用来换算采样坐标。<strong>这就是「几何跟着页表走」的字面含义。</strong></p>
@@ -1441,7 +2688,7 @@ bInsidePlane = dot(plane, float4(center + extent * PlaneSigns, 1.0)) &gt; 0;</pr
   <text x="560" y="476.5" font-size="10.5" fill="#7a828a" text-anchor="middle"></text>
   <text x="560" y="496.5" font-size="10.5" fill="#7a828a" text-anchor="middle">代价：V3 的 dispatch 次数随 MaxLevel 线性增长；V1 恒定 1 次。</text>
 </svg>
-<div class="cap">图 13　V1 的持久波工作队列：线程常驻 + 全局环形队列</div>
+<div class="cap">图 16　V1 的持久波工作队列：线程常驻 + 全局环形队列</div>
 </div>
 
 <p>V1 的做法是<strong>持久波（persistent wave）</strong>：</p>
@@ -1494,7 +2741,7 @@ bInsidePlane = dot(plane, float4(center + extent * PlaneSigns, 1.0)) &gt; 0;</pr
   <text x="840" y="225.5" font-size="10.5" fill="#7a828a" text-anchor="middle">两者都是 8 / 16 字节的紧凑打包，但字段切法完全不同，</text>
   <text x="840" y="244.5" font-size="10.5" fill="#7a828a" text-anchor="middle">不能互相套用。</text>
 </svg>
-<div class="cap">图 14　V1 的 QuadRenderItem 位域布局（8 B）</div>
+<div class="cap">图 17　V1 的 QuadRenderItem 位域布局（8 B）</div>
 </div>
 
 <h3>8.3 V1 的其它不同点</h3>
@@ -1569,7 +2816,7 @@ Instances</text>
   <text x="829" y="376.5" font-size="10" fill="#7a828a" text-anchor="middle">· dispatch 次数随 MaxLevel 增长（地形越大越多）</text>
   <text x="829" y="395.5" font-size="10" fill="#7a828a" text-anchor="middle">· 每轮 kernel 尾部的线程空转（可用 One-Pass 版本缓解，见 §4.6）</text>
 </svg>
-<div class="cap">图 15　V1 与 V3 的时序对比</div>
+<div class="cap">图 18　V1 与 V3 的时序对比</div>
 </div>
 
 <table><thead><tr>

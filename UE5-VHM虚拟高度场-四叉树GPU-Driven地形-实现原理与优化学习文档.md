@@ -146,13 +146,36 @@ flowchart TD
 来源：`VirtualHeightfieldMesh.ush:135-155`（注释："See packing in PageTableUpdate.usf"）
 
 ```
-PhysicalAddress (uint32)
-├─ bit[3:0]               4 bits : 虚拟层级 (VirtualLevel)
-├─ bit[(4+NumAddressBits-1):4]    : PageX   （NumAddressBits = 6 或 8）
-└─ bit[31:(4+NumAddressBits)]     : PageY
+打包装（PageTableUpdate.usf:67-81）：
+    Page = vLevel | (pPage.x << 4) | (pPage.y << (4 + PCB))
+其中 PCB = PageCoordinateBitCount = 6（UInt16 页表）或 8（UInt32 页表）
+
+页表纹素的容器宽度由格式决定（VirtualTextureSpace.cpp:37-48 GetFormatForNumLayers：
+UInt16 → PF_R16*_UINT、UInt32 → PF_R32*_UINT），**两种格式不是都占 32 位**：
+
+UInt32 页表 —— 纹素通道 32 位
+├─ bit[3:0]        4 bits : 虚拟层级 vLevel
+├─ bit[11:4]       8 bits : PageX
+├─ bit[19:12]      8 bits : PageY   ← 与 PageX 同宽
+└─ bit[31:20]     12 bits : 无字段（恒 0；写端最大只到第 20 位，读端不取 bit ≥ 20）
+
+UInt16 页表 —— 纹素通道 16 位
+├─ bit[3:0]        4 bits : 虚拟层级 vLevel
+├─ bit[9:4]        6 bits : PageX
+└─ bit[15:10]      6 bits : PageY   ← 与 PageX 同宽，4 + 6 + 6 = 16 刚好占满，没有空位
 ```
 
 `NumAddressBits` 由页表格式决定：`EVTPageTableFormat::UInt16 ? 6 : 8`（`VirtualHeightfieldMeshSceneProxy.cpp:922`、`VirtualHeightfieldMeshSceneProxy.cpp:2497`、`VirtualHeightfieldMeshSceneProxy.cpp:2701`）。
+
+引擎读端用的掩码与上表逐位一致：`UInt32` 走 `(pa >> 4) & 0xff` / `(pa >> 12) & 0xff`，`UInt16` 走 `(pa >> 4) & 0x3f` / `(pa >> 10) & 0x3f`（`VirtualTextureCommon.ush:904-905`）。
+
+格式由物理空间大小挑选：只有每维 tile 数 ≤ 64 才够格用 16 位（`VirtualTexturePhysicalSpace.h:121` `DoesSupport16BitPageTable()`），选择点 `AllocatedVirtualTexture.cpp:138`。
+
+**8 位地址实际用不满。** 物理空间尺寸算完后有两道更紧的钳制（`VirtualTextureSystem.cpp:1049-1053`
+纹理维度上限、`VirtualTextureSystem.cpp:1057-1060` tile 总数上限）：
+页表编码给的是 `1<<16`（开方 256，对应 8 位），但页池 `FBinaryHeap<uint32, uint16> FreeHeap`
+（`TexturePagePool.h:230`）是 16 位且要留溢出位 → `MaxTiles = 1 << 15`、`MaxTilesSqrt = 181`。
+**实际上限 181 × 181**。两道钳制都在挑格式之前，故 8 位编码宽度永远不是瓶颈。
 
 > ⚠️ 反馈通道里 `PageTableFeedbackId` 占 **bit[31:28]**（`GetSpaceID() << 28`，`VirtualHeightfieldMeshSceneProxy.cpp:2498`），与 `Level` 字段在高位区"打架"——shader 注释里直白写着 *"PageTableFeedbackId is 4bit data, this value had shift to [28,32). fuck..."*（`VirtualHeightfieldMesh3.usf:214`）。这是已知的紧凑打包代价。
 

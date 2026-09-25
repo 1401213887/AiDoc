@@ -46,9 +46,114 @@ Epic 官方原版是 **V1**（`VirtualHeightfieldMesh.usf`），本仓库保留�
 vt
 ```
 
+**页表纹素怎么拆**
+
+一个页表纹素 = 一个 `PhysicalAddress`。**它的容器宽度由页表格式决定，两种格式并不一样**：
+
+| 页表格式 | 纹素通道宽度 | 决定它的地方 |
+|---|---|---|
+| `EVTPageTableFormat::UInt32` | **32 位**（`PF_R32_UINT` 等） | `VirtualTextureSpace.cpp:37-48` `GetFormatForNumLayers()` |
+| `EVTPageTableFormat::UInt16` | **16 位**（`PF_R16_UINT` 等） | 同上 |
+
+格式本身由物理空间大小挑选 —— 只有每维 tile 数 ≤ 64 才够格用 16 位
+（`VirtualTexturePhysicalSpace.h:121` `DoesSupport16BitPageTable()`），
+这个选择落在 `AllocatedVirtualTexture.cpp:138`。
+
+打包装在 `PageTableUpdate.usf:67-81`（VHM 两个文件的注释都指向它）：
+
+```hlsl
+#if USE_16BIT
+    // We can assume pPage fits in 6 bits and pack the final output to 16 bits
+    const uint PageCoordinateBitCount = 6;
+#else
+    const uint PageCoordinateBitCount = 8;
+#endif
+
+uint Page = vLevel;
+Page |= pPage.x << 4;
+Page |= pPage.y << (4 + PageCoordinateBitCount);
+```
+
+展开成位域（`PageCoordinateBitCount` 下称 PCB；`PageX` 与 `PageY` **同宽**）：
+
+| 页表格式 | 容器 | `Lv` | `PageX` | `PageY` | 容器剩余 |
+|---|---|---|---|---|---|
+| `UInt32`（PCB = 8） | 32 位 | bit[3:0] · 4 位 | bit[11:4] · **8 位** | bit[19:12] · **8 位** | bit[31:20] 共 12 位**无字段**，恒 0 |
+| `UInt16`（PCB = 6） | 16 位 | bit[3:0] · 4 位 | bit[9:4] · **6 位** | bit[15:10] · **6 位** | **没有 —— 4 + 6 + 6 = 16，刚好占满** |
+
+这里有两个容易画错的地方：
+
+- **两种格式不是都占 32 位。** `UInt16` 的纹素本身就是 16 位，根本不存在 bit[16..31]。
+- **`UInt32` 的高 12 位没有任何字段。** 写端最大只到第 20 位（`pPage.x/y` 各 8 位，
+  `PageTableUpdate.usf:56-57`；`vLevel` 4 位），读端也没有任何一处取 bit ≥ 20
+  （`VirtualTextureCommon.ush:891`、`VirtualTextureCommon.ush:900`、`VirtualTextureCommon.ush:904-905`）。
+
+为什么 `PageX` 与 `PageY` 一定同宽？页表是 N×N 的正方形，X、Y 天然对称；
+`PageY` 顶上不加掩码，只是因为那几位恒为 0。
+
+VHM 侧解码（`VirtualHeightfieldMesh.ush:135-146`）：
+
+```hlsl
+Level = pa & 0xf
+PageX = (pa >> 4) & ((1u << NumAddressBits) - 1)
+PageY = pa >> (4 + NumAddressBits)      // 高位恒为 0，所以不加掩码也能取对
+```
+
+`NumAddressBits` 就是 `PageCoordinateBitCount`，取自 `GetPageTableFormat()`：
+`UInt16 → 6`、`UInt32 → 8`（`VirtualHeightfieldMeshSceneProxy.cpp:922`）。
+
+引擎自己读这两条时用的掩码，正好印证上表 —— `UInt32` 走 `(pa >> 4) & 0xff` / `(pa >> 12) & 0xff`，
+`UInt16` 走 `(pa >> 4) & 0x3f` / `(pa >> 10) & 0x3f`（`VirtualTextureCommon.ush:904-905`）。
+
 **这里有个关键的推论**：既然几何是「照着页表生成」的，那么 **没被加载的页，连几何都不会存在**。地形的精细程度本质上由「VT 流送了哪些页」决定，而不是由某个 LOD 参数直接决定。
 
 页表由 RVT 系统负责流送和淘汰；VHM 只做两件事：**读页表**、**写反馈**（告诉 VT 系统「这段地形我需要第几级页」）。
+
+**物理纹理能有多大 —— 8 位地址其实用不满**
+
+`PageX`/`PageY` 各 8 位，编码上限是 `256 × 256` 个 tile。但**实际跑不到**，
+因为尺寸在「挑页表格式」之前，先被两道钳制夹过 —— 都在 `VirtualTextureSystem.cpp`：
+
+```cpp
+// :1049-1053  ① 纹理维度上限
+if (TileWidthHeight * InDesc.TileSize > GetMax2DTextureDimension())
+    TileWidthHeight = FMath::DivideAndRoundDown(GetMax2DTextureDimension(), InDesc.TileSize);
+
+// :1057-1060  ② tile 总数上限  ← 真正的瓶颈
+// Page table encoding limits this to 1<<16. But FTexturePagePool::FreeHeap
+// being 16bit and needing an overflow bit reduces us to 1<<15.
+const int32 MaxTiles = 1 << 15;
+const int32 MaxTilesSqrt = 181; //sqrt(1<<15)
+TileWidthHeight = FMath::Min(TileWidthHeight, MaxTilesSqrt);
+```
+
+② 那句注释把两件事说全了：
+
+- **页表编码**给的是 `1<<16`，开方正好 **256** —— 这就是 8 位地址的由来；
+- 但**页池的堆**是 `FBinaryHeap<uint32, uint16> FreeHeap`（`TexturePagePool.h:230`），
+  16 位索引还要留一位溢出位 → 只剩 `1<<15` → 开方 **181**。
+
+所以实际上限是 **181 × 181 = 32761 个 tile**，不是 256×256。
+
+顺序很关键：**先**算出尺寸、被两道钳制夹完，**再**拿 `GetSizeInTiles()` 去挑页表格式
+（`AllocatedVirtualTexture.cpp:119-138`：`<= 64` → `UInt16`，否则 `UInt32`）。
+推论就是 —— **8 位编码宽度从来不是瓶颈**：`SizeInTiles` 最大 181，8 位绰绰有余，
+真正卡死的是页池那 `1<<15`。
+
+而且很多时候连 181 都到不了。物理纹理边长 = `SizeInTiles × TileSize`
+（`VirtualTexturePhysicalSpace.h:117`），而 RVT 的 tile 尺寸只能在 64 ~ 1024 之间取 ——
+`RuntimeVirtualTexture.h:112` `GetClampedTileSize()` = `1 << Clamp(InTileSize + 6, 6, 10)`，
+默认值 **256**（`RuntimeVirtualTexture.h:33`）。代入纹理维度上限（`RHIGlobals.h:912-915`，
+设备相关，桌面常见 16384）：
+
+| TileSize | 被 ① 纹理维度钳 | 被 ② 181 钳 | 最终 | 落到哪种页表 |
+|---|---|---|---|---|
+| **256**（默认） | 16384 / 256 = 64 | — | **64 × 64** | `UInt16`（≤ 64） |
+| 128 | 16384 / 128 = 128 | — | **128 × 128** | `UInt32` |
+| 64 | 16384 / 64 = 256 | **181** | **181 × 181** | `UInt32` |
+
+也就是说：**默认 tile 尺寸下，物理纹理反而停在 64×64，还在 16 位页表的射程之内** ——
+想真正吃到那 8 位地址，得把 TileSize 调到 128 或更小。移动端纹理上限更低，就更够不着。
 
 ### 2.2 MinMax 金字塔 —— 为什么需要它
 
@@ -61,6 +166,105 @@ minmax
 ```
 
 有了 `[min, max]`，一个 quad 就是一个立体的 AABB，做视锥剔除只需要 O(1) 的判断，**不用采一次高度图**。
+
+**这里是全文最容易漏掉的一环：它有 mip，而且采样的 mip 级正好等于这个 quad 的层级。** 「O(1)」能成立全靠这一点。
+
+#### 它是一条完整的 mip 链
+
+构建时逐级归并，**每级取上一级 2×2 的 min/max** —— 是真正的极值下采样，不插值：
+
+```cpp
+// HeightfieldMinMaxRender.cpp:214-227
+void GenerateMinMaxTextureMips(FRDGBuilder& GraphBuilder, FRDGTexture* Texture, FIntPoint SrcSize, int32 NumMips)
+{
+    FIntPoint Size = SrcSize;
+    for (int32 MipLevel = 1; MipLevel < NumMips; ++MipLevel)
+    {
+        FRDGTextureSRVRef SRV = GraphBuilder.CreateSRV(FRDGTextureSRVDesc::CreateForMipLevel(Texture, MipLevel - 1));
+        FRDGTextureUAVRef UAV = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(Texture, MipLevel));
+        AddMinMaxMipPass<TMinMaxTextureCS_RGBA8ToRGBA8>(GraphBuilder, SRV, Size, MipLevel, UAV);
+        // ...
+    }
+}
+```
+
+mip 数在烘焙时定死（`HeightfieldMinMaxTextureBuild.cpp:255-257`）：
+
+```cpp
+const int32 NumTilesX = ((VTDesc.WidthInBlocks * VTDesc.BlockWidthInTiles) << IncLevels) >> DecLevels;
+const int32 NumTilesY = /* 同上 */;
+const int32 NumMips = (int32)FMath::CeilLogTwo(FMath::Max(NumTilesX, NumTilesY)) + 1;
+```
+
+所以：**mip0 一个纹素 = 一个虚拟 tile**，每级缩一半，最后一级 `1×1` 就是全地形的 min/max。
+
+#### 运行时：采样哪一级 mip，由 quad 自己的层级决定
+
+V3 的核心就这一行（`VirtualHeightfieldMesh3.usf:252`，在 `IsCullQuad` 里）：
+
+```hlsl
+float2 MinMaxHeight = UnPackMinMaxHeight(HeightMinMaxTexture.SampleLevel(PointSampler, UV0, ThisInfo.TextureLevel));
+const float3 UVMin = float3(UV0, MinMaxHeight.x);
+const float3 UVMax = float3(UV1, MinMaxHeight.y);
+const float3 UVCenter = (UVMin + UVMax) * 0.5;
+const float3 UVExtern = UVMax - UVMin;
+const bool bFrustumCull = !PlaneTestAABB(VHMParam.FrustumPlanes, UVCenter, UVExtern);
+```
+
+注意 `SampleLevel` 的**第三个参数是 `ThisInfo.TextureLevel`** —— 就是这个 quad 自己的 VT 层级
+（`VirtualHeightfieldMesh3.usf:90`：`TextureLevel = max(TmpLevel - RVTMinLevel, 0)`）。
+采样用的 `UV0` 也是按同一级算出来的（`VirtualHeightfieldMesh3.usf:246`）。
+
+**为什么一次采样就够**：MinMax **mip L 的一个纹素**覆盖的面积，正好等于页表 **mip L 的一个 tile** 覆盖的面积
+（两边都是 `NumTiles >> L`）。所以纹素的落点刚好罩住这个 quad 的 footprint ——
+粗 quad 采粗 mip、细 quad 采细 mip，既不用重采样，也不会取到比 quad 更大的范围而过度保守。
+
+#### 为什么必须点采样
+
+`VirtualHeightfieldMeshSceneProxy.cpp:1999`（V1 同一处 `VirtualHeightfieldMeshSceneProxy.cpp:2055`）绑的是
+`TStaticSamplerState<SF_Point>::GetRHI()`，V3 直接用内置的 `PointSampler`。
+
+**Min/Max 是极值，一旦双线性插值，min 会被抬高、max 会被压低** —— AABB 不再保守，
+就会**漏剔**：本该可见的 quad 被剔掉，地形上直接破洞。这是这个设计里少数「写错就出画面问题」的地方。
+
+#### V1 比 V3 多一层 mip 索引重定位
+
+V1 要在层级上再加一个 `MinMaxLevelOffset`（`VirtualHeightfieldMesh.usf:199-201`）：
+
+```hlsl
+float MinMaxTextureLevel = max((float)TextureLevel + (float)MinMaxLevelOffset, 0);
+float2 MinMaxHeight = UnPackMinMaxHeight(HeightMinMaxTexture.SampleLevel(MinMaxTextureSampler, UV0, MinMaxTextureLevel));
+```
+
+偏移在 CPU 侧算（`VirtualHeightfieldMeshSceneProxy.cpp:2493`）：
+
+```cpp
+ProxyDesc.MinMaxLevelOffset = ProxyDesc.HeightMinMaxTexture->GetNumMips() - 1 - AllocatedVirtualTexture->GetMaxLevel();
+```
+
+它的语义是**把「页表层级索引」重定位到「MinMax mip 索引」**：最粗的 VT 层 `TextureLevel = MaxLevel`
+（整个 VT 一个 tile）落到最后一级 mip `NumMips - 1`（`1×1`，全地形 min/max）——
+代进去就能验证。
+
+V3 **不需要**这一层：V3 的参数结构里根本没有 `MinMaxLevelOffset`
+（`VirtualHeightfieldMeshSceneProxy.cpp:1492`、`VirtualHeightfieldMeshSceneProxy.cpp:1601`
+两处只绑了 `HeightMinMaxTexture`），直接把 `TextureLevel` 当 mip 用。
+两者等价的条件是 `NumMips - 1 == MaxLevel`，此时偏移为 0 —— 默认配置正是如此
+（`NumMinMaxTextureBuildLevels = 0`，`VirtualHeightfieldMeshComponent.h:47`）。
+
+#### 顺带一张同构的 LodBias MinMax 金字塔
+
+`LodBiasMinMaxTexture` 用的是**同一套 min/max mip 链**，但存的是 **LOD 偏置的极值**，不是高度
+（构建见 `HeightfieldMinMaxTexture.cpp:162` 起，mip 链在 `HeightfieldMinMaxTexture.cpp:194` 起）。
+
+V1 的 VS 在同一级 mip 上取它，实现「地势起伏大的地方自动加密」：
+
+```hlsl
+// VirtualHeightfieldMesh.usf:201
+float2 MinMaxLodBias = UnPackMinMaxLodBias(LodBiasMinMaxTexture.SampleLevel(MinMaxTextureSampler, UV0, MinMaxTextureLevel), LodBiasScale);
+```
+
+消费点在 `VirtualHeightfieldMesh.usf:261`（细分判断）与 `VirtualHeightfieldMesh.usf:301-302`（反馈层级范围）。
 
 > ⚠️ 这张纹理的打包方式在本仓库里有个**可复现的不一致**，详见 §12.1。
 
@@ -101,6 +305,80 @@ instance_layout
 > **别把这两个搞混**：它们都是 16 字节，但位域划分完全不同。
 > `QuadItem2` 要跨层级携带 Morton 位置（28 位），所以 `Level` 只有 4 位；
 > `QuadRenderInstance` 的 `Level` 只用于 VS 里算 Morph，4 位够用，多出来的位给了 `Pos`。
+
+**`QuadRenderInstance` 到底装了什么**（`VirtualHeightfieldMesh.ush:96-106`）：
+
+```hlsl
+/** Final render instance description used by the DrawInstancedIndirect(). */
+struct QuadRenderInstance
+{
+	uint PosLevelPacked;
+	uint3 PhysicalAddress;
+};
+```
+
+4 × uint32 = 16 字节，正好是 `StructuredBuffer<float4>` 的一个元素 —— VS 里读进来先拆开
+（`VirtualHeightfieldMeshVertexFactory.ush:24-27`：`asuint(Data.x)` / `asuint(Data.yzw)`）。
+
+**它到底是什么地址**：就是 **RVT 页表纹素里存的那个值** —— 指向 RVT **物理纹理**里的**页格子**。
+VHM 侧把物理纹理绑成 `HeightTexture`（`VirtualHeightfieldMeshSceneProxy.cpp:886`），页表绑成 `PageTableTexture`
+（`VirtualHeightfieldMeshSceneProxy.cpp:885`）。
+
+它不是字节地址、也不是行跨距地址，而是 `{层级, PageX, PageY}` 的位打包（拆法见 §2.1）。
+VHM 用 `GetVirtualToPhysicalUVTransform()` 把它换算成**物理纹理内的 UV**，
+再去 `HeightTexture.SampleLevel(HeightSampler, LocalPhysicalUV, 0)` 取高度
+（`VirtualHeightfieldMeshVertexFactory.ush:147-155`、`VirtualHeightfieldMeshVertexFactory.ush:168`）。
+
+**它的 3 个槽 = 本层 / 父层 / 祖父层**
+
+存的是**同一块地形在连续三层的页表物理地址**，靠一根「平移寄存器」维持：
+
+- **本层**：每个节点自己重新采一次页表，**只填 `[0]`**
+  （`Info.PhysicalAddress.x = PhysicalAddress;`，`VirtualHeightfieldMesh3.usf:174`；
+  采样点是 `PageTableTexture.Load(int3(Info.SampleTexPos, Info.SampleTextureLevel))`，`VirtualHeightfieldMesh3.usf:173`）
+- **父层 / 祖父层**：细分时整体平移一位继承下来（`VirtualHeightfieldMesh3.usf:445-447`）
+
+```hlsl
+ChildPackData.y = 0;                            // 子节点自己的地址，等本层采样后再填
+ChildPackData.z = ThisInfo.PhysicalAddress.x;   // 子节点[1] ← 父节点[0]（父层）
+ChildPackData.w = ThisInfo.PhysicalAddress.y;   // 子节点[2] ← 父节点[1]（祖父层）
+```
+
+种子处还没有祖先，于是拿本层地址占位 —— 注释原话（`VirtualHeightfieldMesh3.usf:620-621`）：
+
+> *"for first item, three layer has same PhysicalAddress, three layer is : this layer, parent layer, parent parent layer"*
+
+占位代码就是那条 `.xxx` 广播（`VirtualHeightfieldMesh3.usf:622`）。
+
+**但这三层目前并没有真正被用起来**，两条证据：
+
+- 渲染路径**只读 `[0]`**（`VirtualHeightfieldMeshVertexFactory.ush:152`）—— `[1]` / `[2]` 全程无人读。
+- V1 那边本来就只有一个地址，写实例时直接广播进三个槽，还留了句 TODO
+  （`VirtualHeightfieldMesh.usf:413`：`OutInstance.PhysicalAddress.xyz = Item.PhysicalAddress; // todo:just record one address`）。
+
+结论：**V3 在数据结构上预留了「三层」，当前渲染只消费最细的那一层。**
+
+**每个实例画多少索引**
+
+索引缓冲**全局只有一份，所有实例共享**（`VirtualHeightfieldMeshVertexFactory.cpp:139` 在 VF 构造时建一次）：
+
+| 量 | 值 | 出处 |
+|---|---|---|
+| 一个实例的 quad 数 | `NumInstanceVertexSide²` = 16 × 16 = **256** | —— |
+| 每个 quad 的索引数 | **6**（2 个三角形） | —— |
+| **一个实例的索引数** | **1536** | `VirtualHeightfieldMeshSceneProxy.cpp:2041`、`VirtualHeightfieldMeshVertexFactory.cpp:75` |
+| 一个实例的三角形数 | 256 × 2 = **512** | —— |
+
+这个 1536 会写进间接参数的第一项当 `IndexCountPerInstance`（`VirtualHeightfieldInitBuffers.usf:35`），
+所以一次 draw 就是「**1536 个索引 × InstanceCount 个实例**」。
+
+两个顺带的实现细节：
+
+- **索引按 Morton 序生成**，为的是提升顶点复用率 —— 源码注释给了实测数字：
+  *"roughly 75% reuse rate vs 66% of naive scanline approach"*（`VirtualHeightfieldMeshVertexFactory.cpp:25`）。
+- **默认走 16 位索引**：`NumQuadsPerSide < 256` 时用 `uint16`，否则才用 `uint32`
+  （`VirtualHeightfieldMeshVertexFactory.cpp:78`、`VirtualHeightfieldMeshVertexFactory.cpp:82`）。
+  默认 `NumInstanceVertexSide = 16 < 256`，所以索引缓冲只有 1536 × 2 = **3 KB**。
 
 ### 3.3 `IndirectArgsBuffer`（40 字节）—— 两批 draw 的参数
 
@@ -183,6 +461,18 @@ cull
 
 **为什么要在 CS 里分流，而不是在材质里 `discard`**：`discard` 会破坏 TBDR / TSR 上的 HSR（早期深度测试），移动端代价尤其大。把分支从「每像素」挪到「每实例」，代价是多了一次 IndirectDraw。
 
+**两个通道各自一块独立缓冲，大小还不一样**（`VirtualHeightfieldMeshSceneProxy.cpp:1789`、`VirtualHeightfieldMeshSceneProxy.cpp:1803`）：
+
+| 通道 | CS 侧写哪个 UAV | 落到哪块 RHI 缓冲 | 大小 |
+|---|---|---|---|
+| 不透明 | `QuadInstanceBuffer` | `InstanceBuffer` | `MaxRenderItems × 16 B` |
+| 洞 | `HoleQuadInstanceBuffer` | `HoleInstanceBuffer` | `MaxRenderItems × 16 B / 4` |
+
+洞缓冲小 4 倍 —— 源码注释写得很直白：*"hold instance just little"*（`VirtualHeightfieldMeshSceneProxy.cpp:1802`），洞是少数，没必要按满量开。
+
+> CS 侧的名字（`QuadInstanceBuffer` / `HoleQuadInstanceBuffer`）与 RHI 侧的名字（`InstanceBuffer` / `HoleInstanceBuffer`）不是同一个标识符，别当成两条不同的缓冲。
+> 两条 draw 怎么各自读到属于自己那份实例，见 §4.5 末尾。
+
 ### 4.5 阶段⑤ 光栅化 —— 顶点是从哪来的
 
 **VHM 没有顶点缓冲。** 整个 VF 是自建的，`InitRHI()` 里只挂了一个 `VertexBuffer = nullptr, Stride = 0` 的空顶点流，元素声明列表为空（`VirtualHeightfieldMeshVertexFactory.cpp:153-179`）。
@@ -191,15 +481,436 @@ cull
 vs
 ```
 
-**网格怎么来**：`VertexCoord = (VertexId % GRID, VertexId / GRID)`，其中 `GRID = NumInstanceVertexSide + 1`。也就是说，**一个实例 = 一个 GRID×GRID 的规则网格**，顶点坐标全由 `SV_VertexID` 算出。索引缓冲所有实例共享一份。
+```figure
+flow3
+```
 
-**高度怎么来**：查两次页表（`floor(SampleLevel)` 和 `ceil(SampleLevel)`），各采一次高度，再按 `frac` 插值（`VirtualHeightfieldMeshVertexFactory.ush:208-214`）。因为物理页纹理只有 level 0，**没有硬件 mip 链，过渡必须手工做**。
+上面那张讲的是「**一个实例内部**」长什么样；这张讲「**这个实例在地形上处于什么位置、高度从哪取**」，
+分三层，读图顺序就是数据流：
+
+| 层 | 回答什么问题 | 关键数据 |
+|---|---|---|
+| ① Instance 数据 | 铺在哪？ | `Pos`（整数格号）+ `PhysicalAddress` |
+| ② RVT（页表 + 物理纹理） | 高度去哪个物理 tile 取？ | 页表查 `NormalizedPos` → `PhysicalAddress` |
+| ③ 地形（世界空间） | 结果长什么样？ | `(NormalizedPos, Height) × VirtualHeightfieldToWorld` |
+
+一句话串起来：**`Pos` 说「铺在哪」，页表说「高度去哪取」，矩阵说「世界有多大」** —— 三者互不替代。
+
+**网格怎么来**：`VertexCoord = (VertexId % GRID, VertexId / GRID)`，其中 `GRID = NumInstanceVertexSide + 1`（`VirtualHeightfieldMeshVertexFactory.ush:128-129`、`VirtualHeightfieldMeshVertexFactory.ush:7`）。也就是说，**一个实例 = 一个 GRID×GRID 的规则网格**，顶点坐标全由 `SV_VertexID` 算出。索引缓冲所有实例共享一份。
+
+#### GRID 到底多大 —— 一个 tile 对应多少顶点
+
+```figure
+tilemesh
+```
+
+`NumInstanceVertexSide = 1 << (TileSizeLog2 - NumQuadsPerTileOfTwo)`（`VirtualHeightfieldMeshSceneProxy.cpp:882`），
+其中 `TileSizeLog2 = FloorLog2(RVT TileSize)`（`VirtualHeightfieldMeshSceneProxy.cpp:877`）。
+代入默认值就能看出 `NumQuadsPerTileOfTwo` 的几何含义：
+
+| 量 | 默认值 | 出处 |
+|---|---|---|
+| RVT `TileSize` | **256 × 256 纹素**（默认索引 2 → `1 << (2+6)`） | `RuntimeVirtualTexture.h:33`、`RuntimeVirtualTexture.h:112` |
+| `TileSizeLog2` | 8 | `VirtualHeightfieldMeshSceneProxy.cpp:877` |
+| `NumQuadPerTileOfTwo` | **4**（可配 0~7） | `VirtualHeightfieldMeshComponent.h:117` |
+| `NumInstanceVertexSide` | `1 << (8 - 4)` = **16** | `VirtualHeightfieldMeshSceneProxy.cpp:882` |
+
+#### ⚠️ 先分清两种「纹素」—— 不然后面全乱
+
+| 说法 | 指什么 |
+|---|---|
+| **地形纹素** | 地面上的高度采样点。整个地形横跨 `TileCount × TileSize` = 256 × 256 = **65536 个地形纹素** |
+| **物理纹理纹素** | RVT 物理纹理里真正存的那个像素。**一张 tile = `TileSize × TileSize` 个** —— 与层级无关，但 `TileSize` 本身是可配的（见下框） |
+
+**两者用不同的尺子，同一个 quad 量出来差 `2^Level` 倍** —— 之前文档只写「纹素」没区分，就是这么读岔的。
+
+用两种尺子分别量一遍（默认参数）：
+
+| 尺子 | 一个 quad | 一个 patch（16 × 16 个 quad） | 一张 tile |
+|---|---|---|---|
+| **物理纹理纹素** | **恒 = 1 个** | 16 × 16 = **256 个** | 256 × 256 = 65536 个 |
+| **地形纹素** | `2^Level` 个 | `16 × 2^Level` 个 | `2^(Level+8)` 个 |
+
+**「一个 quad = 一个物理纹素」不随层级变，这是构造出来的恒等式**：
+`NumInstanceVertexSide = 2^(TileSizeLog2 − k)`、patch 占一张 tile 的 `1/2^k`，
+两者一除正好抵消 —— 所以几何和纹理在每一级都是**逐像素对齐**的。
+（这个恒等式**与 `TileSize` 取多少无关**，是这三节里唯一不受配置影响的结论。）
+
+> ### ⚠️ 别把 `TileSize` 记成常量 256
+>
+> 它是 **RVT 资产上的一个属性**，每个资产可以不一样（`RuntimeVirtualTexture.h:31-33`）：
+>
+> ```cpp
+> /** Page tile size. (Actual values increase in powers of 2) */
+> UPROPERTY(EditAnywhere, BluePrintGetter = GetTileSize, Category = Size, meta = (UIMin = "0", UIMax = "4", ...))
+> int32 TileSize = 2; // 256
+>
+> static int32 GetClampedTileSize(int32 InTileSize) { return 1 << FMath::Clamp(InTileSize + 6, 6, 10); }
+> ```
+>
+> 资产里存的是**索引**，实际纹素数 = `1 << (索引 + 6)`，可配索引 0~4 ⇒ **64 / 128 / 256 / 512 / 1024**，
+> 默认索引 2 ⇒ **256**。
+>
+> **而且运行时还会被 DeviceProfile 再偏置一次** —— 同一份资产在不同设备/画质档位下，
+> 实际 tile 大小可以不同（`RuntimeVirtualTexture.cpp:349-350`）：
+>
+> ```cpp
+> // Apply LODGroup TileSize bias here.
+> const int32 TileSizeBias = UDeviceProfileManager::Get().GetActiveProfile()->GetTextureLODSettings()->GetTextureLODGroup(LODGroup).VirtualTextureTileSizeBias;
+> OutDesc.TileSize = GetClampedTileSize(TileSize + TileSizeBias);
+> ```
+>
+> （偏置字段默认 0，`TextureLODSettings.h:117`；每一档 DeviceProfile 的每个 LODGroup 都能单独设。
+> 旁边的 `VirtualTextureTileCountBias` 对 `TileCount` 同理。）
+>
+> **本节所有具体数字**（一张 tile 256×256、16 × 16 quad、17 × 17 = 289 顶点、1536 索引）
+> **都是 `TileSize = 256` 这组默认值的代入结果**，换资产、换档位就会变
+> —— 因为 `NumInstanceVertexSide = 1 << (TileSizeLog2 − NumQuadsPerTileOfTwo)` 里本来就有 `TileSizeLog2`。
+
+#### patch 与 tile 的关系：一张 tile 被 256 个 patch 共用
+
+`patch` **不是**一张 tile。看 `GetVirtualToPhysicalUVTransform()`（`VirtualHeightfieldMesh.ush:158-169`）：
+
+```hlsl
+uint LodShift = (uint)max((int)GetVirtualLevelFromPhysicalAddress(InPhysicalAddress) - (int)InLevel, 0);
+float PosDivider = InPosDivider / (float)(1u << LodShift);
+float2 MinVirtualUV = frac((float2)InPos * PosDivider);
+```
+
+`InPosDivider` = `SampleGeoToTexLevelOffsetInv` = `1/2^RVTMinLevel` = **1/16**（`Level ≤ MaxLod − RVTMinLevel` 时）。
+`frac(Pos / 16)` 说明 —— **一张 tile 在每维被切成 16 格，也就是 16 × 16 = 256 个 patch 共用同一张 tile**。
+
+所以准确说法是：
+
+- 一张 **tile**（页）的**覆盖范围随层级变大** —— 它始终是 256 × 256 个**物理纹理纹素**，
+  但 mip 0 的 tile 只盖 256 个地形纹素，mip L 的 tile 盖 `2^L × 256` 个地形纹素
+- 而一个 **patch 始终只占某个层级那一张 tile 的 1/16**（每维），不是「跨了多个 tile」
+
+> 之前写成「一个 Pos 单位 = 2^(Level−4) 个 tile」是把 **mip0 的 tile 当固定尺子**去量第 L 级的东西，
+> 数字当然会随层级翻倍 —— 但**同一片地上，tile 本身也在随层级变大**，这种说法会把关系讲反。
+
+**「一个实例 = 一个 tile」只在一个特定层级成立** —— 一个实例是一个**规则的 16×16 网格**，
+它覆盖的地面范围随几何层级变化（下面会看到，它是 `2^(Level−RVTMinLevel)` 个 tile）。
+
+因为 **一个 quad 覆盖 `2^Level` 个纹素**（Level 是这个几何层级），于是：
+
+| 量 | 纹素数 |
+|---|---|
+| 一个 quad | `2^Level` |
+| 一个 patch（`NumInstanceVertexSide` 个 quad） | `16 × 2^Level` |
+| 折成 tile（÷ 256） | `2^(Level − 4)` |
+
+代入看就很清楚：
+
+| 几何层级 | 一个实例 patch 覆盖 | 式子 |
+|---|---|---|
+| `Level < RVTMinLevel`（4） | **不足一个 tile**（几何比纹理细） | `2^(Level−4) < 1` |
+| `Level = 4` | **正好 1 个 RVT tile** | `2^0 = 1` |
+| `Level > 4` | **`2^(Level−4)` 个 tile**（一个 VT 页跨多个 tile） | Level 6 → 4 个 tile |
+
+配套两条机制：`GeoToTexLevelOffset = max(RVTMinLevel - Level, 0)`
+（`VirtualHeightfieldMeshVertexFactory.ush:131`）负责「几何比纹理细」那条路径；
+`uint2 TexPos = Item.Pos >> GeoToTexLevelOffset;`（`VirtualHeightfieldMesh3.usf:91`）
+负责把几何坐标折回**页坐标**。
+
+验算一遍（默认 `RVTMinLevel = 4`，取 RVT 为 256 × 256 tile、TileSize 256）：
+
+- 最粗层级 patch 只有 1 个、要盖满全地形 → `16 × 2^Level = 256 × 256` ⇒ `Level = 12`
+  —— 而 `MaxLevel = FloorLog2(TileCount) + NumQuadsPerTileOfTwo = 8 + 4 = 12` ✓
+- 最细层级 `Level = 0` → 每个 patch 只 16 个纹素，全地形 `65536 / 16 = 4096` 个 patch ✓
+
+#### 为什么一个实例只用一个 `PhysicalAddress` 就够 —— 它不会跨页 / 跨 tile
+
+结论：**一个 patch 的所有顶点，采到的都是同一张物理 tile。** 保证来自三层结构。
+
+**① patch 的足迹 ≤ 它查询的那个页**
+
+patch 覆盖的 tile 数 = `2^(SampleLevel − SampleGeoToTexLevelOffset)`。代入默认参数
+（`RVTMinLevel = 4`、`ExtSubdivisionLevel = 0`、`MaxLod = 12`）：
+
+| 几何层级 | `SampleLevel` = `min(L, MaxLod−4)` | `SampleGeoToTexLevelOffset` = `min(4, MaxLod−L)` | patch 覆盖 |
+|---|---|---|---|
+| 12 | 8 | 0 | 256 tile（整块地形） |
+| 9 | 8 | 3 | 32 tile |
+| 8 | 8 | 4 | 16 tile |
+| 6 | 6 | 4 | 4 tile |
+| **4** | 4 | 4 | **1 tile** |
+| 0 | 0 | 4 | 1/16 tile |
+
+而 patch 查询的页在 mip `SampleLevel`，覆盖 `2^SampleLevel` 个 tile。**恒有
+`SampleLevel ≥ Level − RVTMinLevel`**（逐档验证：Level ≤ MaxLod−4 时 `min` 取 `Level`；
+否则取 `MaxLod−4 ≥ Level−4`）—— 所以 **页 ≥ patch**，patch 塞得进一个页。
+
+**② 光"塞得下"还不够 —— 还得看两种切分线会不会错开**
+
+把地形按 tile 编号，这时候有两种切分线：
+
+- **页的边界**：每 `2^SampleLevel` 个 tile 划一条
+- **patch 的边界**：每 `2^(Level−4)` 个 tile 划一条
+
+要出现跨界，必须有一条 **patch 的边线落在两条页边线中间**。但如果**页边界的位置本身也是 patch 边长的整数倍**，
+页边线就必然与某条 patch 边线**重合** —— 两套线互相咬合，patch 根本没有跨界的余地。
+
+而「`2^SampleLevel` 是 `2^(Level−4)` 的整数倍」在 2 的幂这件事上，就等价于 ①（`SampleLevel ≥ Level−4`）。
+
+**代入具体数字**（`Level = 6` → patch 是 4 个 tile，页是 64 个 tile）：
+
+```
+tile 编号  0 ──────────────── 64 ──────────────── 128
+patch 线   0   4   8   12 ...  64   68  ...
+页线       0                   64                  128
+                             ↑
+                    64 同时是 patch 线，也是页线 —— 两套线咬合
+           └── 前 16 个 patch ──┘
+```
+
+页线 64 正好落在一条 patch 线上，所以第 16 个 patch 从页边界**刚好**开始，谁也没被切开。
+
+**反例**：假设 patch 是 3 个 tile、页是 64 个 tile。
+patch 线落在 `0, 3, 6, …, 63, 66`，页线落在 `0, 64` —— 第 22 个 patch 覆盖 tile `63~66`，
+**横跨了 64 这条页边界**。2 的幂之所以安全，就是因为除得尽，出不了这种错位。
+
+**③ 一个页 = 物理纹理里的一张 tile**
+
+VT 的本质就是「虚拟页 → 物理 tile」的映射，页表纹素存的就是这个映射（§2.1）。
+于是「patch ⊆ 一个页」直接推得 **「patch 的全部顶点都从同一张物理 tile 采样」** ——
+这正是 `Item.PhysicalAddress[0]` 可以只存**一个**地址就给整片网格建 UV 变换的原因
+（`VirtualHeightfieldMeshVertexFactory.ush:147-155`）。
+
+**④ 那 morph 之后顶点换页了呢？—— 不影响**
+
+因为**最终高度根本不过这个地址**。看 `VirtualHeightfieldMeshVertexFactory.ush:208-213`，每个顶点是拿自己的 `NormalizedPos`
+**重新查一次页表**、再用 `VTComputePhysicalUVs()` 换成物理 UV 的 —— 逐顶点独立解析，
+跨页与否由顶点自己解决。
+
+`PhysicalAddress[0]` 只用在 morph **之前**那次「估算距离」的预采样
+（`VirtualHeightfieldMeshVertexFactory.ush:167-168`），而那个高度只喂给 `DistanceSq`，粗一点无所谓。
+
+**⑤ 参数侧还有一道护栏**
+
+`NumQuadsPerTileOfTwo` 被钳到不超过 `TileSizeLog2 + ExtSubdivisionLevel - 1`
+（`VirtualHeightfieldMeshSceneProxy.cpp:879`），保证 `NumInstanceVertexSide ≥ 2`；
+而 `RVTMinLevel` 与 `MaxLevel` 都由 `NumQuadsPerTileOfTwo` 推出
+（`VirtualHeightfieldMeshSceneProxy.cpp:880`、`VirtualHeightfieldMeshSceneProxy.cpp:881`）——
+三者绑死，用户在外面调不出破坏对齐的组合。
+
+#### 一个 `Pos` 怎么算出 289 个顶点
+
+实例里只有一个 `Pos`，但这不是「一个实例一个点」—— 它是这块 16×16 网格的**原点**，
+每个顶点额外带着自己的 `SV_VertexID`，两者相加才是这个顶点的位置。
+
+```hlsl
+// VirtualHeightfieldMeshVertexFactory.ush:128-129
+uint2 VertexCoord = uint2(Input.VertexId % GRID_SIZE, Input.VertexId / GRID_SIZE);
+float2 LocalUV = (float2)VertexCoord / (float)(GRID_SIZE - 1);
+```
+
+`GRID_SIZE = 17`，所以 `VertexId` 0…288 → `VertexCoord` (0…16, 0…16) → **`LocalUV ∈ [0,1]²`**
+（网格内归一化坐标）。
+
+```hlsl
+// VirtualHeightfieldMeshVertexFactory.ush:142-143
+float2 XY = ((float2)Pos + LocalUV) * SampleGeoToTexLevelOffsetInv * (1u << (uint)SampleLevel);
+float2 NormalizedPos = (XY * VHM.PageTableSize.zw);
+```
+
+**先澄清最容易误解的一点：`Pos` 不是世界坐标，也不是 UV —— 它就是「我在方格图里的第几格」。**
+`Pos` 是 `uint2`，一个整数格号。
+
+```figure
+posgrid
+```
+
+**关键在于：每一层的「格」不一样大。** 地形一共 256 × 256 个 tile，VHM 按几何层级把它切成方格：
+
+| 几何层级 | 切成多少格 | **每一格覆盖多少 tile** | `Pos` 能取到 |
+|---|---|---|---|
+| 4 | 256 × 256 | **1 个 tile** | 0 … 255 |
+| 5 | 128 × 128 | **2 个 tile** | 0 … 127 |
+| 6 | 64 × 64 | **4 个 tile** | 0 … 63 |
+| 8 | 16 × 16 | **16 个 tile** | 0 … 15 |
+| 12 | 1 × 1 | **整块地形（256 × 256 个 tile）** | 0 |
+
+**规律是：层级每 +1，格子边长翻倍、格数少 4 倍。** 所以在 Level 4 一格 = 1 个 tile，
+往上就是 1 → 2 → 4 → 8 → 16。写成式子：**每一格的边长 = `2^(Level − 4)` 个 tile**。
+
+> 那个 **4** 不是魔法数 —— 它是「**一格刚好等于 1 个 tile**」的那一层，也就是 `RVTMinLevel` 的默认值。
+
+同一个 `Pos = (12, 5)`，在 Level 4 指的是「第 12 列第 5 行**那个 tile**」，
+在 Level 6 指的是「第 12 列第 5 行**那块 4-tile 区域**」—— **坐标一样，指的地方大小不一样**。
+
+代码里那个系数 `SampleGeoToTexLevelOffsetInv * (1u << SampleLevel)` 就是上表「每格覆盖多少 tile」的算式：
+
+| 量 | 含义 | 出处 |
+|---|---|---|
+| `SampleLevel` | 该节点对应的页表 mip | `VirtualHeightfieldMeshVertexFactory.ush:139` |
+| `SampleGeoToTexLevelOffset` | 几何坐标折回页坐标要右移几位 | `VirtualHeightfieldMeshVertexFactory.ush:140` |
+| 系数 = `2^SampleLevel / 2^SampleGeoToTexLevelOffset` | **每格覆盖多少个 RVT tile** | `VirtualHeightfieldMeshVertexFactory.ush:142` |
+
+**第二步**是把 tile 空间折成 UV：
+
+```hlsl
+// VirtualHeightfieldMeshSceneProxy.cpp:904-906
+const float PageTableSizeX = AllocatedVirtualTexture->GetWidthInTiles();
+UniformParams.PageTableSize = FVector4f(PageTableSizeX, PageTableSizeY, 1.f / PageTableSizeX, 1.f / PageTableSizeY);
+```
+
+即 **1 个 XY 单位 = 1 个 RVT tile**，除以 `WidthInTiles` 就归一化到 `[0,1]` 的整块地形 UV。
+
+**把一个具体数字走一遍**（RVT = 256 × 256 tile，几何层级 `Level = 6`）：
+
+```
+Pos        = (12, 5)              该层级网格里第 12 列、第 5 行的节点
+LocalUV    = (0.25, 0.5)          顶点在这块 patch 的 1/4、1/2 处
+           ↓ (Pos + LocalUV) × 4  （Level 6：一个节点占 4 个 tile）
+XY         = (12.25, 5.5) × 4  = (49, 22)     ← tile 空间
+           ↓ × (1/256)            （PageTableSize.zw）
+NormalizedPos = (0.1914, 0.0859)              ← 整块地形的 UV
+```
+
+同一个 patch 的 289 个顶点，就是拿各自的 `LocalUV` 代进这同一个式子，得到各自的地形 UV。
+
+**最后一步：UV → 世界坐标，靠矩阵而不是靠 `Pos`。**
+
+```hlsl
+// VirtualHeightfieldMeshVertexFactory.ush:169
+float3 WorldPos = mul(float4(NormalizedPos, Height, 1), VHM.VirtualHeightfieldToWorld).xyz;
+```
+
+`VirtualHeightfieldToWorld` 就是 `UVToWorld`，来自组件的虚拟纹理变换
+（`VirtualHeightfieldMeshSceneProxy.cpp:792-795`：`const FTransform VirtualTextureTransform = InComponent->GetVirtualTextureTransform();`）。
+**地形的世界尺寸、位置、缩放全在这个矩阵里** —— 这也解释了为什么 `Pos` 可以只是一个 14 位的小整数：
+它只描述"第几格"，跟世界尺度无关。
+
+最后两段合成顶点位置：
+
+```hlsl
+// VirtualHeightfieldMeshVertexFactory.ush:241（morph 前的预采样路径用 :169 的等价写法）
+Intermediates.VTPos = float3(NormalizedPos, Height);
+// VirtualHeightfieldMeshVertexFactory.ush:244
+Intermediates.LocalPos = mul(float4(Intermediates.VTPos, 1), VHM.VirtualHeightfieldToLocal).xyz;
+```
+
+即 **`(地形UV.x, 地形UV.y, 采到的高度)`** 经 `VirtualHeightfieldToLocal` / `VirtualHeightfieldToWorld` 变换到世界。
+
+**顺序上有一步不能漏**：高度采完之后，`LocalUV` 还会被 CDLOD morph 往粗网格方向吸附一次，
+然后 **用 morph 后的 `LocalUV` 重算 `XY` 和 `NormalizedPos`**，才去采最终高度：
+
+```hlsl
+// VirtualHeightfieldMeshVertexFactory.ush:191-195
+LocalUV = MorphVertex(LocalUV, GRID_SIZE - 1, (uint)LodMorphFloor, LodMorphFrac);
+XY = ((float2)Pos + LocalUV) * SampleGeoToTexLevelOffsetInv * (1u << (uint)SampleLevel);
+NormalizedPos = (XY * VHM.PageTableSize.zw);
+```
+
+所以顶点位置最终是「**morph 之后的 `LocalUV`**」算出来的。`MorphVertex()` 本身很简单
+（`VirtualHeightfieldMeshVertexFactory.ush:86-101`）：按 `GRID_SIZE >> LodMorphFloor` 把 UV 取模，
+减去余数就吸附到粗网格交点上；再按 `LodMorphFrac` 做一次部分吸附，实现两档之间的过渡。
+
+#### 高度怎么来 —— 采样器用的是哪一个
+
+分两层，别混（**页内是双线性，跨 LOD 是手工插值**）：
+
+| 层次 | 采样器 | 依据 |
+|---|---|---|
+| **页内取高度** | **`SF_Bilinear`（双线性插值）** | `VirtualHeightfieldMeshSceneProxy.cpp:887` |
+| 跨 mip 过渡 | **手工 `lerp`**，不是硬件 mip | `VirtualHeightfieldMeshVertexFactory.ush:208-214` |
+
+页内这次采样**永远采 mip 0**：`VHM.HeightTexture.SampleLevel(VHM.HeightSampler, LocalPhysicalUV, 0)`
+（`VirtualHeightfieldMeshVertexFactory.ush:168`）—— 物理页纹理本身没有 mip 链。
+
+因为拿不到硬件 mip 过渡，切 LOD 只能在 shader 里手工做：查两次页表（`floor(SampleLevel)` / `ceil(SampleLevel)`），
+各采一次高度，再按 `frac(SampleLevel)` 插值：
+
+```hlsl
+// VirtualHeightfieldMeshVertexFactory.ush:208-214
+VTPageTableResult VTResult0 = TextureLoadVirtualPageTableLevel(VHM.PageTableTexture, PageTableUniform, NormalizedPos, VTADDRESSMODE_CLAMP, VTADDRESSMODE_CLAMP, floor(SampleLevel) - GetGlobalVirtualTextureMipBias());
+float2 UV0 = VTComputePhysicalUVs(VTResult0, 0, Uniform);
+float Height0 = VHM.HeightTexture.SampleLevel(VHM.HeightSampler, UV0, 0);
+VTPageTableResult VTResult1 = TextureLoadVirtualPageTableLevel(VHM.PageTableTexture, PageTableUniform, NormalizedPos, VTADDRESSMODE_CLAMP, VTADDRESSMODE_CLAMP, ceil(SampleLevel) - GetGlobalVirtualTextureMipBias());
+float2 UV1 = VTComputePhysicalUVs(VTResult1, 0, Uniform);
+float Height1 = VHM.HeightTexture.SampleLevel(VHM.HeightSampler, UV1, 0);
+float Height = lerp(Height0.x, Height1.x, frac(SampleLevel));
+```
+
+注意这里**不是**复用前面那次预采样的 UV，而是**拿 morph 之后的 `NormalizedPos` 重查一遍页表**，
+再用 `VTComputePhysicalUVs()` 换成物理 UV —— 因为顶点在 morph 之后已经移动过了。
+
+> 引擎自己在紧邻的注释里承认了这个双线性的代价（`VirtualHeightfieldMeshVertexFactory.ush:186`）：
+> *"A fix for this while keeping fractional LOD is to use some sort of triangle barycentric interpolation
+> when sampling the height texture **instead of bilinear**."*
+> —— 双线性会让顶点偏离它所插值的三角形平面，于是出现表面闪烁。
+
+**对照：另外两张纹理是点采样，不能混用。** MinMax（`VirtualHeightfieldMeshSceneProxy.cpp:1999`）
+和 LodBias（`VirtualHeightfieldMeshSceneProxy.cpp:889`）都是 `SF_Point` —— 它们存的是**极值 / 参数**，
+一旦插值语义就错了（MinMax 插值会导致 AABB 不保守而漏剔）。
 
 **顶点 Morph（消除 LOD 跳变）**：VS 里先采一次高度估算距离，算出应该处的 LOD，然后把顶点 UV 往粗网格方向「吸附」（`VirtualHeightfieldMeshVertexFactory.ush:86-101`）。
 
 > 源码里有一条很重要的设计注释（`VirtualHeightfieldMeshVertexFactory.ush:184-187`）：
 > *"Removing fractional continuous LOD here... fractional locations come away from the surface of the triangles that they interpolate and we see the resultant surface shimmer."*
 > 即：**分数 LOD 会让顶点跑离三角形所在平面，产生表面闪烁**。除非改用重心坐标插值，否则「吸附到整级」反而是更正确的做法。
+
+#### 两条 draw 的实例索引各从哪来
+
+VHM 一帧有两次 `DrawIndexedInstancedIndirect`（不透明 + 洞），**共用同一个 VS**。VS 侧写的是：
+
+```hlsl
+// VirtualHeightfieldMeshVertexFactory.ush:48
+uint InstanceId : SV_InstanceID;                     // 输入声明
+// :121
+const QuadRenderInstance Item = GetQuadRenderInstance(Input.InstanceId);
+// :24
+float4 Data = VHMInst.InstanceBuffer[InstanceId];    // 取到 16 B 的 QuadRenderInstance
+```
+
+**索引就是 `SV_InstanceID` 本身** —— 不减基址、不做判定、不查表。
+「该读哪块 buffer」在 **CPU 侧就定死了**：两条 `FMeshBatch` 各自把一个**不同的 SRV** 塞进 per-batch 的 uniform buffer。
+
+| 批次 | 间接参数偏移 | 绑定的实例缓冲 SRV | 出处 |
+|---|---|---|---|
+| 不透明 | `0` | `InstanceBufferSRV` | `VirtualHeightfieldMeshSceneProxy.cpp:1025`、`VirtualHeightfieldMeshSceneProxy.cpp:1037` |
+| 洞 | `5 * sizeof(uint32)` | `HoleInstanceBufferSRV` | `VirtualHeightfieldMeshSceneProxy.cpp:1083`、`VirtualHeightfieldMeshSceneProxy.cpp:1096` |
+
+`VHMInst` 对应的全局 uniform buffer 结构 `FVirtualHeightfieldMeshVertexFactoryParameters2` **只有一个成员**
+（`VirtualHeightfieldMeshVertexFactory.h:40-42`）。两次 draw 各 `CreateUniformBufferImmediate` 出一份，
+分别挂到自己 `FMeshBatchElement` 的 `UserData->InstantceBuf` 上
+（`VirtualHeightfieldMeshSceneProxy.cpp:1038`、`VirtualHeightfieldMeshSceneProxy.cpp:1097`），
+最后在顶点工厂里绑进 shader：
+
+```cpp
+// VirtualHeightfieldMeshVertexFactory.cpp:117
+ShaderBindings.Add(Shader->GetUniformBufferParameter<FVirtualHeightfieldMeshVertexFactoryParameters2>(), UserData->InstantceBuf);
+```
+
+**同名参数、不同绑定** —— 所以 VS 里那句 `VHMInst.InstanceBuffer[InstanceId]`，在两次 draw 里指向两块不同的内存。
+
+**为什么 `SV_InstanceID` 可以直接当下标**：因为两条 draw 的 `StartInstanceLocation` 恒为 0。
+D3D 的 indirect 参数是五元组 `{IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation}`，
+初始化时直接写死：
+
+```hlsl
+// VirtualHeightfieldInitBuffers.usf:35-46
+InstanceArgsBuffer[0] = VHMParam.NumIndices;   //  0 IndexCountPerInstance
+InstanceArgsBuffer[1] = 0;                     //  1 InstanceCount（每帧由 CS 累加）
+InstanceArgsBuffer[2] = 0;                     //  2 StartIndexLocation
+InstanceArgsBuffer[3] = 0;                     //  3 BaseVertexLocation
+InstanceArgsBuffer[4] = 0;                     //  4 StartInstanceLocation ← 恒 0
+const int MaskQuadArgsOffset = 5;              //  洞那一份从 [5] 开始，同样 [9] = 0
+```
+
+CS 侧**只累加 InstanceCount，从不碰 `[4]`**：
+
+```hlsl
+// VirtualHeightfieldMesh3.usf:533-534（双缓冲版本同构，见 :548-549）
+InterlockedAdd(InstanceArgsBuffer[s_IndirectDrawOffset],     QuadInstanceFlag[...], QuadInstanceOffset);
+InterlockedAdd(InstanceArgsBuffer[5 + s_IndirectDrawOffset], HoleQuadInstanceFlag[...], HoleQuadInstanceOffset);
+```
+
+其中 `#define s_IndirectDrawOffset 1`（`VirtualHeightfieldMesh3.usf:12`）—— 所以写的是 `[1]`（不透明 InstanceCount）
+和 `[6]`（洞 InstanceCount），正好落在五元组的第二项上。
+
+于是 `SV_InstanceID` 从 0 连续递增到 `InstanceCount - 1`，**恰好就是各自 buffer 的下标**，两条 draw 互不干扰。
 
 ### 4.6 可选的 One-Pass 版本
 

@@ -438,12 +438,31 @@
 
 <p>来源：<span class="ref">VirtualHeightfieldMesh.ush:135-155</span>（注释："See packing in PageTableUpdate.usf"）</p>
 
-<pre>PhysicalAddress (uint32)
-├─ bit[3:0]               4 bits : 虚拟层级 (VirtualLevel)
-├─ bit[(4+NumAddressBits-1):4]    : PageX   （NumAddressBits = 6 或 8）
-└─ bit[31:(4+NumAddressBits)]     : PageY</pre>
+<pre>打包装（PageTableUpdate.usf:67-81）：
+    Page = vLevel | (pPage.x &lt;&lt; 4) | (pPage.y &lt;&lt; (4 + PCB))
+其中 PCB = PageCoordinateBitCount = 6（UInt16 页表）或 8（UInt32 页表）
+
+页表纹素的容器宽度由格式决定（VirtualTextureSpace.cpp:37-48 GetFormatForNumLayers：
+UInt16 → PF_R16*_UINT、UInt32 → PF_R32*_UINT），**两种格式不是都占 32 位**：
+
+UInt32 页表 —— 纹素通道 32 位
+├─ bit[3:0]        4 bits : 虚拟层级 vLevel
+├─ bit[11:4]       8 bits : PageX
+├─ bit[19:12]      8 bits : PageY   ← 与 PageX 同宽
+└─ bit[31:20]     12 bits : 无字段（恒 0；写端最大只到第 20 位，读端不取 bit ≥ 20）
+
+UInt16 页表 —— 纹素通道 16 位
+├─ bit[3:0]        4 bits : 虚拟层级 vLevel
+├─ bit[9:4]        6 bits : PageX
+└─ bit[15:10]      6 bits : PageY   ← 与 PageX 同宽，4 + 6 + 6 = 16 刚好占满，没有空位</pre>
 
 <p><code>NumAddressBits</code> 由页表格式决定：<code>EVTPageTableFormat::UInt16 ? 6 : 8</code>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:922</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2497</span>、<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2701</span>）。</p>
+
+<p>引擎读端用的掩码与上表逐位一致：<code>UInt32</code> 走 <code>(pa &gt;&gt; 4) &amp; 0xff</code> / <code>(pa &gt;&gt; 12) &amp; 0xff</code>，<code>UInt16</code> 走 <code>(pa &gt;&gt; 4) &amp; 0x3f</code> / <code>(pa &gt;&gt; 10) &amp; 0x3f</code>（<span class="ref">VirtualTextureCommon.ush:904-905</span>）。</p>
+
+<p>格式由物理空间大小挑选：只有每维 tile 数 ≤ 64 才够格用 16 位（<span class="ref">VirtualTexturePhysicalSpace.h:121</span> <code>DoesSupport16BitPageTable()</code>），选择点 <span class="ref">AllocatedVirtualTexture.cpp:138</span>。</p>
+
+<p><strong>8 位地址实际用不满。</strong> 物理空间尺寸算完后有两道更紧的钳制（<span class="ref">VirtualTextureSystem.cpp:1049-1053</span> 纹理维度上限、<span class="ref">VirtualTextureSystem.cpp:1057-1060</span> tile 总数上限）： 页表编码给的是 <code>1&lt;&lt;16</code>（开方 256，对应 8 位），但页池 <code>FBinaryHeap&lt;uint32, uint16&gt; FreeHeap</code> （<span class="ref">TexturePagePool.h:230</span>）是 16 位且要留溢出位 → <code>MaxTiles = 1 &lt;&lt; 15</code>、<code>MaxTilesSqrt = 181</code>。 <strong>实际上限 181 × 181</strong>。两道钳制都在挑格式之前，故 8 位编码宽度永远不是瓶颈。</p>
 
 <div class="callout warn"><div class="h">注意</div><p style="margin:0">反馈通道里 <code>PageTableFeedbackId</code> 占 <strong>bit[31:28]</strong>（<code>GetSpaceID() &lt;&lt; 28</code>，<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2498</span>），与 <code>Level</code> 字段在高位区"打架"——shader 注释里直白写着 <em>"PageTableFeedbackId is 4bit data, this value had shift to [28,32). fuck..."</em>（<span class="ref">VirtualHeightfieldMesh3.usf:214</span>）。这是已知的紧凑打包代价。</p></div>
 
@@ -841,7 +860,7 @@ bInsidePlane = dot(plane, float4(center + extent * PlaneSigns, 1.0)) &gt; 0;</pr
 <p>全部在 <strong>Editor 模块</strong> <code>VirtualHeightfieldMeshEditor</code>，<code>WITH_EDITOR</code> 保护，<strong>不是运行时</strong>。</p>
 
 <div class="fig">
-<svg viewBox="0 0 1120 330" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<svg viewBox="0 0 1120 480" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
   <defs>
     <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
       <path d="M0,0 L9,4.5 L0,9 z" fill="#5a6672"/>
@@ -907,6 +926,35 @@ bInsidePlane = dot(plane, float4(center + extent * PlaneSigns, 1.0)) &gt; 0;</pr
   <text x="534" y="308" font-size="11" fill="#c0392b" text-anchor="middle">消费端 UnPackMinMaxHeight（VirtualHeightfieldMesh.ush:173-179）与 PackMinMax 互不可逆 → 见 §10.1</text>
 
   <line x1="534" y1="256" x2="534" y2="284" stroke="#c0392b" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <line x1="12" y1="340" x2="1108" y2="340" stroke="#c9d8ee" stroke-width="1"/>
+  <text x="16" y="364" font-size="13" font-weight="700" fill="#1f3a63">运行时消费（IsCullQuad · VirtualHeightfieldMesh3.usf:252-257）</text>
+
+  <rect x="12" y="380" width="252" height="72" rx="8" fill="#eaf1fe" stroke="#9db8dd"/>
+  <text x="138" y="403" font-size="11" fill="#1a1d21" text-anchor="middle">SampleLevel(…, UV0, TextureLevel)</text>
+  <text x="138" y="422" font-size="10.5" fill="#4a5158" text-anchor="middle">mip 索引 = 这个 quad 自己的 VT 层级</text>
+  <text x="138" y="440" font-size="10" fill="#7a828a" text-anchor="middle">VirtualHeightfieldMesh3.usf:90</text>
+
+  <line x1="264" y1="416" x2="290" y2="416" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="292" y="380" width="330" height="72" rx="8" fill="#e9f7ef" stroke="#8fc9a8"/>
+  <text x="457" y="403" font-size="11" fill="#1a1d21" text-anchor="middle">MinMax mip L 的 1 texel ≡ 页表 mip L 的 1 tile</text>
+  <text x="457" y="422" font-size="10.5" fill="#5f7a68" text-anchor="middle">纹素落点正好罩住这个 quad 的 footprint</text>
+  <text x="457" y="440" font-size="10.5" fill="#c0392b" text-anchor="middle">必须 SF_Point —— 极值插值会漏剔（破洞）</text>
+
+  <line x1="624" y1="416" x2="650" y2="416" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="652" y="380" width="240" height="72" rx="8" fill="#eaf1fe" stroke="#9db8dd"/>
+  <text x="772" y="403" font-size="11" fill="#1a1d21" text-anchor="middle">(UV0,min) – (UV1,max) = AABB</text>
+  <text x="772" y="422" font-size="10.5" fill="#4a5158" text-anchor="middle">PlaneTestAABB 做视锥剔除</text>
+
+  <line x1="894" y1="416" x2="920" y2="416" stroke="#5a6672" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <rect x="922" y="380" width="186" height="72" rx="8" fill="#fff8ef" stroke="#e2a15c"/>
+  <text x="1015" y="403" font-size="11" fill="#1a1d21" text-anchor="middle">留下 / 细分 / 剔除</text>
+  <text x="1015" y="422" font-size="10" fill="#7a828a" text-anchor="middle">进入下一阶段</text>
+
+  <text x="16" y="472" font-size="10.5" fill="#7a828a">注：V1 额外加 MinMaxLevelOffset = NumMips − 1 − MaxLevel 做 mip 索引重定位（VirtualHeightfieldMeshSceneProxy.cpp:2493），V3 的 TextureLevel 已与 mip 索引对齐，无需该偏移。</text>
 </svg>
 <div class="cap">图 4　MinMax 金字塔离线烘焙链路</div>
 </div>
