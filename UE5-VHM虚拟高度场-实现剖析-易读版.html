@@ -1166,6 +1166,135 @@ InstanceArgsBuffer[5..9] = { NumIndices, 0, 0, 0, 0 }         （洞材质批次
 
 <p><strong>为什么可以这么干</strong>：更粗的层级（1 / 2 / 4 个 quad）在任何视角下要么占满全屏、要么被整个剔除，遍历它们纯属浪费。地形这个物体有个天然性质 —— <strong>它一定和视野相交</strong>，所以直接从第 4 层起步永远安全。</p>
 
+<h4>「第 4 层」是哪一层 —— Level 编号是倒着数的</h4>
+
+<p>VHM 的 Level <strong>从上往下递减</strong>：根节点 Level = <code>MaxLevel</code>，最细的叶子是 Level 0。所以起点是 <code>MaxLevel - 3</code>（<span class="ref">VirtualHeightfieldMesh3.usf:614</span>）：</p>
+
+<pre>const uint Level = VHMParam.MaxLevel - 3;</pre>
+
+<table><thead><tr>
+<th>层级</th>
+<th>网格</th>
+<th>quad 数</th>
+</tr></thead><tbody>
+<tr><td><code>MaxLevel</code>（根）</td><td>1×1</td><td>1</td></tr>
+<tr><td><code>MaxLevel-1</code></td><td>2×2</td><td>4</td></tr>
+<tr><td><code>MaxLevel-2</code></td><td>4×4</td><td>16</td></tr>
+<tr><td><strong><code>MaxLevel-3</code></strong></td><td><strong>8×8</strong></td><td><strong>64</strong> ← 从这里起步</td></tr>
+</tbody></table>
+
+<p>64 就是这么来的 —— 也正好对上 <code>[numthreads(64,1,1)]</code> 与 <code>OutDispatchArgsBuffer[3] = 64</code>（<span class="ref">VirtualHeightfieldMesh3.usf:600</span>、<span class="ref">VirtualHeightfieldMesh3.usf:611</span>）。</p>
+
+<h4>播种时 Morton 的妙用：线程号直接当 Morton 码</h4>
+
+<p>这里有一处很省的写法（<span class="ref">VirtualHeightfieldMesh3.usf:616-618</span>）：</p>
+
+<pre>uint4 ThisPackData;
+ThisPackData.x = ThisThreadID | (Level &lt;&lt; 28);     <span class="c">// 注意：没有调 MortonEncode()</span>
+SQuadInfo ThisInfo = GetQuadInfo(ThisPackData, VHMParam.RVTMinLevel);</pre>
+
+<p>对比标准打包函数（<span class="ref">VirtualHeightfieldMesh3.usf:68-71</span>）：</p>
+
+<pre>uint PackQuadPosLevel(uint2 Pos, uint Level)
+{
+    return MortonEncode(Pos) | (Level &lt;&lt; 28);
+}</pre>
+
+<p>结构完全一样，只是 <code>FillLevel4QuadCS</code> <strong>把 <code>ThisThreadID</code>（0~63）直接放在了 Morton 码的位置</strong>。因为解包端一律走（<span class="ref">VirtualHeightfieldMesh3.usf:62</span>）：</p>
+
+<pre>Item.Pos = MortonDecode(PackedVal.x &amp; 0xfffffff);</pre>
+
+<p>所以线程 N 拿到的坐标就是 <code>MortonDecode(N)</code>。<strong>0~63 这 64 个连续整数，经 Morton 解码后不重不漏地铺满 8×8 网格</strong> —— 一行赋值把任务分完，零计算。</p>
+
+<p>实际排布（Z 序曲线）：</p>
+
+<pre>        x=0   1   2   3   4   5   6   7
+y=0  │   0   1   4   5  16  17  20  21
+y=1  │   2   3   6   7  18  19  22  23
+y=2  │   8   9  12  13  24  25  28  29
+y=3  │  10  11  14  15  26  27  30  31
+y=4  │  32  33  36  37  48  49  52  53
+y=5  │  34  35  38  39  50  51  54  55
+y=6  │  40  41  44  45  56  57  60  61
+y=7  │  42  43  46  47  58  59  62  63</pre>
+
+<p>线程 0~3 是左上 2×2，0~15 是左上 4×4 —— <strong>连续线程号总落在紧凑方块里</strong>，这是 Z 序的定义性质，也是纹理缓存友好的来源。</p>
+
+<h4>Morton 编码与父节点编码的关系</h4>
+
+<p>这是 Morton 最有用的性质（已用脚本对 128×128 全部 65536 组父子做过验证，零反例）：</p>
+
+<pre>MortonEncode(child) == (MortonEncode(parent) &lt;&lt; 2) | i</pre>
+
+<p><code>i</code> 就是细分循环里的 <code>i</code>（<span class="ref">VirtualHeightfieldMesh3.usf:439-441</span>），它的两个 bit 正好是 <code>(dx, dy)</code>：<code>i = dx | (dy &lt;&lt; 1)</code>。</p>
+
+<p>反向同样成立：</p>
+
+<table class="kv"><thead><tr>
+<th>操作</th>
+<th>效果</th>
+</tr></thead><tbody>
+<tr><td><code>child &gt;&gt; 2</code></td><td>得到父节点 Morton</td></tr>
+<tr><td><code>child &amp; 3</code></td><td>得到「我是第几个象限」</td></tr>
+<tr><td><code>m &gt;&gt; (2k)</code></td><td>得到往上 k 层的祖先（等价于坐标各右移 k 位）</td></tr>
+</tbody></table>
+
+<p><strong>为什么成立</strong>：<code>MortonEncode</code> 是位交织，相邻两位固定是一组 <code>(y, x)</code>：</p>
+
+<pre>bit:   ...  7   6   5   4   3   2   1   0
+            y3  x3  y2  x2  y1  x1  y0  x0
+                └──────┘  └────┘  └────┘
+                 第k层     第k-1层   最底层</pre>
+
+<p><code>Pos * 2</code> 在二进制里是左移 1 位；x、y 同时左移 1 位，在交织后的码里就是整体左移 2 位。空出的最低 2 位刚好装 <code>(dy, dx)</code>。</p>
+
+<p><strong>实例</strong>（父 <code>Pos = (3,1)</code>，Morton = 7 = <code>0b000111</code>）：</p>
+
+<table><thead><tr>
+<th><code>i</code></th>
+<th><code>(dx,dy)</code></th>
+<th>子 Pos</th>
+<th>子 Morton</th>
+<th>二进制</th>
+<th><code>(7&lt;&lt;2)|i</code></th>
+</tr></thead><tbody>
+<tr><td>0</td><td>(0,0)</td><td>(6,2)</td><td>28</td><td><code>0b011100</code></td><td>28 ✓</td></tr>
+<tr><td>1</td><td>(1,0)</td><td>(7,2)</td><td>29</td><td><code>0b011101</code></td><td>29 ✓</td></tr>
+<tr><td>2</td><td>(0,1)</td><td>(6,3)</td><td>30</td><td><code>0b011110</code></td><td>30 ✓</td></tr>
+<tr><td>3</td><td>(1,1)</td><td>(7,3)</td><td>31</td><td><code>0b011111</code></td><td>31 ✓</td></tr>
+</tbody></table>
+
+<p>高位 <code>0111</code> 原封不动继承自父，低 2 位存 <code>i</code>。<strong>四个兄弟的 Morton 码连续（28/29/30/31）</strong>。</p>
+
+<p><strong>推论：Morton 码就是从根走下来的路径。</strong> 每 2 bit 编码一层的象限选择，所以 <code>PackQuadPosLevel()</code> 打出的那个 <code>uint</code> 语义上是「<strong>Level 高 4 bit + 从根到本节点的完整路径 28 bit</strong>」。28 ÷ 2 = <strong>最多 14 层细分深度</strong>，与「每轴 14 bit → 16384 网格」是同一个约束的两种说法。</p>
+
+<div class="callout"><p style='margin:0'><strong>注意：当前细分代码并没有利用这个恒等式</strong>，走的是解码 → 坐标算术 → 重编码（<span class="ref">VirtualHeightfieldMesh3.usf:441-444</span>）。理论上可写成 <code>(ParentMorton &lt;&lt; 2) | i</code> 省掉往返，但收益有限 —— <code>ThisInfo.Pos</code> 在同一个 CS 里还要用于算 UV、AABB、纹理坐标，解码躲不掉。</p></div>
+
+<h4>Morton 带来什么好处</h4>
+
+<table class="kv"><thead><tr>
+<th>好处</th>
+<th>说明</th>
+</tr></thead><tbody>
+<tr><td><strong>初始化零成本</strong></td><td><code>Pos = MortonDecode(tid)</code> 只有 5 步位运算；行主序要写 <code>tid % 8</code> / <code>tid / 8</code>，GPU 上整数除模走慢路径</td></tr>
+<tr><td><strong>空间局部性</strong></td><td>每线程要采 <code>HeightTexture</code> / <code>HeightMinMaxTexture</code> / <code>MaskTexture</code> 三张图。同一 warp 处理空间相邻的 quad，采样点集中，缓存几乎全命中</td></tr>
+<tr><td><strong>父子是纯位移</strong></td><td>上面的恒等式；祖先 = 右移 2k 位</td></tr>
+<tr><td><strong>位预算紧凑</strong></td><td>28 bit Morton + 4 bit Level 挤进一个 <code>uint</code>，让 <code>QuadItem2</code> 压进 <code>uint4</code>（16 B）</td></tr>
+</tbody></table>
+
+<p>局部性的差距在深层级尤其明显。假设某层网格宽 4096，一个 32 线程的 warp 覆盖：</p>
+
+<table><thead><tr>
+<th>排布</th>
+<th>覆盖区域</th>
+<th>2D 局部性</th>
+</tr></thead><tbody>
+<tr><td>行主序</td><td>32 × 1 的细长条</td><td>差（跨 32 列只占 1 行）</td></tr>
+<tr><td><strong>Morton</strong></td><td><strong>8 × 4 的方块</strong></td><td><strong>好</strong></td></tr>
+</tbody></table>
+
+<div class="callout"><p style='margin:0'><strong>Morton 只用在四叉树节点寻址上。</strong> VT 反馈那条路走的是普通行列打包（<span class="ref">VirtualHeightfieldMesh3.usf:215</span>）—— 因为要喂给 VT 系统，格式必须跟人家对齐。</p></div>
+
 <h3>4.3 阶段③ <code>CollectSubdivideQuadsCS</code> —— 核心：一轮一轮往下细分</h3>
 
 <p>这是 VHM 里最重要、也最长的一个阶段。它会被<strong>重复 dispatch 若干轮</strong>，每一轮做同一件事：<strong>读上一轮吐出的节点，决定每个节点「还要不要更细」</strong>。</p>
@@ -1299,6 +1428,83 @@ InstanceArgsBuffer[5..9] = { NumIndices, 0, 0, 0, 0 }         （洞材质批次
 <p><strong>组内怎么分配输出位置</strong>：每个线程先在自己组的 <code>groupshared</code> 数组里打标记，线程 0 做一次前缀和扫描，然后各线程用 <code>flag[ThisThreadID]</code> 当自己的写入偏移。这样<strong>整组只需要对全局做常数次原子操作</strong>（<span class="ref">VirtualHeightfieldMesh3.usf:383-407</span>）。</p>
 
 <p><strong>双缓冲为什么必要</strong>：本轮读 <code>i</code>、写 <code>(i+1)</code>，两块内存完全分开。否则同一个 pass 内部就会 Read-After-Write 冲突。</p>
+
+<h4>dispatch 是怎么组织的</h4>
+
+<p><strong>间接 dispatch（IndirectDispatch）</strong> —— 每轮的组数不由 CPU 写死，而是上一轮 CS 产出子节点时顺手更新进 args buffer（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2257-2258</span>）：</p>
+
+<pre>FComputeShaderUtils::DispatchIndirect(RHICmdList, ComputeShader, *Parameters, IndirectBuffer,
+    sizeof(uint32) * (CalTime / 2) * 4);</pre>
+
+<p><strong>args buffer 的 4 个 uint</strong>（<code>s_DispatchArgsSize = 4</code>，两个 slot 交替 ping-pong）：</p>
+
+<table><thead><tr>
+<th>下标</th>
+<th>字段名常量</th>
+<th>含义</th>
+</tr></thead><tbody>
+<tr><td><code>[0]</code></td><td><code>s_SumDispatchQuadOffset</code></td><td><strong>DispatchGroupCount X</strong> —— 本轮 dispatch 多少组（<code>ceil(QuadCount/32)</code>）</td></tr>
+<tr><td><code>[1]</code></td><td>—</td><td>Y（恒 1）</td></tr>
+<tr><td><code>[2]</code></td><td>—</td><td>Z（恒 1）</td></tr>
+<tr><td><code>[3]</code></td><td><code>s_SumQuadOffset</code></td><td><strong>QuadCount</strong> —— 本轮有多少节点要处理</td></tr>
+</tbody></table>
+
+<p>ping-pong 由 <code>CurPassCalTime</code>（每轮 +1 的 pass uniform）切换读写槽（<span class="ref">VirtualHeightfieldMesh3.usf:277-281</span>）：</p>
+
+<pre>const uint InArgsOffset  = (CurPassCalTime / 2)       * s_DispatchArgsSize;   <span class="c">// 读</span>
+const uint OutArgsOffset = ((CurPassCalTime + 1) / 2) * s_DispatchArgsSize;   <span class="c">// 写</span>
+const uint QuadCount     = InDispatchArgsBuffer[InArgsOffset + s_SumQuadOffset];</pre>
+
+<h4>一次发多少线程</h4>
+
+<pre>[numthreads(COLL_THREAD_TOTAL, 1, 1)]   <span class="c">// COLL_THREAD_TOTAL = 32</span></pre>
+
+<p>一个 threadgroup = <strong>32 线程</strong>；组数 = <code>ceil(QuadCount / 32)</code>。总线程数通常比 <code>QuadCount</code> 略多（最后一组有尾巴）。</p>
+
+<h4>没抢到任务的线程在干什么</h4>
+
+<p>最后一组可能有 1~31 个线程超出 <code>QuadCount</code>，用 <code>IsValidThread</code> 标记（<span class="ref">VirtualHeightfieldMesh3.usf:282-284</span>）：</p>
+
+<pre>const bool IsValidThread = DispatchThreadID.x &lt; QuadCount;
+<span class="c">// if invalid, get 0 index in group thread</span>
+const uint LoadIdx = IsValidThread ? DispatchThreadID.x : DispatchThreadID.x - ThisThreadID;</pre>
+
+<p><code>DispatchThreadID.x - ThisThreadID</code> = 本组第 0 个全局线程号，也就是<strong>复用该组第 0 个线程的数据</strong>。</p>
+
+<p><strong>为什么不让它们提前 return</strong>：后面要做组内前缀和，所有线程必须参与 <code>GroupMemoryBarrierWithGroupSync()</code>。HLSL 里部分线程提前退出、其余还在 barrier 上等，是未定义行为。</p>
+
+<p>空闲线程的实际行为：</p>
+
+<table class="kv"><thead><tr>
+<th>阶段</th>
+<th>空闲线程做什么</th>
+</tr></thead><tbody>
+<tr><td>读 / 解包</td><td>读同一份 <code>InQuadBuffer[组内第0个]</code>，<code>GetQuadInfo</code>/<code>GetHeight</code>/<code>GetMinDistanceLod</code> 照常跑，结果丢弃</td></tr>
+<tr><td>投票</td><td><code>SubdivideQuadFlag[tid+1] = 0</code> / <code>FinalQuadFlag[tid+1] = 0</code>（<span class="ref">VirtualHeightfieldMesh3.usf:303-304</span> 对所有线程无条件清零），不影响前缀和计数</td></tr>
+<tr><td>写出</td><td><code>if (IsValidThread &amp;&amp; !bCull)</code> 门控（<span class="ref">VirtualHeightfieldMesh3.usf:434</span>），<strong>不写任何输出</strong></td></tr>
+</tbody></table>
+
+<p><strong>结论：空闲线程只是陪着走完 barrier 保证组同步正确，不贡献任何输出。</strong></p>
+
+<h4>CPU 侧那个 for 循环：为什么存在、跑几轮</h4>
+
+<p>GPU 上一次 dispatch 只能处理「当前队列里的节点」，细分产出的子节点要等下一轮。所以 CPU 用一个 <code>for</code> 驱动逐层推进（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2908-2918</span>）：</p>
+
+<pre>const int32 MaxCalTime = VolatileBuffers.VHMParameter-&gt;MaxLevel - 3 + 1; <span class="c">// pre cal 4</span>
+bool EnableCull = !CVarVHMDisableCull-&gt;GetInt() &amp;&amp; true /*defautl need cull*/;
+for (int32 CalTime = 0; CalTime &lt; MaxCalTime; CalTime++)
+{
+    RDG_EXTRA_EVENT_SCOPE(GraphBuilder, "VHM_SerialCollect");
+    bool WithFeedback = true;
+    VirtualHeightfieldMesh::V2::AddPass_CollectSubdivideQuads_CS(GraphBuilder, GlobalShaderMap, WorkBuffers,
+        VolatileBuffers, VTFeedbackBufUAV, CalTime, EnableCull, WithFeedback);
+}</pre>
+
+<p><strong><code>MaxLevel - 3 + 1</code> 的来历</strong>：注释 <code>pre cal 4</code> 指阶段② 已经预处理掉最粗的几层，遍历从 <code>MaxLevel-3</code> 起步，往下走到 Level 0 —— 共 <code>MaxLevel - 3 + 1</code> 层，一层一轮。<code>MaxLevel = 10</code> 就是 8 轮。</p>
+
+<p><strong><code>CalTime</code> 的用途</strong>：既做 ping-pong 槽切换（传成 shader 里的 <code>CurPassCalTime</code>），也做 IndirectArgs 的字节偏移（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2258</span>）。</p>
+
+<p><strong>这条路径从不存在空转组</strong> —— 组数由 IndirectArgs 精确给出，只有最后一组有 1~31 个尾巴线程。代价是 dispatch 次数等于层数，每次边界有启动开销与 GPU 空泡。</p>
 
 <h3>4.4 阶段④ <code>CullQuadsAndGenerateInstancesCS</code> —— 变成「可以直接画」的实例</h3>
 
@@ -2443,11 +2649,316 @@ InterlockedAdd(InstanceArgsBuffer[5 + s_IndirectDrawOffset], HoleQuadInstanceFla
 
 <h3>4.6 可选的 One-Pass 版本</h3>
 
-<p><code>r.VHM.WithOnePass = 1</code> 时（默认 0），阶段③ 换成 <code>CollectQuadsOnePassCS</code>：把「N 次串行 dispatch」换成「一次 dispatch + GPU 内部循环」—— 这和 V1 的做法是一样的（见 §8）。</p>
+<div class="callout"><p style='margin:0'><strong>先澄清命名</strong>：OnePass <strong>也是 V3 的一部分</strong> —— 同一份 <span class="ref">VirtualHeightfieldMesh3.usf</span> 里由 <code>VHM_ONE_PASS</code> 宏切换的另一个分支，不是 V3 之外的版本。前面 §4.3 讲的是「串行多轮」分支。</p></div>
 
-<p>它还有个尾部优化：剩余任务数 ≤ <code>r.VHM.NumActiveForOnePassStep</code>（默认 640）时主动请求退出，避免最后几个任务时大量线程空转（<span class="ref">VirtualHeightfieldMesh3.usf:755-762</span>）。</p>
+<p><code>r.VHM.WithOnePass = 1</code> 时（默认 0），阶段③ 换成 <code>CollectQuadsOnePassCS</code>：把「N 次串行 dispatch」换成「<strong>2 次 dispatch + GPU 内部 <code>while</code> 循环</strong>」。</p>
 
-<div class="callout"><p style='margin:0'>注意这个 permutation 限 <strong>SM6</strong>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1527</span>），移动端不会编译它。</p></div>
+<h4>核心区别：谁来驱动循环</h4>
+
+<table><thead><tr>
+<th></th>
+<th>串行多轮（默认）</th>
+<th>OnePass</th>
+</tr></thead><tbody>
+<tr><td>循环在哪</td><td><strong>CPU</strong> 的 <code>for (CalTime...)</code></td><td><strong>GPU</strong> shader 里的 <code>while (!bExit)</code></td></tr>
+<tr><td>dispatch 次数</td><td><code>MaxLevel - 3 + 1</code> 次（如 8 次）</td><td><strong>2 次</strong>（固定）</td></tr>
+<tr><td>每次线程数</td><td>IndirectDispatch，随层节点数变</td><td><strong>固定 16 组 × 32 = 512 线程</strong></td></tr>
+<tr><td>队列结构</td><td>ping-pong 双 buffer</td><td><strong>单个环形队列 + 原子游标</strong></td></tr>
+<tr><td>层间同步</td><td>dispatch 边界（隐式 barrier）</td><td><code>DeviceMemoryBarrier()</code> + 原子计数</td></tr>
+<tr><td>线程生命周期</td><td>一层做完就退出</td><td><strong>持久线程，抢任务直到队列干涸</strong></td></tr>
+</tbody></table>
+
+<h4>一次发多少线程：固定 512</h4>
+
+<pre><span class="c">// VirtualHeightfieldMeshSceneProxy.cpp:2298</span>
+FComputeShaderUtils::Dispatch(RHICmdList, ComputeShader, *Parameters,
+    FIntVector(CVarVHMCollectPassWavefronts.GetValueOnRenderThread(), 1, 1));</pre>
+
+<p><code>r.VHM.CollectPassWavefronts</code> 默认 <strong>16</strong>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:110-115</span>），配合 <code>[numthreads(32,1,1)]</code> ⇒ <strong>512 线程，跟树有多大完全无关</strong>。</p>
+
+<h4>GPU 自循环的四个机制</h4>
+
+<p><strong>机制 1：<code>WorkerQueueInfo</code> —— 共享游标</strong>（<span class="ref">VirtualHeightfieldMesh.ush:16-21</span>）</p>
+
+<pre>struct WorkerQueueInfo
+{
+    uint Read;      <span class="c">// 下一个待取任务的下标</span>
+    uint Write;     <span class="c">// 下一个可写入的位置</span>
+    int  NumActive; <span class="c">// 待处理任务数（带符号，可临时为负）</span>
+};</pre>
+
+<p>三个字段全靠原子访问，是 512 个线程之间唯一的通信渠道。</p>
+
+<p><strong>机制 2：抢任务 —— 乐观占坑 + 失败回滚</strong>（<span class="ref">VirtualHeightfieldMesh3.usf:667-685</span>）</p>
+
+<pre>InterlockedAdd(RWQueueInfo[0].NumActive, -1, NumActive);
+
+if (NumActive &lt;= 0 &amp;&amp; !bExit)
+{
+    <span class="c">// No task pulled. Rewind.</span>
+    InterlockedAdd(RWQueueInfo[0].NumActive, 1, NumActive);
+}
+else if (!bExit)
+{
+    uint Read;
+    InterlockedAdd(RWQueueInfo[0].Read, 1, Read);
+    const uint4 ThisPackedData = OutSubdivideQuadBuffer[Read &amp; VHMParam.OutBufferSizeMask];
+    ...
+}</pre>
+
+<p>原子返回的是<strong>加之前的旧值</strong>，所以先无条件减 1 占坑，旧值 ≤ 0 说明队列已空，马上加 1 还回去。<code>NumActive</code> 声明成 <code>int</code> 就是为了容纳这个瞬时负值。抢中的线程再递增 <code>Read</code> 拿槽位，<code>&amp; OutBufferSizeMask</code> 做环形回绕（容量 <code>r.VHM.MaxPersistentQueueItems</code> 默认 64K，向上取整到 2 的幂，<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2504</span>）。</p>
+
+<p><strong>机制 3：产出任务 —— 先占位再写，最后才宣告</strong>（<span class="ref">VirtualHeightfieldMesh3.usf:720-736</span>）</p>
+
+<pre>uint Write;
+InterlockedAdd(RWQueueInfo[0].Write, 4, Write);   <span class="c">// 一次占 4 个连续槽位</span>
+[unroll]
+for(int i = 0; i &lt; 4; ++i)
+{
+    ...
+    OutSubdivideQuadBuffer[(Write + i) &amp; VHMParam.OutBufferSizeMask] = ChildPackData;
+}
+InterlockedAdd(RWQueueInfo[0].NumActive, 4, NumActive);   <span class="c">// 最后才宣告「可取」</span></pre>
+
+<p><strong>顺序关键</strong>：先 <code>Write += 4</code> 拿独占区间 → 写数据 → 才 <code>NumActive += 4</code>。反过来的话，别的线程可能在数据还没落盘时就抢走槽位读到垃圾。</p>
+
+<p><strong>机制 4：退出判定 —— 双条件</strong>（<span class="ref">VirtualHeightfieldMesh3.usf:755-773</span>）</p>
+
+<pre><span class="k">#if</span> VHM_END_WITH_ONE_STEP
+    <span class="c">// Exit if no work was found.</span>
+    if (NumActive &gt; VHMParam.NumActiveForOnePassStep)
+    {
+        uint Dummy;
+        InterlockedAdd(NumGroupExitRequest, 1, Dummy);
+    }
+<span class="k">#endif</span>
+
+DeviceMemoryBarrier();
+if (NumGroupTasks == 0
+<span class="k">#if</span> VHM_END_WITH_ONE_STEP
+    || NumGroupExitRequest &gt; 0
+<span class="k">#endif</span>
+)
+{
+    bExit = true;
+}</pre>
+
+<table class="kv"><thead><tr>
+<th>退出条件</th>
+<th>触发时机</th>
+</tr></thead><tbody>
+<tr><td><code>NumGroupTasks == 0</code></td><td>本轮整组一个任务都没抢到 → 队列真空了</td></tr>
+<tr><td><code>NumGroupExitRequest &gt; 0</code></td><td>队列积压超过 <code>r.VHM.NumActiveForOnePassStep</code>（默认 <strong>640</strong>）→ <strong>主动让位</strong></td></tr>
+</tbody></table>
+
+<div class="callout warn"><div class="h">注意</div><p style='margin:0'><strong><span class="ref">VirtualHeightfieldMesh3.usf:756</span> 那条注释 <code>// Exit if no work was found.</code> 与代码逻辑相反</strong> —— 条件是 <code>NumActive &gt; 640</code>，即「活太多了」才退出，不是「没活」。读代码时别被它带偏。</p></div>
+
+<h4>⚠️ <code>DeviceMemoryBarrier()</code> 保护的不是 <code>NumGroupTasks</code></h4>
+
+<p>这是最容易读错的一处。HLSL 的 barrier 分两个维度：</p>
+
+<table><thead><tr>
+<th></th>
+<th>只保证内存完成</th>
+<th>内存 + 全组线程对齐</th>
+</tr></thead><tbody>
+<tr><td><strong>groupshared</strong></td><td><code>GroupMemoryBarrier()</code></td><td><code>GroupMemoryBarrierWithGroupSync()</code></td></tr>
+<tr><td><strong>device（UAV/buffer）</strong></td><td><code>DeviceMemoryBarrier()</code></td><td><code>DeviceMemoryBarrierWithGroupSync()</code></td></tr>
+<tr><td>两者都管</td><td><code>AllMemoryBarrier()</code></td><td><code>AllMemoryBarrierWithGroupSync()</code></td></tr>
+</tbody></table>
+
+<p>而 <code>NumGroupTasks</code> 是 <strong>groupshared</strong>（<span class="ref">VirtualHeightfieldMesh3.usf:640-643</span>）—— <code>DeviceMemoryBarrier()</code> <strong>两个维度都不覆盖</strong>。</p>
+
+<p>同一个循环里的写法是不对称的。<strong>顶部</strong>用的是正确的 group sync（<span class="ref">VirtualHeightfieldMesh3.usf:656-662</span>）：</p>
+
+<pre><span class="c">// Sync and init group task count.</span>
+NumGroupTasks = 0;
+<span class="k">#if</span> VHM_END_WITH_ONE_STEP
+    NumGroupExitRequest = 0;
+<span class="k">#endif</span>
+GroupMemoryBarrierWithGroupSync();      <span class="c">// ← groupshared + 全组对齐，标准做法</span></pre>
+
+<p><strong>底部</strong>却只有 <code>DeviceMemoryBarrier()</code>。这不是笔误，是<strong>刻意省掉的</strong> —— 持久线程每轮都走一遍，几十轮下来省的就是几十次真同步。</p>
+
+<p>那 <code>NumGroupTasks</code> 靠什么读对？靠 <strong>wave lockstep</strong>（见下）。<code>DeviceMemoryBarrier()</code> 真正在保护的是本轮所有 UAV 写入：</p>
+
+<table class="kv"><thead><tr>
+<th>位置</th>
+<th>操作</th>
+</tr></thead><tbody>
+<tr><td><span class="ref">VirtualHeightfieldMesh3.usf:733</span></td><td><code>OutSubdivideQuadBuffer[...] = ChildPackData</code> 写子节点</td></tr>
+<tr><td><span class="ref">VirtualHeightfieldMesh3.usf:736</span></td><td><code>InterlockedAdd(RWQueueInfo[0].NumActive, 4, ...)</code> 宣告可取</td></tr>
+<tr><td><span class="ref">VirtualHeightfieldMesh3.usf:741-744</span></td><td><code>FinalDispatchArgsBuffer</code> / <code>FinalQuadBuffer</code> 写叶子</td></tr>
+</tbody></table>
+
+<p>放在轮末的意义：下一轮开头就要抢任务（<span class="ref">VirtualHeightfieldMesh3.usf:667</span>），得确保本轮写进队列的数据真落地了。</p>
+
+<h4><code>WAVESIZE(32)</code> 是什么</h4>
+
+<pre><span class="c">// VirtualHeightfieldMesh3.usf:644-647</span>
+<span class="k">#if</span> COMPILER_SUPPORTS_WAVE_SIZE
+    WAVESIZE(32)
+<span class="k">#endif</span>
+[numthreads(COLL_THREAD_TOTAL, 1, 1)]</pre>
+
+<p>它不是提示，是<strong>对硬件下的硬性要求：这个 CS 的 wave（SIMD 执行单元）宽度必须恰好是 32 个 lane</strong>。三个平台各自落地：</p>
+
+<table><thead><tr>
+<th>平台</th>
+<th>实现</th>
+<th>出处</th>
+</tr></thead><tbody>
+<tr><td><strong>D3D12 / SM6</strong></td><td><code>#define WAVESIZE(N) [WaveSize(N)]</code> —— HLSL 原生属性，直接进 DXIL</td><td><span class="ref">D3DCommon.ush:15-18</span></td></tr>
+<tr><td><strong>Vulkan</strong></td><td>SPIR-V 无此属性，只能在 shader 留标记让编译器回读，最后转成管线创建时的 <code>VkPipelineShaderStageRequiredSubgroupSizeCreateInfo</code>；依赖 <code>VK_EXT_subgroup_size_control</code></td><td><span class="ref">VulkanCommon.ush:135-142</span>、<span class="ref">VulkanPipeline.cpp:1286</span>、<span class="ref">VulkanExtensions.cpp:1312-1330</span></td></tr>
+<tr><td><strong>其它</strong></td><td><code>#define COMPILER_SUPPORTS_WAVE_SIZE 0</code> —— <strong>宏整个消失</strong></td><td><span class="ref">Platform.ush:131-134</span></td></tr>
+</tbody></table>
+
+<p><strong>OnePass 为什么非要它</strong>：<code>[numthreads(32)]</code> + <code>WAVESIZE(32)</code> ⇒ <strong>group == 单个 wave</strong>。一个 wave 内所有 lane 天然 lockstep，<code>InterlockedAdd(NumGroupTasks, 1, Dummy)</code>（<span class="ref">VirtualHeightfieldMesh3.usf:679</span>）虽在分支里，但 wave 内分支靠 lane mask 实现，<strong>所有 lane 在同一指令槽通过那条原子指令</strong>。等任何 lane 走到 765 行，累加早已落定 —— 这时 group sync 是多余的。</p>
+
+<p><strong>所以这段代码的正确性不来自那个 barrier，来自 wave 宽度的硬约束。</strong></p>
+
+<h4>为什么串行多轮不需要考虑 wave size</h4>
+
+<table><thead><tr>
+<th></th>
+<th>串行多轮</th>
+<th>OnePass</th>
+</tr></thead><tbody>
+<tr><td>层间同步</td><td><strong>dispatch 边界</strong>（RDG 插的真 barrier，驱动保证）</td><td>shader 里的 <code>while</code> + 原子</td></tr>
+<tr><td>组内同步</td><td><code>GroupMemoryBarrierWithGroupSync()</code>（<span class="ref">VirtualHeightfieldMesh3.usf:305</span>、<span class="ref">VirtualHeightfieldMesh3.usf:347</span>、<span class="ref">VirtualHeightfieldMesh3.usf:364</span>）</td><td><strong>靠 wave lockstep</strong>，省掉了</td></tr>
+<tr><td>对 wave 宽度的假设</td><td><strong>无</strong></td><td>wave 必须 == 32</td></tr>
+</tbody></table>
+
+<p>串行分支的 groupshared 用得也不少（<code>SubdivideQuadFlag[33]</code> / <code>FinalQuadFlag[33]</code> 做前缀和，<span class="ref">VirtualHeightfieldMesh3.usf:355-357</span>），但每次访问前后都有显式 barrier。<strong><code>GroupMemoryBarrierWithGroupSync()</code> 是标准 HLSL，任何 wave 宽度下都由硬件/驱动保证正确</strong>，代价是一次真同步。</p>
+
+<p>两条路是两种交易：</p>
+
+<ul><li><strong>串行多轮</strong>：用 8 次 dispatch + 每轮显式 group sync，买「任何硬件都对」</li><li><strong>OnePass</strong>：用 <code>WAVESIZE(32)</code> 换掉每轮的 group sync，代价是只能跑在 wave 可控且能设成 32 的硬件上</li></ul>
+
+<h4>wave ≠ 32 时的真实竞态</h4>
+
+<p>先修正一个容易推测过头的结论。<strong>wave=16 / group=32 并不会让 <code>NumGroupTasks == 0</code> 判据出错</strong>：<code>NumGroupTasks</code> 是单调累加的，同一轮里后读的 wave 只会看到更大的值；而判据是 <code>== 0</code>，只有队列真空、全组都抢不到时才成立 —— 这种情况下每个 wave 读到的都是 0，不存在分歧。（已建模逐拍模拟验证：读值分歧确实出现，但没有一次导致错误退出或漏节点。）</p>
+
+<p><strong>真有问题的是 <code>NumGroupExitRequest &gt; 0</code> 这条</strong>，它的判据不是 <code>== 0</code>：</p>
+
+<table><thead><tr>
+<th>时序</th>
+<th>waveA</th>
+<th>waveB</th>
+</tr></thead><tbody>
+<tr><td>waveA 先跑</td><td>此刻 <code>NumActive</code> = 300，<strong>不投票</strong></td><td>—</td></tr>
+<tr><td>waveA 读 <span class="ref">VirtualHeightfieldMesh3.usf:765</span></td><td><code>NumGroupExitRequest = 0</code> → <strong>continue</strong></td><td>—</td></tr>
+<tr><td>waveB 后跑</td><td>—</td><td><code>NumActive</code> 已涨到 700，<strong>投票 +1</strong></td></tr>
+<tr><td>waveB 读 <span class="ref">VirtualHeightfieldMesh3.usf:765</span></td><td>—</td><td><code>NumGroupExitRequest = 1</code> → <strong>EXIT</strong></td></tr>
+</tbody></table>
+
+<p><strong>waveB 退出了，waveA 还在跑</strong> —— 同一个 group 里 16 个 lane 结束、16 个继续。后果有两层：</p>
+
+<ol><li><strong>Pass 1 的「广度预热」目标落空</strong>：设计意图是整组一起退出把队列留给 Pass 2，现在半组还在啃深度，可能把队列抽回 640 以下，Pass 2 启动时又回到低占用状态。</li><li><strong>下一轮的 group sync 前提被破坏</strong>（硬伤）：轮顶 <code>NumGroupTasks = 0</code> 后跟着 <code>GroupMemoryBarrierWithGroupSync()</code>（<span class="ref">VirtualHeightfieldMesh3.usf:662</span>），该 barrier 要求<strong>全组 32 线程都到达</strong>。waveB 已退出循环，剩下的 waveA 在 group sync 上等一个永远不来的 wave。HLSL 规范对「部分线程已退出后的 group sync」是未定义行为，实际表现依驱动而定。</li></ol>
+
+<p>所以 <code>WAVESIZE(32)</code> 保护的不是队列完整性，是 <strong><code>bExit</code> 的组内一致性</strong> —— 让 <code>bExit</code> 成为 wave 级的统一决策，从而保证轮顶那个 group sync 永远全组一起到达。</p>
+
+<p><strong>Pass 2 反而不依赖它</strong>（<code>bEndWithOneStep = false</code> 把那段编译掉，只剩 <code>== 0</code> 判据，安全）。这也解释了为什么两个 Pass 要用 permutation 区分，而不是共用一份代码。</p>
+
+<h4>为什么要拆成两个 Pass</h4>
+
+<pre><span class="c">// VirtualHeightfieldMeshSceneProxy.cpp:2924-2934</span>
+{
+    RDG_EXTRA_EVENT_SCOPE(GraphBuilder, "VHM_OnePassFirstPass");
+    AddPass_CollectQuads_CS(..., EnableCull, /*bEndWithOneStep=*/true, WithFeedback);
+}
+{
+    RDG_EXTRA_EVENT_SCOPE(GraphBuilder, "VHM_OnePassSecondPass");
+    AddPass_CollectQuads_CS(..., EnableCull, /*bEndWithOneStep=*/false, WithFeedback);
+}</pre>
+
+<p>差别只在 <code>bEndWithOneStep</code>，它编译进 <code>FWithEndWithOneStepDim</code> permutation（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:2288</span>），也就是上面那个 <code>VHM_END_WITH_ONE_STEP</code> 宏。</p>
+
+<p><strong>关键前提：退出是 group 级别且不可逆。</strong> <code>NumGroupTasks</code> 是 groupshared，组内线程读到同一个值 ⇒ 要么整组继续、要么整组退出。一旦 <code>bExit = true</code>，<code>while</code> 终止、线程结束，<strong>这个 group 在同一次 dispatch 内再也叫不回来</strong>，哪怕队列后面涨到上万个任务。</p>
+
+<p><strong>单 Pass 会怎样</strong>：开局 <code>NumActive = 64</code>（阶段② 只播了 64 个种），512 个线程同时抢，恰好 64 个拿到正数算抢中。而 GPU 的原子请求按 wave 批量发，赢家会<strong>按 wave 聚集</strong> —— 64 个赢家大概率就是 2 个 group 吃满，其余 14 个 group 全员空手、当场退出：</p>
+
+<table><thead><tr>
+<th>迭代</th>
+<th>队列任务数</th>
+<th>存活 group</th>
+<th>有效线程</th>
+</tr></thead><tbody>
+<tr><td>1</td><td>64</td><td>16 → <strong>2</strong>（14 组退出）</td><td>512 → 64</td></tr>
+<tr><td>2</td><td>~256</td><td>2</td><td>64</td></tr>
+<tr><td>3</td><td>~1024</td><td>2</td><td>64</td></tr>
+<tr><td>… 深层</td><td>上万</td><td><strong>仍然只有 2</strong></td><td><strong>64</strong></td></tr>
+</tbody></table>
+
+<p><strong>整个深层遍历只剩 12.5% 的并行宽度，而且回不去了。</strong> 这才是单 Pass 的致命处 —— 不是浅层慢，是浅层把后面全拖死。</p>
+
+<p><strong>两个 Pass 怎么修</strong>：</p>
+
+<ul><li><strong>Pass 1</strong> 不在乎有多少 group 提前退出，任务只有一个：把队列养到 640 以上就主动让位。浅层节点本来就少，剩 2 个 group 也能干完。</li><li><strong>Pass 2 是全新 dispatch，16 个 group 全部重新拉起</strong>。此时队列有 640+ 个任务，而 <strong>640 &gt; 512</strong>（16×32）—— 这个阈值是故意设在线程总数之上的：第一轮每个线程都能抢中，每组 <code>NumGroupTasks &gt; 0</code>，<strong>没有任何 group 提前退出</strong>，512 线程满宽度进入深层。余量 128 是 25% 的安全垫。</li></ul>
+
+<div class="callout"><p style='margin:0'><strong>注意</strong>：拆 Pass <strong>并没有消除浅层的原子争用</strong> —— Pass 1 照样要走完那几轮低占用阶段。真正的收益在于<strong>成本不对称</strong>：</p></div>
+
+<table><thead><tr>
+<th>阶段</th>
+<th>节点量级</th>
+<th>占全部工作</th>
+<th>低效的代价</th>
+</tr></thead><tbody>
+<tr><td>浅层（<code>MaxLevel-3</code> ~ <code>-5</code>）</td><td>64 + 256 ≈ 几百</td><td>~1%</td><td><strong>可以忍</strong></td></tr>
+<tr><td>深层</td><td>上万</td><td>~99%</td><td><strong>绝不能降宽度</strong></td></tr>
+</tbody></table>
+
+<p><strong>设计目标从来不是「消除低效阶段」，而是「别让低效阶段把并行宽度永久锁死」。</strong> dispatch 边界是唯一能重新拉起已退出 group 的手段。</p>
+
+<h4>阶段② 在 OnePass 下的额外工作</h4>
+
+<p><code>FillLevel4QuadCS</code> 也有对应分支（<span class="ref">VirtualHeightfieldMesh3.usf:624-631</span>）：</p>
+
+<pre><span class="k">#if</span> VHM_ONE_PASS
+    uint Read;
+    InterlockedAdd(RWQueueInfo[0].NumActive, 1, Read);
+    InterlockedAdd(RWQueueInfo[0].Write, 1, Read);
+    OutSubdivideQuadBuffer[ThisThreadID] = ThisPackData;
+<span class="k">#else</span>
+    OutSubdivideQuadBuffer[ThisThreadID] = ThisPackData;
+<span class="k">#endif</span></pre>
+
+<p>OnePass 要额外初始化队列游标（64 个节点 ⇒ <code>NumActive = 64</code>、<code>Write = 64</code>）；串行模式靠 dispatch args 传节点数，不需要队列。</p>
+
+<h4>为什么默认关掉</h4>
+
+<p>permutation 限 <strong>SM6</strong>（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:1525-1527</span>）：</p>
+
+<pre>static bool ShouldCompilePermutation(FGlobalShaderPermutationParameters const&amp; Parameters)
+{
+    return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM6);
+}</pre>
+
+<p>移动端根本不会编译它。CPU 侧那句被注释掉的判定也是同一件事的痕迹（<span class="ref">VirtualHeightfieldMeshSceneProxy.cpp:162-165</span>）：</p>
+
+<pre>static bool GetVHMWithOnePass()
+{
+    return GVHMWithOnePass ;/*&amp;&amp; GMaxRHIFeatureLevel &gt;= ERHIFeatureLevel::SM5;*/
+}</pre>
+
+<p>移动端的硬件现实（<span class="ref">Engine/Config/Android/DataDrivenPlatformInfo.ini:135-137</span> vs <span class="ref">Engine/Config/Windows/DataDrivenPlatformInfo.ini:103-105</span>）：</p>
+
+<pre><span class="c">; Android</span>
+bSupportsWaveOperations=RuntimeDependent     ; ← 编译期不能假设
+MinimumWaveSize=4
+MaximumWaveSize=128
+
+<span class="c">; Windows</span>
+bSupportsWaveOperations=RuntimeGuaranteed    ; ← 编译期就能当真</pre>
+
+<p>Vulkan 侧真实值要等扩展初始化才知道（<span class="ref">VulkanExtensions.cpp:1349-1350</span>）：</p>
+
+<pre>GRHIMinimumWaveSize = SubgroupSizeControlProperties.minSubgroupSize;
+GRHIMaximumWaveSize = SubgroupSizeControlProperties.maxSubgroupSize;</pre>
+
+<p><code>WAVESIZE(32)</code> 要生效需同时满足：① 设备支持 <code>VK_EXT_subgroup_size_control</code>；② 32 落在 <code>[minSubgroupSize, maxSubgroupSize]</code> 内。Adreno 原生 wave 是 64 或 128，Mali 是 4/8/16 —— 就算扩展在，能不能锁到 32 也是<strong>逐设备的事</strong>。</p>
+
+<p>加上持久线程 + 全局原子自旋在移动 GPU 上开销大、<code>DeviceMemoryBarrier()</code> 在 tile-based 架构上代价更高，本项目是移动端，默认走串行多轮是合理的。</p>
 
 <h2 id="s5"><span class="num">五</span>串起来看：一个 quad 的一生</h2>
 
