@@ -4,7 +4,7 @@
 >
 > - **互链约定**：全部相对路径，文件不移动，与 git 自动备份兼容。
 > - **本页由 `generate_index.py` 自动生成**，新增文档后重跑脚本即可刷新。
-> - 文档总数：**85** · 更新：2026-07-06
+> - 文档总数：**171** · 更新：2026-09-28
 
 ---
 
@@ -12,14 +12,14 @@
 
 | # | 类目 | 文档数 | 说明 |
 |---|------|:---:|------|
-| 01 | [01 · TBDR 与片上优化方法论](#01-TBDR-与片上优化方法论) | 27 | TBDR 原理、片上缓存、Subpass/Imageblock、HZB、Forward/Deferred 选型——方法论纵贯线 |
-| 02 | [02 · 头部手游案例库](#02-头部手游案例库) | 15 | 单款手游移动端渲染拆解（html）。方法论的具体落地参照 |
-| 03 | [03 · 专题横向汇总](#03-专题横向汇总) | 7 | 跨游戏横向对比：半透明 / 遮挡剔除 / DrawCall / FPS 全景 |
-| 04 | [04 · 引擎源码级分析](#04-引擎源码级分析) | 17 | PVS、视锥剔除、WorldPartition、TaskGraph、线程池、RDG 等源码深挖 |
+| 01 | [01 · TBDR 与片上优化方法论](#01-TBDR-与片上优化方法论) | 30 | TBDR 原理、片上缓存、Subpass/Imageblock、HZB、Forward/Deferred 选型——方法论纵贯线 |
+| 02 | [02 · 头部手游案例库](#02-头部手游案例库) | 16 | 单款手游移动端渲染拆解（html）。方法论的具体落地参照 |
+| 03 | [03 · 专题横向汇总](#03-专题横向汇总) | 11 | 跨游戏横向对比：半透明 / 遮挡剔除 / DrawCall / FPS 全景 |
+| 04 | [04 · 引擎源码级分析](#04-引擎源码级分析) | 18 | PVS、视锥剔除、WorldPartition、TaskGraph、线程池、RDG 等源码深挖 |
 | 05 | [05 · 崩溃与稳定性](#05-崩溃与稳定性) | 4 | 崩溃定位与修复：VT / SkeletalMesh / UseAfterFree、帧率掉档排查 |
-| 06 | [06 · Profiling 工具与教程](#06-Profiling-工具与教程) | 8 | 高通 SDP / Adreno / Snapdragon Profiler、UE Insights、CPU Trace 工具链 |
+| 06 | [06 · Profiling 工具与教程](#06-Profiling-工具与教程) | 11 | 高通 SDP / Adreno / Snapdragon Profiler、UE Insights、CPU Trace 工具链 |
 | 07 | [07 · 项目专项分析](#07-项目专项分析) | 2 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
-| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 5 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
+| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 79 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
 
 ---
 
@@ -29,6 +29,9 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [UE5 Mobile TonemapSubpass — SceneColor Memoryless 带宽优化复盘](./UE5-Mobile-TonemapSubpass-SceneColor-memoryless-带宽优化复盘.md) | MD | 08-28 |
+| [UE-Mobile-TonemapSubpass-真机viewport变小-ScreenPercentage不匹配根因与规避方案](./UE-Mobile-TonemapSubpass-真机viewport变小-ScreenPercentage不匹配根因与规避方案.md) | MD | 08-27 |
+| [UE Mobile：HZB / Occlusion 控制 CVar 全开关参考](./UE-Mobile-HZB-Occlusion-CVar全开关参考.md) | MD | 08-25 |
 | [《燕云十六声》手游"片上 GBuffer"渲染技术总结报告](./燕云十六声_片上GBuffer_技术总结.md) | MD | 07-06 |
 | [Vulkan Subpass × TBDR 带宽优化 · 系统学习指南](./Vulkan_Subpass_TBDR_带宽优化_学习指南.md) | MD | 06-29 |
 | [UE5 HZB（Hierarchical Z-Buffer）实现原理与移动端分析](./UE5_HZB_实现原理与移动端分析_技术文档.md) | MD | 06-29 |
@@ -63,21 +66,22 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
-| [《洛克王国：世界》移动端管线设计与优化 — 渲染 Pass / One Pass 技术报告](./洛克王国_pipeline_report.md) | MD | 07-06 |
-| [鸣潮 移动端渲染技术要点总结](./鸣潮移动端技术要点总结.md) | MD | 07-05 |
-| [蛋仔派对 移动端渲染技术要点总结](./蛋仔派对移动端技术要点总结.md) | MD | 07-05 |
-| [绝区零 移动端渲染技术要点总结](./绝区零移动端技术要点总结.md) | MD | 07-05 |
-| [第五人格 移动端渲染技术要点总结](./第五人格移动端技术要点总结.md) | MD | 07-05 |
-| [王者荣耀 移动端渲染技术要点总结](./王者荣耀移动端技术要点总结.md) | MD | 07-05 |
-| [燕云十六声 移动端渲染技术要点总结](./燕云十六声移动端技术要点总结.md) | MD | 07-05 |
-| [永劫无间 手游 移动端渲染技术要点总结](./永劫无间手游移动端技术要点总结.md) | MD | 07-05 |
-| [暗区突围 移动端渲染技术要点总结](./暗区突围移动端技术要点总结.md) | MD | 07-05 |
-| [崩坏 星穹铁道 移动端渲染技术要点总结](./崩坏星穹铁道移动端技术要点总结.md) | MD | 07-05 |
-| [和平精英 移动端渲染技术要点总结](./和平精英移动端技术要点总结.md) | MD | 07-05 |
-| [原神 移动端渲染技术要点总结](./原神移动端技术要点总结.md) | MD | 07-05 |
-| [光遇 移动端渲染技术要点总结](./光遇移动端技术要点总结.md) | MD | 07-05 |
-| [使命召唤手游 移动端渲染技术要点总结](./使命召唤手游移动端技术要点总结.md) | MD | 07-05 |
-| [三角洲手游 移动端技术要点总结](./三角洲移动端技术要点总结.md) | MD | 07-05 |
+| [三角洲行动-地形实现方案-CDLOD+RuntimeVirtualTexture-移动端截帧反汇编分析](./三角洲行动-地形实现方案-CDLOD+RuntimeVirtualTexture-移动端截帧反汇编分析.md) | MD | 09-12 |
+| [鸣潮 移动端渲染技术要点总结](./鸣潮移动端技术要点总结.md) | MD | 08-19 |
+| [绝区零 移动端渲染技术要点总结](./绝区零移动端技术要点总结.md) | MD | 07-18 |
+| [蛋仔派对 移动端渲染技术要点总结](./蛋仔派对移动端技术要点总结.md) | MD | 07-18 |
+| [第五人格 移动端渲染技术要点总结](./第五人格移动端技术要点总结.md) | MD | 07-18 |
+| [王者荣耀 移动端渲染技术要点总结](./王者荣耀移动端技术要点总结.md) | MD | 07-18 |
+| [燕云十六声 移动端渲染技术要点总结](./燕云十六声移动端技术要点总结.md) | MD | 07-18 |
+| [永劫无间 手游 移动端渲染技术要点总结](./永劫无间手游移动端技术要点总结.md) | MD | 07-18 |
+| [《洛克王国：世界》移动端管线设计与优化 — 渲染 Pass / One Pass 技术报告](./洛克王国_pipeline_report.md) | MD | 07-18 |
+| [暗区突围 移动端渲染技术要点总结](./暗区突围移动端技术要点总结.md) | MD | 07-18 |
+| [崩坏 星穹铁道 移动端渲染技术要点总结](./崩坏星穹铁道移动端技术要点总结.md) | MD | 07-18 |
+| [和平精英 移动端渲染技术要点总结](./和平精英移动端技术要点总结.md) | MD | 07-18 |
+| [原神 移动端渲染技术要点总结](./原神移动端技术要点总结.md) | MD | 07-18 |
+| [光遇 移动端渲染技术要点总结](./光遇移动端技术要点总结.md) | MD | 07-18 |
+| [使命召唤手游 移动端渲染技术要点总结](./使命召唤手游移动端技术要点总结.md) | MD | 07-18 |
+| [三角洲手游 移动端技术要点总结](./三角洲移动端技术要点总结.md) | MD | 07-18 |
 
 ## 03 · 专题横向汇总
 
@@ -85,13 +89,17 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
-| [头部手游降低 Draw Call 方案汇总](./头部手游降低DrawCall方案汇总.md) | MD | 07-05 |
-| [头部手游移动端遮挡剔除方案汇总](./头部手游移动端遮挡剔除方案汇总.md) | MD | 07-05 |
-| [头部手游 · 画质分级方案汇总](./头部手游画质分级方案汇总.md) | MD | 07-05 |
-| [头部手游半透明渲染方案汇总 · 手机版](./头部手游半透明渲染方案汇总_手机版.md) | MD | 07-05 |
-| [头部手游半透明渲染方案汇总](./头部手游半透明渲染方案汇总.md) | MD | 07-05 |
-| [头部手游 PSO 方案汇总](./头部手游PSO方案汇总.md) | MD | 07-05 |
-| [FPS 手游移动端渲染技术全景对比](./FPS手游技术全景对比.md) | MD | 07-05 |
+| [UE手游物理方案-PhysX到Chaos内核替换-移动端五层分解与UE4UE5差异](./UE手游物理方案-PhysX到Chaos内核替换-移动端五层分解与UE4UE5差异.html) | HTML | 09-28 |
+| [头部 UE 手游特效方案汇总 · 移动端 VFX 技术路线速查](./头部手游特效方案汇总-UE篇.md) | MD | 08-20 |
+| [头部手游特效方案汇总-UE篇](./头部手游特效方案汇总-UE篇.html) | HTML | 08-20 |
+| [二次元手游 · AA 抗锯齿方案横向专题](./头部手游AA抗锯齿方案汇总.md) | MD | 08-20 |
+| [头部手游降低 Draw Call 方案汇总](./头部手游降低DrawCall方案汇总.md) | MD | 07-18 |
+| [头部手游移动端遮挡剔除方案汇总](./头部手游移动端遮挡剔除方案汇总.md) | MD | 07-18 |
+| [头部手游 · 画质分级方案汇总](./头部手游画质分级方案汇总.md) | MD | 07-18 |
+| [头部手游半透明渲染方案汇总 · 手机版](./头部手游半透明渲染方案汇总_手机版.md) | MD | 07-18 |
+| [头部手游半透明渲染方案汇总](./头部手游半透明渲染方案汇总.md) | MD | 07-18 |
+| [头部手游 PSO 方案汇总](./头部手游PSO方案汇总.md) | MD | 07-18 |
+| [FPS 手游移动端渲染技术全景对比](./FPS手游技术全景对比.md) | MD | 07-18 |
 
 ## 04 · 引擎源码级分析
 
@@ -99,6 +107,7 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [UE5-Editor-PreviewPlatform脚本化切换-UnrealEd绑定与WorldPartition崩溃修复](./UnrealMCP扩展/UE5-Editor-PreviewPlatform脚本化切换-UnrealEd绑定与WorldPartition崩溃修复.md) | MD | 07-27 |
 | [WorldPartitionPVS实现](./WorldPartitionPVS实现.md) | MD | 06-12 |
 | [移动端 PVS 不生效原因分析](./PVS-Mobile-NotWorking-Analysis.md) | MD | 06-12 |
 | [ComputeRelevance CPU 优化报告](./ComputeRelevance优化报告.md) | MD | 05-25 |
@@ -134,11 +143,14 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
-| [高通 SDP 性能热点定位完整资料库](./高通SDP性能热点定位-完整资料库.md) | MD | 07-05 |
-| [高通 SDP 工具使用教程 - 移动端 GPU 瓶颈定位指南](./高通SDP工具使用教程-GPU瓶颈定位.md) | MD | 07-05 |
-| [高通 Adreno GPU 最佳实践系列 · 完整阅读报告](./高通AdrenoGPU最佳实践系列-阅读报告.md) | MD | 07-05 |
-| [Snapdragon Profiler 命令行模式操作文档 (qprof CLI)](./Snapdragon-Profiler-命令行模式操作文档.md) | MD | 07-05 |
-| [Snapdragon Profiler 性能指标详解](./SDP-Counters-性能指标详解.md) | MD | 07-05 |
+| [Snapdragon-Profiler-功耗分析指导手册](./Snapdragon-Profiler-功耗分析指导手册.md) | MD | 08-12 |
+| [UE-Insights-Queue-Present耗时定位-GPU瓶颈判断](./UE-Insights-Queue-Present耗时定位-GPU瓶颈判断.md) | MD | 08-12 |
+| [Snapdragon-Profiler-启动崩溃-msvcp140-Runtime版本不兼容排查修复指南](./Snapdragon-Profiler-启动崩溃-msvcp140-Runtime版本不兼容排查修复指南.md) | MD | 08-11 |
+| [高通 SDP 性能热点定位完整资料库](./高通SDP性能热点定位-完整资料库.md) | MD | 07-18 |
+| [高通 Adreno GPU 最佳实践系列 · 完整阅读报告](./高通AdrenoGPU最佳实践系列-阅读报告.md) | MD | 07-18 |
+| [高通 SDP 工具使用教程 - 移动端 GPU 瓶颈定位指南](./高通SDP工具使用教程-GPU瓶颈定位.md) | MD | 07-18 |
+| [Snapdragon Profiler 命令行模式操作文档 (qprof CLI)](./Snapdragon-Profiler-命令行模式操作文档.md) | MD | 07-18 |
+| [Snapdragon Profiler 性能指标详解](./SDP-Counters-性能指标详解.md) | MD | 07-18 |
 | [第三方插件非注册线程 CPU 耗时 Trace 链路改造技术文档](./ThirdPartyPluginThread_CPU_Trace_TechDoc.md) | MD | 04-27 |
 | [Insights CPU Usage Track 技术文档](./CpuUsageTrack_TechDoc.md) | MD | 04-22 |
 | [Insights_CpuUsage_UserManual_CN](./Insights_CpuUsage_UserManual_CN.docx) | DOCX | 04-17 |
@@ -149,8 +161,8 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
-| [移动端 AO（环境光遮蔽）实践方案技术报告](./移动端AO实践方案技术报告.md) | MD | 07-05 |
-| [VirtualHeightfieldMesh 插件分析报告](./VHM_Analysis_Report.md) | MD | 07-05 |
+| [移动端 AO（环境光遮蔽）实践方案技术报告](./移动端AO实践方案技术报告.md) | MD | 07-18 |
+| [VirtualHeightfieldMesh 插件分析报告](./VHM_Analysis_Report.md) | MD | 07-18 |
 
 ## 99 · 其它与原始资料
 
@@ -158,9 +170,83 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
-| [AiDoc 知识库框架与维护方案](./知识库框架与维护方案.md) | MD | 07-06 |
-| [8Gen2 vs 8Gen3 寄存器配置对照文档](./8Gen2-8Gen3-寄存器配置对照文档.md) | MD | 07-06 |
-| [AOC 性能分析教程](./AOC性能分析教程.md) | MD | 07-05 |
+| [2026-09-28](./.workbuddy/memory/2026-09-28.md) | MD | 09-28 |
+| [UE5-VHM虚拟高度场-实现剖析-易读版](./UE5-VHM虚拟高度场-实现剖析-易读版.html) | HTML | 09-26 |
+| [VHM 虚拟高度场（Virtual Heightfield Mesh）实现剖析](./UE5-VHM虚拟高度场-实现剖析-易读版.md) | MD | 09-26 |
+| [UE5-VHM虚拟高度场-四叉树GPU-Driven地形-实现原理与优化学习文档](./UE5-VHM虚拟高度场-四叉树GPU-Driven地形-实现原理与优化学习文档.html) | HTML | 09-25 |
+| [UE5 VHM 虚拟高度场（Virtual Heightfield Mesh）实现原理与优化学习文档](./UE5-VHM虚拟高度场-四叉树GPU-Driven地形-实现原理与优化学习文档.md) | MD | 09-25 |
+| [UnrealMobileDeviceViewer CVar 提示漏抓 — FAutoConsoleCommand 限定名正则缺陷](./UnrealMobileDeviceViewer-CVar提示漏抓-FAutoConsoleCommand限定名正则缺陷.md) | MD | 09-24 |
+| [GPUScene-实现原理-PC与Mobile差异-合批与InstanceCulling](./GPUScene-实现原理-PC与Mobile差异-合批与InstanceCulling.html) | HTML | 09-23 |
+| [UE-Mobile-MeshDrawCommandStats-面数统计口径-与MaxDC截断同口径修复](./UE-Mobile-MeshDrawCommandStats-面数统计口径-与MaxDC截断同口径修复.md) | MD | 09-22 |
+| [UE-Android-非cook迭代-快速装机与批量CVar下发工作流](./UE-Android-非cook迭代-快速装机与批量CVar下发工作流.md) | MD | 09-22 |
+| [UE Mobile SlateUIMaxDC：Slate UI 的 Draw Call 限流实现与渲染链路](./UE-Mobile-SlateUIMaxDC-SlateUI-DC限流-渲染链路与编辑器副作用.md) | MD | 09-21 |
+| [UE-S1Game-Android-cook-卡死与62%崩溃-根因定位与修复](./UE-S1Game-Android-cook-卡死与62%崩溃-根因定位与修复.md) | MD | 09-20 |
+| [UE-Android-Vulkan-VAT材质-asuint编译失败-修复与验证](./UE-Android-Vulkan-VAT材质-asuint编译失败-修复与验证.md) | MD | 09-19 |
+| [UE5 Android Vulkan — VAT 材质 asuint 编译失败：min16float 无重载根因与修复](./UE5-Android-Vulkan-VAT材质asuint编译失败-min16float无重载根因与修复.md) | MD | 09-17 |
+| [UE-Android-RHIThread慢49%-VulkanValidationLayer自动加载去除指南](./UE-Android-RHIThread慢49%-VulkanValidationLayer自动加载去除指南.md) | MD | 09-15 |
+| [RUSH 性能指标与资产规范测算工具 — 能力分析](./RUSH性能测算平台_能力分析.md) | MD | 09-15 |
+| [Perfetto 使用手册 —— 面向 UE 手游 / 移动端 GPU 性能分析](./Perfetto使用手册-面向UE手游性能分析.md) | MD | 09-14 |
+| [UnrealMCP 连不上（mcp_connected: false）排查：插件未启用 + 端口三方不一致 + UCLASS(config=Editor) 决定配置文件位置](./UnrealMCP-连不上-mcp_connected-false-插件启用与端口配置排查.md) | MD | 09-13 |
+| [UE Mobile BasePass Draw Call 上限（r.Mobile.BasePassMaxDC）实现与 stat 统计口径](./UE-Mobile-BasePass-DC上限-CVar截断实现与stat-drawcount口径差异.md) | MD | 09-13 |
+| [UE Mobile PreZ Pass 作用与「只画 Mask 材质」原理](./UE-Mobile-PreZ-Pass-作用与只画Mask材质原理.md) | MD | 09-12 |
+| [dfm_pos4_basepass_ps_aoc_report](./dfm_pos4_basepass_ps_aoc_report.html) | HTML | 09-11 |
+| [《S1 Mobile性能标准》校准对照报告](./S1Mobile性能标准_校准对照报告.md) | MD | 09-10 |
+| [UE 命令行 CVar 通道分流：-dpcvars vs -ExecCmds（ReadOnly/Cheat × 优先级）](./UE-CVar配置-命令行通道分流-dpcvars-vs-ExecCmds.md) | MD | 09-08 |
+| [UE-Android-Vulkan启动后确定性闪黑-DynamicUBO与InputAttachment同DescriptorSet修复](./UE-Android-Vulkan启动后确定性闪黑-DynamicUBO与InputAttachment同DescriptorSet修复.md) | MD | 09-07 |
+| [UE-Android-845黑屏-GPUScene-SSBO-stride修复](./UE-Android-845黑屏-GPUScene-SSBO-stride修复.md) | MD | 09-01 |
+| [UE Android 打包无日志：相对 -project + 进程 CWD=/ 导致日志路径解析失败](./UE-Android-无日志-ABSLOG-CWD相对路径.md) | MD | 09-01 |
+| [UE Android 启动崩溃：Vulkan Chunked PSO Cache × validation layer 组合必崩](./UE-Android-Vulkan启动崩溃-ChunkedPSOCache-validationlayer.md) | MD | 09-01 |
+| [移动端资产规范 v0.8（草案）](./移动端资产规范_v0.8_草案.md) | MD | 08-30 |
+| [移动端资产规范 v0.8 —— 全数值核对报告（对齐三角洲）](./移动端资产规范_全数值核对报告.md) | MD | 08-30 |
+| [AiDoc 知识库框架与维护方案](./知识库框架与维护方案.md) | MD | 08-28 |
+| [移动端资产规范 v0.8 —— 面数数值评估与修改建议](./移动端资产规范_面数评估与修改建议.md) | MD | 08-27 |
+| [UE-Mobile-Toon描边-DX12预览PSO崩溃-MultiPass独立pass与Vulkan门控修复](./UE-Mobile-Toon描边-DX12预览PSO崩溃-MultiPass独立pass与Vulkan门控修复.md) | MD | 08-26 |
+| [CL 1088788：Forward BasePass 整理 + PreExposure 模型重构 + r.LuxGI=0 语义变更](./CL1088788-Forward-BasePass整理-PreExposure重构-rLuxGI语义变更.md) | MD | 08-26 |
+| [UE Mobile SinglePass storeOp 分析：SceneColor/Depth 与洛克王国 One Pass 对齐（恢复 Depth Memoryless）](./UE-Mobile-SinglePass-storeOp-DepthMemoryless-洛克OnePass对齐.md) | MD | 08-26 |
+| [2X2资产达标率分析报告](./2X2资产达标率分析报告.html) | HTML | 08-26 |
+| [S1 描边实现分析](./S1描边实现分析.md) | MD | 08-23 |
+| [MobileShadingRenderer：RenderForwardMultiPass 与 RenderForwardSinglePass 原理分析](./MobileShadingRenderer_RenderForward_SingleMultiPass.md) | MD | 08-21 |
+| [MobileRenderer-Forward-SingleMultiPass-实现原理与ZXB对齐修复总结](./MobileRenderer-Forward-SingleMultiPass-实现原理与ZXB对齐修复总结.md) | MD | 08-21 |
+| [UE-Niagara-Mobile适配-CVar降级清单与不显示排查](./UE-Niagara-Mobile适配-CVar降级清单与不显示排查.md) | MD | 08-20 |
+| [MSAA 下角色描边锯齿根因分析](./Mobile-MSAA-角色描边锯齿根因分析.md) | MD | 08-19 |
+| [UE-Mobile-Toon描边-PreOutline深度偏移污染-MSAA角色涂黑与BasePass剔除修复](./UE-Mobile-Toon描边-PreOutline深度偏移污染-MSAA角色涂黑与BasePass剔除修复.md) | MD | 08-18 |
+| [ZXBUnrealDebug 使用文档](./ZXBUnrealDebug_使用文档.md) | MD | 08-17 |
+| [UE-Mobile-MSAA-实现原理-Resolve机制与深度采样链路](./UE-Mobile-MSAA-实现原理-Resolve机制与深度采样链路.md) | MD | 08-15 |
+| [S1Game-AssignSceneProxy并发崩溃-异步关卡流送排查记录.md](./S1Game-AssignSceneProxy并发崩溃-异步关卡流送排查记录.md) | MD | 08-11 |
+| [TClaude会话监控-飞书通知交互-本地工具构建指南](./TClaude会话监控-飞书通知交互-本地工具构建指南.md) | MD | 08-11 |
+| [PC-Deferred-BasePass-ShaderPrint-诊断buffer探针与十字准星-完整实现.md](./PC-Deferred-BasePass-ShaderPrint-诊断buffer探针与十字准星-完整实现.md) | MD | 08-09 |
+| [UE5EA-编辑器弹窗无日志-MessageBoxExt统一拦截AI追踪](./UE5EA-编辑器弹窗无日志-MessageBoxExt统一拦截AI追踪.md) | MD | 08-08 |
+| [Forward 对齐 Deferred 角色渲染 — 全部修改总览](./Forward-对齐Deferred-角色渲染-全部修改总览.md) | MD | 08-07 |
+| [Forward LuxGI 对齐 Deferred — 两因素修复（F/D 比值 2.53× → 1.00×）](./Forward-LuxGI-对齐Deferred-两因素修复.md) | MD | 08-07 |
+| [UE-Mobile-Forward-Toon角色对齐Deferred-GBuffer量化-Emissive口径-LuxGI压暗顺序-五项修复](./UE-Mobile-Forward-Toon角色对齐Deferred-GBuffer量化-Emissive口径-LuxGI压暗顺序-五项修复.md) | MD | 08-02 |
+| [UE5EA 流送收集触发 FlushAsyncLoading 卡顿 —— 材质 soft 贴图同步加载根因与修复](./UE5EA-流送收集触发FlushAsyncLoading卡顿-材质soft贴图TryLoadSynchronous根因与修复.md) | MD | 07-30 |
+| [UE5 LightAccumulator_AddSplit 函数作用](./UE5-LightAccumulator-AddSplit-函数作用.md) | MD | 07-29 |
+| [UE5 Mobile Deferred Shading 中 LightFunctionQuality 与 ComputeLightFunctionMultiplier 的关系](./UE5-MobileDeferredShading-LightFunctionQuality与ComputeLightFunctionMultiplier关系.md) | MD | 07-29 |
+| [UE-Mobile-Forward-描边未对齐Deferred-通道语义修复](./UE-Mobile-Forward-Outline-Align-Deferred.md) | MD | 07-28 |
+| [编辑器自动化-打开到截图流程卡顿-MCP两层就绪等待修复](./编辑器自动化-打开到截图流程卡顿-MCP两层就绪等待修复.md) | MD | 07-28 |
+| [UE Mobile Forward LuxGI 粗糙反射对齐 Deferred — RoughReflection 注入、NaN 爆白与视角排查全记录](./UE-Mobile-Forward-LuxGI粗糙反射对齐Deferred-RoughReflection注入与NaN爆白排查.md) | MD | 07-27 |
+| [UE-BecomeViewTarget-渲染帧准备阶段Detach组件-MarkActorComponentForNeededEndOfFrameUpdate-race-condition修复](./UE-BecomeViewTarget-渲染帧准备阶段Detach组件-MarkActorComponentForNeededEndOfFrameUpdate-race-condition修复.md) | MD | 07-27 |
+| [UE5 BasePass PS 过程量调试 — 持久 DebugValueBuffer per-draw 绑定方案](./UE5-BasePass-PS-过程量调试-持久DebugValueBuffer-per-draw绑定方案.md) | MD | 07-27 |
+| [claude_code_zelda_guide](./ClaudeCode/claude_code_zelda_guide.html) | HTML | 07-27 |
+| [claude_code_guide_v2](./ClaudeCode/claude_code_guide_v2.html) | HTML | 07-27 |
+| [Claude Code 使用技巧、最佳实践与效率秘籍](./ClaudeCode/03_tips.md) | MD | 07-27 |
+| [B站 Claude Code 热门教程视频汇总](./ClaudeCode/04_bilibili_videos.md) | MD | 07-27 |
+| [Claude Code 系统性使用教程](./ClaudeCode/02_tutorial.md) | MD | 07-27 |
+| [Claude Code 深度研究报告：宏观概览](./ClaudeCode/01_overview.md) | MD | 07-27 |
+| [RenderDoc-D3D12-DebugPixel-min16float-varying-与-cbuffer数组-E_INVALIDARG根因修复](./RenderDoc-D3D12-DebugPixel-min16float-varying-与-cbuffer数组-E_INVALIDARG根因修复.md) | MD | 07-25 |
+| [UE5 异步关卡流送 CreateSceneProxy 跨线程读物理崩溃（SendRenderDebugPhysics 竞态）修复指南](./UE5-异步关卡流送-CreateSceneProxy跨线程读物理崩溃-SendRenderDebugPhysics竞态修复.md) | MD | 07-22 |
+| [UE Mobile Forward LuxGI Permutation 化落地 —— P4 改动汇总](./UE-Mobile-Forward-LuxGI-Permutation化落地-P4改动汇总.md) | MD | 07-21 |
+| [UE5 Mobile Forward vs Deferred 渲染管线全流程分析](./UE-Mobile-Forward-vs-Deferred-管线全流程分析-含Shader反汇编解读.md) | MD | 07-20 |
+| [UE Mobile Forward 比 Deferred 明显偏亮 —— LuxGI 双重 PreExposure + HYBRID 天光重复 根因与修复](./UE-Mobile-Forward比Deferred偏亮-LuxGI双重PreExposure与HYBRID天光重复-根因与修复.md) | MD | 07-18 |
+| [UE Mobile Deferred Preview 下 CartoonShadow 参数 unbound 根因与 IS_MOBILE_BASE_PASS 分流修复](./UE-Mobile-Deferred-Preview-CartoonShadow参数unbound根因与IS_MOBILE_BASE_PASS分流修复.md) | MD | 07-18 |
+| [kb_search 知识库 — 框架架构与维护原理](./kb-search-框架与维护原理.md) | MD | 07-18 |
+| [UE5 Mobile Forward Path — FoliageShadowIntensity Parameter Not Bound 修复](./UE5-Mobile-Forward-FoliageShadowIntensity-Parameter-Not-Bound修复.md) | MD | 07-18 |
+| [UE5 Mobile Forward Path — Foliage 竖直彩色条带（ToonRamp Profile 索引）排查修复](./UE5-Mobile-Forward-Path-Foliage-竖直彩色条带-ToonRamp-Profile索引-排查修复.md) | MD | 07-18 |
+| [UE-MobileBasePassCSM-CommandCount-Mismatch-修复](./UE-MobileBasePassCSM-CommandCount-Mismatch-修复.md) | MD | 07-18 |
+| [UE Mobile LuxGI Forward 与 Deferred 效果不一致 — ApplyCartoonShadow 参数绑定修复](./UE-Mobile-LuxGI-Forward与Deferred效果不一致-ApplyCartoonShadow参数绑定修复.md) | MD | 07-18 |
+| [特效材质移动端兼容修复说明（给美术）](./EFX_Mobile_Material_Fix.md) | MD | 07-18 |
+| [AOC 性能分析教程](./AOC性能分析教程.md) | MD | 07-18 |
+| [8Gen2 vs 8Gen3 寄存器配置对照文档](./8Gen2-8Gen3-寄存器配置对照文档.md) | MD | 07-18 |
 | [2026-07-01](./.workbuddy/memory/2026-07-01.md) | MD | 07-01 |
 | [80-78185-2_REV_AL_Game_Developer_Guide](./80-78185-2_REV_AL_Game_Developer_Guide.pdf) | PDF | 06-26 |
 
