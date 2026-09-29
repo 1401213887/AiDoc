@@ -4,7 +4,7 @@
 >
 > - **互链约定**：全部相对路径，文件不移动，与 git 自动备份兼容。
 > - **本页由 `generate_index.py` 自动生成**，新增文档后重跑脚本即可刷新。
-> - 文档总数：**171** · 更新：2026-09-28
+> - 文档总数：**174** · 更新：2026-09-29
 
 ---
 
@@ -12,14 +12,14 @@
 
 | # | 类目 | 文档数 | 说明 |
 |---|------|:---:|------|
-| 01 | [01 · TBDR 与片上优化方法论](#01-TBDR-与片上优化方法论) | 30 | TBDR 原理、片上缓存、Subpass/Imageblock、HZB、Forward/Deferred 选型——方法论纵贯线 |
-| 02 | [02 · 头部手游案例库](#02-头部手游案例库) | 16 | 单款手游移动端渲染拆解（html）。方法论的具体落地参照 |
+| 01 | [01 · TBDR 与片上优化方法论](#01-TBDR-与片上优化方法论) | 31 | TBDR 原理、片上缓存、Subpass/Imageblock、HZB、Forward/Deferred 选型——方法论纵贯线 |
+| 02 | [02 · 头部手游案例库](#02-头部手游案例库) | 17 | 单款手游移动端渲染拆解（html）。方法论的具体落地参照 |
 | 03 | [03 · 专题横向汇总](#03-专题横向汇总) | 11 | 跨游戏横向对比：半透明 / 遮挡剔除 / DrawCall / FPS 全景 |
 | 04 | [04 · 引擎源码级分析](#04-引擎源码级分析) | 18 | PVS、视锥剔除、WorldPartition、TaskGraph、线程池、RDG 等源码深挖 |
 | 05 | [05 · 崩溃与稳定性](#05-崩溃与稳定性) | 4 | 崩溃定位与修复：VT / SkeletalMesh / UseAfterFree、帧率掉档排查 |
 | 06 | [06 · Profiling 工具与教程](#06-Profiling-工具与教程) | 11 | 高通 SDP / Adreno / Snapdragon Profiler、UE Insights、CPU Trace 工具链 |
 | 07 | [07 · 项目专项分析](#07-项目专项分析) | 2 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
-| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 79 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
+| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 80 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
 
 ---
 
@@ -29,6 +29,7 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [UE5-Mobile-GPU-Time统计口径-stat-unit与stat-gpu差异原因-TBDR精度限制](./UE5-Mobile-GPU-Time统计口径-stat-unit与stat-gpu差异原因-TBDR精度限制.html) | HTML | 09-29 |
 | [UE5 Mobile TonemapSubpass — SceneColor Memoryless 带宽优化复盘](./UE5-Mobile-TonemapSubpass-SceneColor-memoryless-带宽优化复盘.md) | MD | 08-28 |
 | [UE-Mobile-TonemapSubpass-真机viewport变小-ScreenPercentage不匹配根因与规避方案](./UE-Mobile-TonemapSubpass-真机viewport变小-ScreenPercentage不匹配根因与规避方案.md) | MD | 08-27 |
 | [UE Mobile：HZB / Occlusion 控制 CVar 全开关参考](./UE-Mobile-HZB-Occlusion-CVar全开关参考.md) | MD | 08-25 |
@@ -66,6 +67,7 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [手游「引擎生成面数」占比实测分析](./引擎生成面数占比-地形与300米外远景-三角洲截帧实测分析.md) | MD | 09-29 |
 | [三角洲行动-地形实现方案-CDLOD+RuntimeVirtualTexture-移动端截帧反汇编分析](./三角洲行动-地形实现方案-CDLOD+RuntimeVirtualTexture-移动端截帧反汇编分析.md) | MD | 09-12 |
 | [鸣潮 移动端渲染技术要点总结](./鸣潮移动端技术要点总结.md) | MD | 08-19 |
 | [绝区零 移动端渲染技术要点总结](./绝区零移动端技术要点总结.md) | MD | 07-18 |
@@ -170,6 +172,7 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [2026-09-29](./.workbuddy/memory/2026-09-29.md) | MD | 09-29 |
 | [2026-09-28](./.workbuddy/memory/2026-09-28.md) | MD | 09-28 |
 | [UE5-VHM虚拟高度场-实现剖析-易读版](./UE5-VHM虚拟高度场-实现剖析-易读版.html) | HTML | 09-26 |
 | [VHM 虚拟高度场（Virtual Heightfield Mesh）实现剖析](./UE5-VHM虚拟高度场-实现剖析-易读版.md) | MD | 09-26 |
