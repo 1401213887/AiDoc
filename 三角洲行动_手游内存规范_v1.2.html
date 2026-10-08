@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>《三角洲行动》手游内存规范 v1.2</title>
+<style>
+  :root{
+    --bg:#0e1116; --bg2:#151a22; --card:#1a212b; --card2:#202936;
+    --line:#2b3646; --line2:#3a4759;
+    --fg:#e6edf6; --fg2:#a7b4c6; --fg3:#6f7f94;
+    --accent:#2fd4b4; --accent-dim:#1c8d78;
+    --red:#ff6b6b; --amber:#ffb454; --green:#57d98a; --purple:#a78bfa;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px;line-height:1.72}
+  .wrap{max-width:1200px;margin:0 auto;padding:44px 26px 90px}
+  header{border-bottom:1px solid var(--line);padding-bottom:26px;margin-bottom:30px}
+  .kicker{color:var(--accent);font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
+  h1{margin:12px 0 10px;font-size:31px;letter-spacing:-.4px;line-height:1.3}
+  .sub{color:var(--fg2);font-size:14.5px}
+  .meta{margin-top:18px;display:flex;flex-wrap:wrap;gap:9px}
+  .pill{display:inline-block;padding:3.5px 11px;border-radius:999px;font-size:12.5px;
+    background:var(--card2);border:1px solid var(--line2);color:var(--fg2)}
+  .pill.acc{border-color:var(--accent-dim);color:var(--accent)}
+  .pill.warn{border-color:#6b4a1e;color:var(--amber)}
+  .pill.bad{border-color:#6b2626;color:var(--red)}
+
+  nav.toc{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin-bottom:34px}
+  nav.toc b{display:block;font-size:12.5px;letter-spacing:.12em;color:var(--fg3);text-transform:uppercase;margin-bottom:11px}
+  nav.toc ol{margin:0;padding-left:20px;columns:2;column-gap:34px}
+  nav.toc li{margin:5px 0}
+  nav.toc a{color:var(--fg2);text-decoration:none}
+  nav.toc a:hover{color:var(--accent)}
+
+  h2{font-size:21px;margin:50px 0 6px;padding-top:22px;border-top:1px solid var(--line);letter-spacing:-.2px}
+  h2 .n{color:var(--accent);font-weight:700;margin-right:10px;font-variant-numeric:tabular-nums}
+  h3{font-size:16.5px;margin:28px 0 10px}
+  h4{font-size:14.5px;margin:20px 0 8px;color:var(--fg2)}
+  p{margin:11px 0}
+  ul,ol{margin:11px 0;padding-left:24px}
+  li{margin:6px 0}
+  code{background:var(--card2);padding:1.5px 6px;border-radius:5px;
+    font-family:"Cascadia Mono",Consolas,monospace;font-size:13px;color:var(--accent)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin:18px 0}
+  .callout{border-left:3px solid var(--accent);background:var(--card);
+    padding:14px 18px;border-radius:0 10px 10px 0;margin:18px 0}
+  .callout.warn{border-left-color:var(--amber)}
+  .callout.bad{border-left-color:var(--red)}
+  .callout.good{border-left-color:var(--green)}
+  .callout .t{font-weight:700;font-size:14px;margin-bottom:5px}
+  .callout.warn .t{color:var(--amber)}
+  .callout.bad .t{color:var(--red)}
+  .callout.good .t{color:var(--green)}
+  .callout .t.acc{color:var(--accent)}
+
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.7px}
+  th,td{padding:9px 11px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:var(--card2);color:var(--fg2);font-weight:600;font-size:12.7px;
+    border-bottom:1px solid var(--line2);white-space:nowrap}
+  tbody tr:hover{background:#1e2733}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  td.mono{font-family:"Cascadia Mono",Consolas,monospace;font-size:12.8px}
+  .tbl-wrap{overflow-x:auto;margin:16px 0}
+  .tbl-wrap table{margin:0}
+
+  .stage{display:inline-block;padding:2px 9px;border-radius:6px;font-size:12px;font-weight:600;
+    background:#0b1f1b;color:var(--accent);border:1px solid var(--accent-dim)}
+  .tag{display:inline-block;padding:1.5px 8px;border-radius:5px;font-size:11.8px;font-weight:600}
+  .tag.ok{background:#0f2a1c;color:var(--green);border:1px solid #1e5c38}
+  .tag.mid{background:#2c2312;color:var(--amber);border:1px solid #6b4a1e}
+  .tag.bad{background:#2c1414;color:var(--red);border:1px solid #6b2626}
+  .tag.na{background:#232a34;color:var(--fg3);border:1px solid var(--line2)}
+  .tag.drv{background:#201a2e;color:var(--purple);border:1px solid #4a3a72}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  @media(max-width:860px){.grid2,.grid3{grid-template-columns:1fr} nav.toc ol{columns:1}}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .stat .lab{font-size:12px;color:var(--fg3);letter-spacing:.05em}
+  .stat .val{font-size:24px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+  .stat .note{font-size:12px;color:var(--fg3);margin-top:3px}
+  .stat.bad{border-color:#6b2626}
+  .stat.bad .val{color:var(--red)}
+
+  .legend{font-size:12.5px;color:var(--fg3);margin-top:8px}
+  footer{margin-top:56px;padding-top:22px;border-top:1px solid var(--line);color:var(--fg3);font-size:12.5px}
+  a{color:var(--accent-dim)} a:hover{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Mobile Memory Budget Specification · v1.2</div>
+  <h1>《三角洲行动》手游内存规范 <span style="color:var(--fg3);font-weight:400">v1.2</span></h1>
+  <div class="sub">
+    本版把内存上限的依据<b>换成官方权威源</b>：iOS 用 jetsam 进程硬上限，Android 用 Google Play Vitals 官方游戏阈值；
+    并确认了 PerfDog 的采集口径，使"实测 vs 上限"的对比首次成立。
+  </div>
+  <div class="meta">
+    <span class="pill acc">修订日期 2026-10-08</span>
+    <span class="pill">替代 v1.0 / v1.1</span>
+    <span class="pill good" style="border-color:#1e5c38;color:var(--green)">iOS 口径已确认 = phys_footprint</span>
+    <span class="pill bad">iPhone 11 实测超硬上限 104%</span>
+    <span class="pill bad">iPhone 7 达硬上限 97%</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <b>目录</b>
+  <ol>
+    <li><a href="#s1">本版修订要点</a></li>
+    <li><a href="#s2">口径定义与可比性</a></li>
+    <li><a href="#s3">系统 / 官方内存上限</a></li>
+    <li><a href="#s4">全量实测数据</a></li>
+    <li><a href="#s5">BR 三档预算（核心）</a></li>
+    <li><a href="#s6">五档预算</a></li>
+    <li><a href="#s7">风险清单</a></li>
+    <li><a href="#s8">撤回与更正</a></li>
+    <li><a href="#s9">待确认</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="s1"><span class="n">01</span>本版修订要点</h2>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>项</th><th>v1.0 / v1.1</th><th>v1.2（本版）</th></tr></thead>
+  <tbody>
+    <tr><td><b>内存上限依据</b></td><td>自推系数：实测峰值 × 1.15</td><td><b>官方权威源</b>：iOS jetsam 硬上限 / Android Play Vitals 官方阈值</td></tr>
+    <tr><td><b>iOS 口径</b></td><td>存疑，"两平台不可比"</td><td><b>已确认</b>：PerfDog iOS = <code>phys_footprint</code> = jetsam 判决口径 → 对比成立</td></tr>
+    <tr><td><b>Android 口径</b></td><td>未定义</td><td><b>已确认</b>：PerfDog Android = <code>PSS</code>；与 Play Vitals 的 <code>RssAnon+VmSwap</code> 不同口径</td></tr>
+    <tr><td><b>结论方向</b></td><td>"低配反而预算高"（反向）</td><td>反向消失——改用硬上限后，各档余量口径统一</td></tr>
+    <tr><td><b>撤回项</b></td><td>引用了 UWA 0.5~0.6 倍规则、微信小游戏数值</td><td>均已核验并<b>撤回</b>（见 §8）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout good">
+  <div class="t">本版最实质的变化</div>
+  v1.1 给 iOS 高配（A13 / iPhone 11）的预算是 <b>2500 MB</b>。改用 jetsam 硬上限后，该机型的系统硬上限是 <b>2068 MB</b>——
+  <b>实测峰值 2150 MB 已经超过它，v1.1 给的 2500 MB 预算等于允许超上限 21%</b>。这是必须修正的错误。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s2"><span class="n">02</span>口径定义与可比性</h2>
+
+<h3>2.1 采集口径（已确认）</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>平台 / 来源</th><th>指标名</th><th>实际口径</th><th>获取方式</th></tr></thead>
+  <tbody>
+    <tr><td>PerfDog · iOS</td><td>Memory</td><td class="mono">phys_footprint</td><td><code>task_info(TASK_VM_INFO)</code></td></tr>
+    <tr><td>PerfDog · Android</td><td>Memory</td><td class="mono">PSS</td><td>与 Android Java API / Meminfo 一致</td></tr>
+    <tr><td>iOS jetsam 判决</td><td>per-process-limit</td><td class="mono">phys_footprint</td><td>内核 Memorystatus，日志字段 <code>pageSize × rpages</code></td></tr>
+    <tr><td>Google Play Vitals</td><td>Memory usage</td><td class="mono">RssAnon + VmSwap</td><td>28 天 P90</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout good">
+  <div class="t">iOS：对比成立 ✓</div>
+  PerfDog 采的 <code>phys_footprint</code> <b>就是 jetsam 判定 OOM 用的同一个指标</b>。因此"实测峰值 vs jetsam 上限"是同一口径下的直接比较，
+  <b>v1.0/v1.1 里"两平台口径不同、不可比"的警告，对 iOS 侧解除</b>。
+</div>
+
+<div class="callout warn">
+  <div class="t">Android：口径不同，但方向保守 ⚠</div>
+  PerfDog 是 <b>PSS</b>（含 file-backed 页的按比例分摊），Play Vitals 是 <b>RssAnon + VmSwap</b>（<b>不含</b> file-backed）。
+  游戏的大量资源正是 file-backed，所以 <b>PerfDog 的数值通常大于 Vitals 判定的那个数</b>。
+  <br>方向上这是<b>偏保守</b>的（实测 &lt; 阈值 ⇒ Vitals 口径必然更小），但<b>不能当精确余量看</b>——要精确卡线需另测 <code>RssAnon + VmSwap</code>。
+</div>
+
+<h3>2.2 两平台"上限"的性质不同（勿混为一谈）</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>平台</th><th>上限性质</th><th>超出的后果</th></tr></thead>
+  <tbody>
+    <tr><td>iOS</td><td><b>系统硬上限</b>（进程被杀线）</td><td>被内核 <code>SIGKILL</code> 强杀，用户侧表现为闪退</td></tr>
+    <tr><td>Android</td><td><b>商店合规线</b>（非运行时硬阈值）</td><td>影响 Google Play 商店可见度（2027-02 起），<b>不会直接杀进程</b></td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">Android 运行时既无硬阈值也无固定比例——LMK 按进程重要性评分（<code>oom_adj</code>）决策，Android 17 起改用 cgroup v2 动态限额。Play Vitals 阈值是当前唯一官方按运存分档的定量参考。</p>
+
+<!-- ============================================================ -->
+<h2 id="s3"><span class="n">03</span>系统 / 官方内存上限</h2>
+
+<h3>3.1 iOS —— jetsam per-process-limit（进程硬上限）</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>机型</th><th>运存</th><th class="num">硬上限 (MB)</th><th class="num">设备总内存 (MB)</th><th class="num">占比</th><th>记录时点</th></tr></thead>
+  <tbody>
+    <tr><td>iPhone 6 Plus</td><td class="mono">1 GB</td><td class="num">650</td><td class="num">—</td><td class="num">—</td><td>—</td></tr>
+    <tr><td>iPhone 7 / 8</td><td class="mono">2 GB</td><td class="num">1400</td><td class="num">—</td><td class="num">—</td><td>—</td></tr>
+    <tr><td>iPhone X</td><td class="mono">3 GB（实报 2816）</td><td class="num">1400</td><td class="num">2816</td><td class="num">50%</td><td>—</td></tr>
+    <tr><td>iPhone XR</td><td class="mono">3 GB</td><td class="num">1792</td><td class="num">2813</td><td class="num">63%</td><td>iOS 12.1</td></tr>
+    <tr><td>iPhone 7 Plus</td><td class="mono">3 GB</td><td class="num">2048</td><td class="num">3072</td><td class="num">66%</td><td>—</td></tr>
+    <tr><td><b>iPhone XS</b></td><td class="mono">4 GB</td><td class="num" style="color:var(--accent);font-weight:700">2040</td><td class="num">3754</td><td class="num">54%</td><td>iOS 12.1</td></tr>
+    <tr><td>iPhone XS Max</td><td class="mono">4 GB</td><td class="num">2039</td><td class="num">3735</td><td class="num">55%</td><td>iOS 12.1</td></tr>
+    <tr><td><b>iPhone 11</b></td><td class="mono">4 GB</td><td class="num" style="color:var(--accent);font-weight:700">2068</td><td class="num">3844</td><td class="num">54%</td><td>iOS 13.1.3</td></tr>
+    <tr><td>iPhone 11 Pro Max</td><td class="mono">4 GB</td><td class="num">2067</td><td class="num">3740</td><td class="num">55%</td><td>iOS 13.2.3</td></tr>
+    <tr><td>iPhone 12 / 12 mini</td><td class="mono">4 GB</td><td class="num">2098（ActiveHard）</td><td class="num">—</td><td class="num">—</td><td>—</td></tr>
+    <tr><td>iPhone 12 Pro</td><td class="mono">6 GB</td><td class="num">3054</td><td class="num">5703</td><td class="num">54%</td><td>iOS 16.1</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="callout warn">
+  <div class="t">三条读表要点</div>
+  <ul style="margin:0">
+    <li><b>上限不随运存线性增长</b>：4GB 机型（2039~2098）与 3GB 上限组（2048）几乎持平。</li>
+    <li><b>同为 3GB 离散极大</b>：iPhone X 1400 / XR 1792 / 7 Plus 2048，最大差 46%。iPhone X 因 <code>physicalMemory</code> 实报 2816MB 而非 3072MB 掉到低组。</li>
+    <li><b>上限随 iOS 版本变化</b>——上表多数记录于 iOS 12/13 时点，<b>不能直接当作当前系统版本的真实值</b>。</li>
+  </ul>
+</div>
+
+<h3>3.2 Android —— Google Play Vitals 游戏阈值（官方）</h3>
+<p>指标 <code>RssAnon + VmSwap</code>，28 天滚动 P90，<b>2027 年 2 月起</b>影响商店可见度。游戏阈值高于应用。</p>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>运存档</th><th class="num">设备总内存区间 (MB)</th><th class="num">前台</th><th class="num">前台服务</th><th class="num">后台</th></tr></thead>
+  <tbody>
+    <tr><td>0–4 GB</td><td class="num">0–3200</td><td class="num" style="color:var(--fg3)">无阈值</td><td class="num" style="color:var(--fg3)">无阈值</td><td class="num" style="color:var(--fg3)">无阈值</td></tr>
+    <tr><td>4 GB</td><td class="num">3200–4800</td><td class="num">2.25 GB <span class="legend">(2304)</span></td><td class="num">2.00 GB</td><td class="num">2.00 GB</td></tr>
+    <tr><td><b>6 GB</b></td><td class="num">4800–6800</td><td class="num" style="color:var(--accent);font-weight:700">2.75 GB <span class="legend">(2816)</span></td><td class="num">2.50 GB</td><td class="num">2.50 GB</td></tr>
+    <tr><td><b>8 GB</b></td><td class="num">6800–9216</td><td class="num" style="color:var(--accent);font-weight:700">3.50 GB <span class="legend">(3584)</span></td><td class="num">2.75 GB</td><td class="num">2.75 GB</td></tr>
+    <tr><td>12 GB</td><td class="num">9216–14336</td><td class="num">4.00 GB</td><td class="num">3.20 GB</td><td class="num">3.20 GB</td></tr>
+    <tr><td>16 GB</td><td class="num">14336–18432</td><td class="num">5.00 GB</td><td class="num">3.50 GB</td><td class="num">3.50 GB</td></tr>
+    <tr><td>16 GB+</td><td class="num">&gt;18432</td><td class="num" style="color:var(--fg3)">无阈值</td><td class="num" style="color:var(--fg3)">无阈值</td><td class="num" style="color:var(--fg3)">无阈值</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend"><b>0–4GB 与 16GB+ 两端均无阈值</b>（不纳入评估）——若产品要覆盖 3GB 安卓设备，官方阈值不提供保护，需自行设标准。</p>
+
+<!-- ============================================================ -->
+<h2 id="s4"><span class="n">04</span>全量实测数据</h2>
+<p>PerfDog 实测原始值，三场景。每台机型跑<b>自身默认画质配置</b>。</p>
+
+<div class="tbl-wrap">
+<table>
+  <thead>
+    <tr><th>平台</th><th>机型（芯片+运存）</th><th>画面+帧率</th>
+    <th class="num">大厅静置</th><th class="num">烽火地带</th><th class="num">全面战场</th><th class="num">三场景最大</th><th class="num">运存</th><th class="num">系统/官方上限</th><th class="num">占用</th><th>判定</th></tr>
+  </thead>
+  <tbody>
+    <tr><td rowspan="3">Android</td><td>realme Q2（天玑800U）</td><td>流畅+中30</td>
+      <td class="num">1568</td><td class="num">1468</td><td class="num">2145</td><td class="num" style="font-weight:700">2145</td>
+      <td class="num mono">6G</td><td class="num">2816</td><td class="num">76%</td><td><span class="tag ok">安全</span></td></tr>
+    <tr><td>OPPO R17 Pro（骁龙710）</td><td>标准+中30</td>
+      <td class="num">1391</td><td class="num">1972</td><td class="num">1929</td><td class="num" style="font-weight:700">1972</td>
+      <td class="num mono">8G</td><td class="num">3584</td><td class="num">55%</td><td><span class="tag ok">安全</span></td></tr>
+    <tr><td><b>小米 8（骁龙845）</b></td><td>精致+高40</td>
+      <td class="num">1587</td><td class="num" style="color:var(--red)">2778</td><td class="num">2636</td><td class="num" style="font-weight:700">2778</td>
+      <td class="num mono">8G</td><td class="num">3584</td><td class="num">78%</td><td><span class="tag ok">安全</span></td></tr>
+    <tr><td rowspan="4">Android</td><td><b>红米 K30（骁龙865）</b></td><td>精致+超高50</td>
+      <td class="num">1691</td><td class="num">2577</td><td class="num">2526</td><td class="num" style="font-weight:700">2577</td>
+      <td class="num mono">6G</td><td class="num">2816</td><td class="num" style="color:var(--amber);font-weight:700">92%</td><td><span class="tag mid">预警</span></td></tr>
+    <tr><td><b>小米 11（骁龙888）</b></td><td>高清+超高50</td>
+      <td class="num">1510</td><td class="num">2192</td><td class="num">2180</td><td class="num" style="font-weight:700">2192</td>
+      <td class="num mono">8G</td><td class="num">3584</td><td class="num">61%</td><td><span class="tag ok">安全</span></td></tr>
+    <tr><td>小米 11（骁龙888）</td><td>精致+90帧</td>
+      <td class="num">—</td><td class="num">2142</td><td class="num">2253</td><td class="num" style="font-weight:700">2253</td>
+      <td class="num mono">8G</td><td class="num">3584</td><td class="num">63%</td><td><span class="tag ok">安全</span></td></tr>
+    <tr><td>iQOO 12（8Gen3）</td><td>高清+120帧</td>
+      <td class="num">—</td><td class="num">2348</td><td class="num">2345</td><td class="num" style="font-weight:700">2348</td>
+      <td class="num mono">12G</td><td class="num">4096</td><td class="num">57%</td><td><span class="tag ok">安全</span></td></tr>
+    <tr><td rowspan="3">iOS</td><td><b>iPhone 7（A10）</b></td><td>流畅+中30</td>
+      <td class="num">776</td><td class="num">1243</td><td class="num">1359</td><td class="num" style="font-weight:700">1359</td>
+      <td class="num mono">2G</td><td class="num">1400</td><td class="num" style="color:var(--red);font-weight:700">97%</td><td><span class="tag bad">红线</span></td></tr>
+    <tr><td><b>iPhone 8P（A11）</b></td><td>标准+中30</td>
+      <td class="num">867</td><td class="num">1526</td><td class="num">1472</td><td class="num" style="font-weight:700">1526</td>
+      <td class="num mono">3G</td><td class="num">~2048<span class="tag na" style="margin-left:6px">推断</span></td><td class="num">75%</td><td><span class="tag mid">存疑</span></td></tr>
+    <tr><td><b>iPhone XS（A12）</b></td><td>精致+高40</td>
+      <td class="num">995</td><td class="num">1567</td><td class="num">1828</td><td class="num" style="font-weight:700">1828</td>
+      <td class="num mono">4G</td><td class="num">2040</td><td class="num" style="color:var(--amber);font-weight:700">90%</td><td><span class="tag mid">预警</span></td></tr>
+    <tr><td rowspan="4">iOS</td><td><b>iPhone 11（A13）</b></td><td>高清+超高50</td>
+      <td class="num">1062</td><td class="num">2150</td><td class="num">2016</td><td class="num" style="font-weight:700">2150</td>
+      <td class="num mono">4G</td><td class="num">2068</td><td class="num" style="color:var(--red);font-weight:700">104%</td><td><span class="tag bad">红线</span></td></tr>
+    <tr><td>iPhone 14 Pro（A16）</td><td>极致+超高50</td>
+      <td class="num">1040</td><td class="num">2114</td><td class="num">2119</td><td class="num" style="font-weight:700">2119</td>
+      <td class="num mono">8G</td><td class="num" style="color:var(--fg3)">无数据</td><td class="num">—</td><td><span class="tag na">待确认</span></td></tr>
+    <tr><td>iPhone 14 Pro（A16）</td><td>标准+120帧</td>
+      <td class="num">—</td><td class="num">1927</td><td class="num">1898</td><td class="num" style="font-weight:700">1927</td>
+      <td class="num mono">8G</td><td class="num" style="color:var(--fg3)">无数据</td><td class="num">—</td><td><span class="tag na">待确认</span></td></tr>
+    <tr><td>iPhone 16（A18）</td><td>高清/终极</td>
+      <td class="num">1114</td><td class="num" style="color:var(--red)">2209</td><td class="num">2160</td><td class="num" style="font-weight:700">2209</td>
+      <td class="num mono">8G</td><td class="num" style="color:var(--fg3)">无数据</td><td class="num">—</td><td><span class="tag na">待确认</span></td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">Android 占用比 = 实测(PSS) ÷ Play Vitals 前台阈值(RssAnon+VmSwap)，<b>跨口径，仅作方向性判读</b>。iOS 占用比 = 实测(phys_footprint) ÷ jetsam 硬上限，<b>同口径，可直接判读</b>。</p>
+
+<!-- ============================================================ -->
+<h2 id="s5"><span class="n">05</span>BR 三档预算（核心）</h2>
+
+<h3>5.1 Android</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>档位</th><th>芯片</th><th>参考机型</th><th class="num">运存</th><th class="num">实测峰值 (PSS)</th><th class="num">官方上限 (游戏·前台)</th><th class="num">占用</th><th>判定</th></tr></thead>
+  <tbody>
+    <tr><td><span class="stage">低配</span></td><td class="mono">骁龙 845</td><td>小米 8</td><td class="num mono">8 GB</td>
+      <td class="num">2778</td><td class="num" style="color:var(--accent);font-weight:700">3584</td><td class="num">78%</td><td><span class="tag ok">安全</span></td></tr>
+    <tr><td><span class="stage">中配</span></td><td class="mono">骁龙 865</td><td>红米 K30</td><td class="num mono">6 GB</td>
+      <td class="num">2577</td><td class="num" style="color:var(--accent);font-weight:700">2816</td><td class="num" style="color:var(--amber);font-weight:700">92%</td><td><span class="tag mid">预警</span></td></tr>
+    <tr><td><span class="stage">高配</span></td><td class="mono">骁龙 888</td><td>小米 11</td><td class="num mono">8 GB</td>
+      <td class="num">2253</td><td class="num" style="color:var(--accent);font-weight:700">3584</td><td class="num">63%</td><td><span class="tag ok">安全</span></td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">中配（红米 K30 / 6GB）是 Android 侧最紧的一档：余量仅 <b>239 MB</b>（2816 − 2577）。</p>
+
+<h3>5.2 iOS</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>档位</th><th>芯片</th><th>参考机型</th><th class="num">运存</th><th class="num">实测峰值 (footprint)</th><th class="num">jetsam 硬上限</th><th class="num">占用</th><th>判定</th></tr></thead>
+  <tbody>
+    <tr><td><span class="stage">低配</span></td><td class="mono">A11</td><td>iPhone 8P</td><td class="num mono">3 GB</td>
+      <td class="num">1526</td><td class="num">~2048 <span class="tag na">推断</span></td><td class="num">75%</td><td><span class="tag mid">存疑</span></td></tr>
+    <tr><td><span class="stage">中配</span></td><td class="mono">A12</td><td>iPhone XS</td><td class="num mono">4 GB</td>
+      <td class="num">1828</td><td class="num" style="color:var(--accent);font-weight:700">2040</td><td class="num" style="color:var(--amber);font-weight:700">90%</td><td><span class="tag mid">预警</span></td></tr>
+    <tr><td><span class="stage">高配</span></td><td class="mono">A13</td><td>iPhone 11</td><td class="num mono">4 GB</td>
+      <td class="num" style="color:var(--red);font-weight:700">2150</td><td class="num" style="color:var(--accent);font-weight:700">2068</td><td class="num" style="color:var(--red);font-weight:700">104%</td><td><span class="tag bad">红线</span></td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout bad">
+  <div class="t">iOS 三档里两档已无余量</div>
+  <ul style="margin:0">
+    <li><b>高配（iPhone 11）实测 2150 MB &gt; 硬上限 2068 MB</b>——超出 82 MB（4%）。同口径比较，<b>不是口径错觉</b>。</li>
+    <li><b>中配（iPhone XS）1828 / 2040 = 90%</b>，余量仅 212 MB。而 jetsam 在<b>全局内存紧张时会更早杀</b>（用户后台挂着微信等应用时，实际可用余量比这个还小）。</li>
+    <li>低配（iPhone 8P）的判定<b>取决于该机型真实上限</b>：若为 2048 → 75%（安全）；若落在 iPhone X 那样的 1400 → <b>1526 超 9%</b>。两种情形结论相反，见 §9。</li>
+  </ul>
+</div>
+
+<div class="callout warn">
+  <div class="t">为什么"104%"不等于"测试时必崩"</div>
+  2068 MB 是 <b>iOS 13.1.3（2019 年）</b>时点的记录，而 jetsam 上限<b>随 iOS 版本变化</b>。测试机跑的系统版本新得多，上限可能已放宽，
+  所以当时没崩是合理的。但<b>余量为零或已转负这一事实不变</b>——真实上限需要看目标机型、目标系统版本上的实际 <code>ActiveHard</code> 值，
+  这属于必须闭环的 P0 项（§9）。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s6"><span class="n">06</span>五档预算</h2>
+<p>v1.0 的五档分法（iOS / 安卓各五档）按新上限重算。</p>
+
+<h3>6.1 iOS 五档</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>档位</th><th>代表机型</th><th class="num">运存</th><th class="num">实测峰值</th><th class="num">硬上限</th><th class="num">占用</th><th>判定</th></tr></thead>
+  <tbody>
+    <tr><td><span class="stage">一档</span></td><td>iPhone 16 / 14 Pro</td><td class="num mono">8 GB</td><td class="num">2209</td><td class="num" style="color:var(--fg3)">无数据</td><td class="num">—</td><td><span class="tag na">待确认</span></td></tr>
+    <tr><td><span class="stage">二档</span></td><td>iPhone 11</td><td class="num mono">4 GB</td><td class="num" style="color:var(--red)">2150</td><td class="num">2068</td><td class="num" style="color:var(--red);font-weight:700">104%</td><td><span class="tag bad">红线</span></td></tr>
+    <tr><td><span class="stage">三挡</span></td><td>iPhone XS</td><td class="num mono">4 GB</td><td class="num">1828</td><td class="num">2040</td><td class="num" style="color:var(--amber)">90%</td><td><span class="tag mid">预警</span></td></tr>
+    <tr><td><span class="stage">四档</span></td><td>iPhone 8P</td><td class="num mono">3 GB</td><td class="num">1526</td><td class="num">~2048 <span class="tag na">推断</span></td><td class="num">75%</td><td><span class="tag mid">存疑</span></td></tr>
+    <tr><td><span class="stage">五档</span></td><td>iPhone 7</td><td class="num mono">2 GB</td><td class="num" style="color:var(--red)">1359</td><td class="num">1400</td><td class="num" style="color:var(--red);font-weight:700">97%</td><td><span class="tag bad">红线</span></td></tr>
+  </tbody>
+</table>
+</div>
+<div class="callout bad">
+  <div class="t">iPhone 7 只跑「流畅 + 中30帧」——最低画质，却已到硬上限的 97%</div>
+  1359 / 1400 = 97.1%，余量仅 <b>41 MB</b>。这是全部样本中最危险的一台：它跑的是最省内存的配置，却几乎贴着 2GB 机型的进程被杀线。
+  任何一次内存增长（新场景、新特效、新 UI）都可能把五档机型推过线。
+</div>
+
+<h3>6.2 Android 五档</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>档位</th><th>代表机型</th><th class="num">运存</th><th class="num">实测峰值</th><th class="num">官方上限</th><th class="num">占用</th><th>判定</th></tr></thead>
+  <tbody>
+    <tr><td><span class="stage">一档</span></td><td>iQOO 12（8Gen3）</td><td class="num mono">12 GB</td><td class="num">2348</td><td class="num">4096</td><td class="num">57%</td><td><span class="tag ok">安全</span></td></tr>
+    <tr><td><span class="stage">二档</span></td><td>红米 K30 / 小米 11</td><td class="num mono">6 / 8 GB</td><td class="num">2577</td><td class="num">2816 / 3584</td><td class="num" style="color:var(--amber);font-weight:700">92%</td><td><span class="tag mid">预警</span></td></tr>
+    <tr><td><span class="stage">三挡</span></td><td>小米 8（骁龙845）</td><td class="num mono">8 GB</td><td class="num">2778</td><td class="num">3584</td><td class="num">78%</td><td><span class="tag ok">安全</span></td></tr>
+    <tr><td><span class="stage">四档</span></td><td>OPPO R17 Pro（骁龙710）</td><td class="num mono">8 GB</td><td class="num">1972</td><td class="num">3584</td><td class="num">55%</td><td><span class="tag ok">安全</span></td></tr>
+    <tr><td><span class="stage">五档</span></td><td>realme Q2（天玑800U）</td><td class="num mono">6 GB</td><td class="num">2145</td><td class="num">2816</td><td class="num">76%</td><td><span class="tag ok">安全</span></td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">
+  二档取红米 K30（6GB，更严）为准。Android 侧与 iOS 相反——<b>五档没有触线风险</b>，因为低运存设备的实测峰值本身也低（2145 MB），
+  而 6GB 档的官方阈值（2816 MB）反而比 4GB 档宽裕。这再次印证：<b>Android 内存峰值由场景主导，与画质/档位弱相关</b>。
+</p>
+
+<!-- ============================================================ -->
+<h2 id="s7"><span class="n">07</span>风险清单</h2>
+
+<div class="grid3">
+  <div class="stat bad"><div class="lab">iPhone 11 · 高配 / 二档</div><div class="val">104%</div><div class="note">2150 / 2068 MB · 超硬上限 82 MB</div></div>
+  <div class="stat bad"><div class="lab">iPhone 7 · 五档</div><div class="val">97%</div><div class="note">1359 / 1400 MB · 余量仅 41 MB，且跑最低画质</div></div>
+  <div class="stat"><div class="lab">红米 K30 · 中配 / 二档</div><div class="val" style="color:var(--amber)">92%</div><div class="note">2577 / 2816 MB · 余量 239 MB</div></div>
+</div>
+
+<div class="callout warn" style="margin-top:22px">
+  <div class="t">共性：危险的不是"低端机"，是"卡在运存档边界上的机器"</div>
+  <ul style="margin:0">
+    <li><b>iPhone 11（4GB）</b>——4GB 档硬上限（2068）仅比 3GB 档（2040）高 28 MB，<b>加运存没换来上限</b>，但它跑的画质比 iPhone XS 高一档（高清+超高50 vs 精致+高40），于是触线。</li>
+    <li><b>iPhone 7（2GB）</b>——2GB 硬上限 1400 MB 是全表最低绝对值。</li>
+    <li><b>红米 K30（6GB）</b>——6GB 档官方阈值（2816）比 8GB 档（3584）低 768 MB，而它的实测峰值只比小米 8 低 201 MB。</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s8"><span class="n">08</span>撤回与更正</h2>
+<p>本版逐条核验了 v1.0 / v1.1 引用的外部数据，结果如下。</p>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th style="width:44px">#</th><th>v1.0 / v1.1 的说法</th><th>核验结果</th><th>处理</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="mono">1</td>
+      <td>UWA：内存峰值「PSS ≤ 物理内存 0.5~0.6 倍」；2GB→&lt;1GB、3GB→&lt;1.5GB</td>
+      <td><b>原文中不存在这条规则</b>。UWA 那篇内存标准是极老的标准（还在讨论 iPhone 4、512MB 安卓，PSS ≤200MB / Reserved Total 150MB 的世代），与 UE5 手游量级差一个数量级；文中仅给出两例（红米4X 纹理 &lt;140MB、小米8 纹理 &lt;280MB）</td>
+      <td><span class="tag bad">撤回</span></td>
+    </tr>
+    <tr>
+      <td class="mono">2</td>
+      <td>微信小游戏：Android 低档 &lt;1.2G / 中高档 &lt;1.5G；iOS 低档 &lt;1G / 中高档 &lt;1.4G</td>
+      <td>原文的内存阈值<b>以图片形式呈现，文本不可提取</b>，数字无法证实；且该标准面向 WebGL 轻量小游戏，<b>本就不适用</b>于 UE5 原生手游</td>
+      <td><span class="tag bad">撤回</span></td>
+    </tr>
+    <tr>
+      <td class="mono">3</td>
+      <td>Overboard 指南的 <code>jetsamctl</code> 数值（8G=7490 / 6G=5490 / 4G=3490 / 3G=2490）可作为系统默认上限</td>
+      <td><b>原文明确是越狱工具手动抬高上限的操作参数</b>（SSH 进越狱设备执行 <code>jetsamctl -l</code>，iOS 16+ 还需循环重施），<b>不是系统默认 per-process-limit</b></td>
+      <td><span class="tag mid">已纠正</span>（v1.0/1.1 已标注，本版确认）</td>
+    </tr>
+    <tr>
+      <td class="mono">4</td>
+      <td>「iOS 与 Android 内存口径不同，不可跨平台比较」</td>
+      <td><b>iOS 侧解除</b>：PerfDog iOS = phys_footprint = jetsam 判决口径，同口径可比。<br>Android 侧仍成立（PSS vs RssAnon+VmSwap）</td>
+      <td><span class="tag mid">部分更正</span></td>
+    </tr>
+    <tr>
+      <td class="mono">5</td>
+      <td>iOS 高配（iPhone 11）预算 2500 MB</td>
+      <td><b>错误</b>。该机型 jetsam 硬上限为 2068 MB，2500 MB 等于允许超上限 21%</td>
+      <td><span class="tag bad">更正为 2068</span></td>
+    </tr>
+    <tr>
+      <td class="mono">6</td>
+      <td>4GB 机型 jetsam 上限 ≈ 2040~2098 MB</td>
+      <td><b>证实并细化到逐机型</b>：iPhone XS 2040 / XS Max 2039 / iPhone 11 2068 / 11 Pro Max 2067 / iPhone 12 2098</td>
+      <td><span class="tag ok">升级为硬数据</span></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s9"><span class="n">09</span>待确认</h2>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th style="width:44px">#</th><th>事项</th><th>影响</th><th>优先级</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="mono">1</td>
+      <td><b>iPhone 11 在当前 iOS 版本上的真实 jetsam 上限</b>（本文引用的 2068 MB 记录于 iOS 13.1.3）</td>
+      <td>决定高配档是"已超标必须压"还是"仅需观察"。方法：目标机型上跑一次高负载场景，取 <code>jetsam</code> 日志的 <code>ActiveHard</code> 值（<code>pageSize × rpages</code>）</td>
+      <td><span class="tag bad">P0</span></td>
+    </tr>
+    <tr>
+      <td class="mono">2</td>
+      <td><b>iPhone 8 Plus（3GB）的 jetsam 上限</b>——3GB 机型离散极大（X 1400 / XR 1792 / 7 Plus 2048），本文的 ~2048 是<b>推断值</b>（依据：8P 与 7 Plus 同为标准 3072MB 报法，而 iPhone X 因实报 2816MB 掉到 1400 组）</td>
+      <td>低配档判定<b>完全相反</b>：上限 2048 → 75% 安全；上限 1400 → 1526 超 9%</td>
+      <td><span class="tag bad">P0</span></td>
+    </tr>
+    <tr>
+      <td class="mono">3</td>
+      <td><b>iPhone 7 的余量仅 41 MB</b>——它是全表最低绝对值，且已跑最低画质</td>
+      <td>五档机型的内容增长容忍度几乎为零，建议单独设冻结门禁</td>
+      <td><span class="tag bad">P0</span></td>
+    </tr>
+    <tr>
+      <td class="mono">4</td>
+      <td><b>Android 实测需补 RssAnon + VmSwap 口径</b>——现用 PSS，与 Play Vitals 阈值跨口径，占用比只能作方向判读</td>
+      <td>中配红米 K30 的 92% 是保守估计，真实余量可能更大；需实测确认</td>
+      <td><span class="tag mid">P1</span></td>
+    </tr>
+    <tr>
+      <td class="mono">5</td>
+      <td>iOS 8GB 机型（iPhone 14 Pro / 16）无 jetsam 上限数据，一档无法判定</td>
+      <td>一档预算暂缺</td>
+      <td><span class="tag mid">P1</span></td>
+    </tr>
+    <tr>
+      <td class="mono">6</td>
+      <td>Play Vitals 的 0–4GB 档<b>无阈值</b>；若产品要覆盖 3GB 安卓设备，官方不提供保护</td>
+      <td>需自设低端安卓标准</td>
+      <td><span class="tag mid">P1</span></td>
+    </tr>
+    <tr>
+      <td class="mono">7</td>
+      <td>jetsam 硬上限记录于 iOS 12/13 时点，需按当前系统版本重新取样</td>
+      <td>全表 iOS 上限可能整体偏低（偏保守）</td>
+      <td><span class="tag mid">P1</span></td>
+    </tr>
+    <tr>
+      <td class="mono">8</td>
+      <td>源表缺口沿用 v1.0/v1.1：高通系分档表「内存」整列空白；美术制作规范仅覆盖武器</td>
+      <td>档位定义与美术侧卡口不完整</td>
+      <td><span class="tag na">P2</span></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<hr>
+
+<h3>数据来源</h3>
+<ul class="legend">
+  <li><b>机型分档 / 帧率画质 / 美术制作规范</b> —— 企业微信《三角洲行动》性能分档 · sheet <code>手游性能分档</code>、<code>美术制作规范</code></li>
+  <li><b>BR 三档定义</b> —— 飞书《S1 Mobile 性能规范相关》· sheet <code>ef8ed4</code></li>
+  <li><b>实测内存 / 帧率 / 功耗</b> —— 企业微信《【三角洲行动】性能测试》· sheet <code>手游测试数据</code>、<code>用例</code>；工具 PerfDog（性能狗），WiFi 模式</li>
+  <li><b>iOS jetsam 硬上限</b> —— 真实崩溃日志的 <code>pageSize × rpages</code> 反算数据；Apple Developer Forums 讨论帖；iOS 内存管理公开资料</li>
+  <li><b>Android 官方阈值</b> —— Google Play Console · Android Vitals · bad behavior thresholds（Games / Memory usage）</li>
+  <li><b>PerfDog 采集口径</b> —— PerfDog 官方使用手册（iOS = phys_footprint；Android = PSS）</li>
+</ul>
+
+<footer>
+  《三角洲行动》手游内存规范 v1.2 · 修订日期 2026-10-08 · 替代 v1.0 / v1.1<br>
+  iOS 上限记录多来自 iOS 12/13 时点且随系统版本变化，Android 阈值为商店合规线而非运行时硬阈值——
+  凡标注 <span class="tag na">推断</span> / <span class="tag na">待确认</span> 的数值，使用前请先闭环 §9。
+</footer>
+
+</div>
+</body>
+</html>

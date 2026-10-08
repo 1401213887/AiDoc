@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>《三角洲行动》手游内存规范 v1.0（草案）</title>
+<style>
+  :root{
+    --bg:#0e1116; --bg2:#151a22; --card:#1a212b; --card2:#202936;
+    --line:#2b3646; --line2:#3a4759;
+    --fg:#e6edf6; --fg2:#a7b4c6; --fg3:#6f7f94;
+    --accent:#2fd4b4; --accent-dim:#1c8d78;
+    --red:#ff6b6b; --amber:#ffb454; --green:#57d98a; --purple:#a78bfa;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px; line-height:1.72;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:44px 26px 90px}
+
+  header{border-bottom:1px solid var(--line); padding-bottom:26px; margin-bottom:34px}
+  .kicker{color:var(--accent); font-size:12.5px; letter-spacing:.16em; text-transform:uppercase; font-weight:600}
+  h1{margin:12px 0 10px; font-size:31px; letter-spacing:-.4px; line-height:1.3}
+  .sub{color:var(--fg2); font-size:14.5px}
+  .meta{margin-top:18px; display:flex; flex-wrap:wrap; gap:9px}
+  .pill{
+    display:inline-block; padding:3.5px 11px; border-radius:999px; font-size:12.5px;
+    background:var(--card2); border:1px solid var(--line2); color:var(--fg2);
+  }
+  .pill.acc{border-color:var(--accent-dim); color:var(--accent)}
+  .pill.warn{border-color:#6b4a1e; color:var(--amber)}
+  .pill.bad{border-color:#6b2626; color:var(--red)}
+
+  nav.toc{
+    background:var(--bg2); border:1px solid var(--line); border-radius:12px;
+    padding:18px 22px; margin-bottom:38px;
+  }
+  nav.toc b{display:block; font-size:12.5px; letter-spacing:.12em; color:var(--fg3); text-transform:uppercase; margin-bottom:11px}
+  nav.toc ol{margin:0; padding-left:20px; columns:2; column-gap:34px}
+  nav.toc li{margin:5px 0}
+  nav.toc a{color:var(--fg2); text-decoration:none}
+  nav.toc a:hover{color:var(--accent)}
+
+  h2{
+    font-size:22px; margin:52px 0 6px; padding-top:22px;
+    border-top:1px solid var(--line); letter-spacing:-.2px;
+  }
+  h2 .n{color:var(--accent); font-weight:700; margin-right:10px; font-variant-numeric:tabular-nums}
+  h3{font-size:16.5px; margin:30px 0 10px; color:var(--fg)}
+  h4{font-size:14.5px; margin:22px 0 8px; color:var(--fg2)}
+  p{margin:11px 0}
+  ul,ol{margin:11px 0; padding-left:24px}
+  li{margin:6px 0}
+  code{
+    background:var(--card2); padding:1.5px 6px; border-radius:5px;
+    font-family:"Cascadia Mono",Consolas,monospace; font-size:13px; color:var(--accent);
+  }
+
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:20px 22px; margin:18px 0;
+  }
+  .card > h4:first-child, .card > h3:first-child{margin-top:0}
+
+  .callout{
+    border-left:3px solid var(--accent); background:var(--card);
+    padding:14px 18px; border-radius:0 10px 10px 0; margin:18px 0;
+  }
+  .callout.warn{border-left-color:var(--amber)}
+  .callout.bad{border-left-color:var(--red)}
+  .callout.good{border-left-color:var(--green)}
+  .callout .t{font-weight:700; font-size:14px; margin-bottom:5px}
+  .callout.warn .t{color:var(--amber)}
+  .callout.bad .t{color:var(--red)}
+  .callout.good .t{color:var(--green)}
+  .callout .t.acc{color:var(--accent)}
+
+  table{width:100%; border-collapse:collapse; margin:16px 0; font-size:13.7px}
+  th,td{padding:9px 11px; text-align:left; border-bottom:1px solid var(--line)}
+  th{
+    background:var(--card2); color:var(--fg2); font-weight:600; font-size:12.7px;
+    letter-spacing:.03em; border-bottom:1px solid var(--line2); white-space:nowrap;
+  }
+  td{color:var(--fg)}
+  tbody tr:hover{background:#1e2733}
+  td.num,th.num{text-align:right; font-variant-numeric:tabular-nums}
+  td.mono{font-family:"Cascadia Mono",Consolas,monospace; font-size:12.8px}
+  .tbl-wrap{overflow-x:auto; margin:16px 0}
+  .tbl-wrap table{margin:0}
+
+  .stage{
+    display:inline-block; padding:2px 9px; border-radius:6px; font-size:12px; font-weight:600;
+    background:#0b1f1b; color:var(--accent); border:1px solid var(--accent-dim);
+  }
+  .tag{display:inline-block; padding:1.5px 8px; border-radius:5px; font-size:11.8px; font-weight:600}
+  .tag.ok{background:#0f2a1c; color:var(--green); border:1px solid #1e5c38}
+  .tag.mid{background:#2c2312; color:var(--amber); border:1px solid #6b4a1e}
+  .tag.bad{background:#2c1414; color:var(--red); border:1px solid #6b2626}
+  .tag.na{background:#232a34; color:var(--fg3); border:1px solid var(--line2)}
+  .tag.drv{background:#201a2e; color:var(--purple); border:1px solid #4a3a72}
+
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:820px){.grid2{grid-template-columns:1fr} nav.toc ol{columns:1}}
+
+  .stat{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px}
+  .stat .lab{font-size:12px; color:var(--fg3); letter-spacing:.05em}
+  .stat .val{font-size:24px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums}
+  .stat .note{font-size:12px; color:var(--fg3); margin-top:3px}
+
+  hr{border:none; border-top:1px solid var(--line); margin:34px 0}
+  .src{font-size:12.5px; color:var(--fg3)}
+  a{color:var(--accent-dim)}
+  a:hover{color:var(--accent)}
+  .legend{font-size:12.5px; color:var(--fg3); margin-top:8px}
+  footer{margin-top:60px; padding-top:22px; border-top:1px solid var(--line); color:var(--fg3); font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Memory Budget Specification · Draft</div>
+  <h1>《三角洲行动》手游内存规范 <span style="color:var(--fg3);font-weight:400">v1.0（草案）</span></h1>
+  <div class="sub">按机型档位（iOS / 安卓 各五档）给出内存峰值预算、实测基线、验收方法与美术资源侧约束。</div>
+  <div class="meta">
+    <span class="pill acc">编制日期 2026-10-08</span>
+    <span class="pill">数据来源：企业微信文档 ×2</span>
+    <span class="pill">实测样本：Android 6 台 / iOS 6 台</span>
+    <span class="pill warn">iOS 与 Android 内存口径不可直接比较</span>
+    <span class="pill bad">安卓侧峰值与档位不单调（见 §4.3）</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <b>目录</b>
+  <ol>
+    <li><a href="#s1">口径与适用范围</a></li>
+    <li><a href="#s2">机型分档定义</a></li>
+    <li><a href="#s3">实测基线（原始数据）</a></li>
+    <li><a href="#s4">分档内存预算（核心）</a></li>
+    <li><a href="#s5">场景预算拆解</a></li>
+    <li><a href="#s6">美术资源侧内存规则</a></li>
+    <li><a href="#s7">验收方法与红线</a></li>
+    <li><a href="#s8">待确认与风险清单</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="s1"><span class="n">01</span>口径与适用范围</h2>
+
+<h3>1.1 指标定义</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>项目</th><th>定义</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td>核心指标</td><td class="mono">内存峰值 (MB)</td><td>验收卡口，取全程最大值</td></tr>
+    <tr><td>参考指标</td><td class="mono">内存均值 (MB)</td><td>反映稳态水位，不用于卡线</td></tr>
+    <tr><td>采集工具</td><td>PerfDog（性能狗）</td><td>WiFi 模式采集</td></tr>
+    <tr><td>卡口场景</td><td>局内（烽火地带 / 全面战场）</td><td><b>大厅静置不卡线</b>，仅作参考</td></tr>
+    <tr><td>测试配置</td><td>各机型跑<b>自身默认画质配置</b></td><td>例外：iPhone 14 Pro 由「高清+超高」上调为「极致+超高」</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout bad">
+  <div class="t">口径警告：iOS 与 Android 的内存数值不可跨平台直接比较</div>
+  PerfDog 在 iOS 上取的是 App 内存足迹（footprint），在 Android 上取的是系统级统计口径，两者统计边界不同。
+  本规范的<b>分档预算表按平台各自独立成立</b>；任何「iOS 比 Android 省 XXX MB」的结论均不成立，
+  <b>标【待确认】</b>——需用同一工具在同一口径下复测后才能下结论。
+</div>
+
+<h3>1.2 适用范围</h3>
+<ul>
+  <li><b>适用</b>：手游（移动端）Android / iOS 双平台的内存预算制定、版本验收、性能准入。</li>
+  <li><b>不适用</b>：PC 端（PC 内存/显存另有一套数据，见《【三角洲行动】性能测试》设置信息页 PC 段）。</li>
+  <li>本文的<b>档位定义</b>取自《三角洲行动》性能分档 →「手游性能分档」页签；<b>实测数据</b>取自《【三角洲行动】性能测试》→「手游测试数据」页签。</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="s2"><span class="n">02</span>机型分档定义</h2>
+
+<p>档位由低到高为 <span class="stage">五档</span> → <span class="stage">一档</span>，芯片性能越高档位越高。以下为分档原表（仅摘与内存相关列）。</p>
+
+<h3>2.1 iOS</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>档位</th><th>代表设备</th><th>内存</th><th>芯片组</th><th>占比</th></tr></thead>
+  <tbody>
+    <tr><td><span class="stage">一档</span></td><td>iPhone15、15 Plus、15 Pro、15 Pro Max</td><td class="mono">&gt;=6G</td><td class="mono">A16 / A17 Pro</td><td class="num">10%</td></tr>
+    <tr><td><span class="stage">二档</span></td><td>iPhone11 及以上</td><td class="mono">4G</td><td class="mono">A13 / A14 / A15</td><td class="num">28.32%</td></tr>
+    <tr><td><span class="stage">三挡</span></td><td>iPhoneXR、iPhoneXSMax、iPadPro 12.9"(3rd)</td><td class="mono">3-4G</td><td class="mono">A12 / A12X</td><td class="num">14.80%</td></tr>
+    <tr><td><span class="stage">四档</span></td><td>iPhone8、iPhone8Plus、iPhoneX</td><td class="mono">2-3G</td><td class="mono">A11</td><td class="num">12.09%</td></tr>
+    <tr><td><span class="stage">五档</span></td><td>iPhone7、7Plus、iPadPro 11"(2nd)、iPadPro 10.5"</td><td class="mono">2-3G</td><td class="mono">A10 / A10X</td><td class="num">13.02%</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">原表备注：iOS 不支持机型（内存 &lt; 2G，iPhone6 &amp; 6P）占比 1.735。上表占比合计 78.23%，不足 100%，差额部分原表未说明 —— 【待确认】，见 §8。</p>
+
+<h3>2.2 Android — 高通系（整体占比 39%）</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>档位</th><th>GPU 划分（Adreno）</th><th>参考芯片组</th><th>预估算力</th><th>内存</th></tr></thead>
+  <tbody>
+    <tr><td><span class="stage">一档</span></td><td class="mono">[740, 750]</td><td class="mono">SD 8Gen2 / 8Gen3</td><td class="num">&gt;700</td><td class="mono" style="color:var(--red)">原表空白</td></tr>
+    <tr><td><span class="stage">二档</span></td><td class="mono">[650, 730]</td><td class="mono">SD [865, 8Gen1]</td><td class="num">&gt;600</td><td class="mono" style="color:var(--red)">原表空白</td></tr>
+    <tr><td><span class="stage">三挡</span></td><td class="mono">[630, 650)</td><td class="mono">SD [845, 855]</td><td class="num">500-600</td><td class="mono" style="color:var(--red)">原表空白</td></tr>
+    <tr><td><span class="stage">四档</span></td><td class="mono">[540,599)、[616,630)</td><td class="mono">SD [835,845)、710</td><td class="num">300-500</td><td class="mono" style="color:var(--red)">原表空白</td></tr>
+    <tr><td><span class="stage">五档</span></td><td class="mono">[512,540)、[610,616)</td><td class="mono">SD 660</td><td class="num">150-300</td><td class="mono" style="color:var(--red)">原表空白</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="callout bad">
+  <div class="t">原表缺口：高通系「内存」整列空白</div>
+  分档原表中，高通系五档到一档的「内存」列<b>全部为空</b>；同一张表里非高通系却填了（3G / 3-4G / 4-8G / &gt;6G / &gt;8g）。
+  这属于分档表自身的空缺，本规范不代为填充数值 —— <b>标【待确认】</b>，见 §8。
+</div>
+
+<h3>2.3 Android — 非高通系（整体占比 61%）</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>档位</th><th>GPU 划分（Mali）</th><th>参考芯片组</th><th>预估算力</th><th>内存</th></tr></thead>
+  <tbody>
+    <tr><td><span class="stage">一档</span></td><td class="mono">G[715, 720]</td><td class="mono">天玑 9200 / 9200+ / 9300</td><td class="num">&gt;700</td><td class="mono">&gt;8g</td></tr>
+    <tr><td><span class="stage">二档</span></td><td class="mono">G[78, 710]</td><td class="mono">麒麟9000、天玑 D9000</td><td class="num">&gt;600</td><td class="mono">&gt;6G</td></tr>
+    <tr><td><span class="stage">三挡</span></td><td class="mono">G77</td><td class="mono">天玑 D1100 / D1200</td><td class="num">500-600</td><td class="mono">4-8G</td></tr>
+    <tr><td><span class="stage">四档</span></td><td class="mono">G76、G68</td><td class="mono">麒麟980 / 990、Helio G90</td><td class="num">330-500</td><td class="mono">3-4G</td></tr>
+    <tr><td><span class="stage">五档</span></td><td class="mono">G52、G72、G57</td><td class="mono">麒麟810 / 970、Helio P60</td><td class="num">150-330</td><td class="mono">3G</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">原表此段表头误写为「国内代表设备（高通）」，实为麒麟/联发科设备 —— 表头笔误，内容按非高通解读。</p>
+
+<!-- ============================================================ -->
+<h2 id="s3"><span class="n">03</span>实测基线（原始数据）</h2>
+
+<p>以下为 PerfDog 实测<b>原始值</b>，未经任何加工。三场景定义见 §7.1。每台机型取其「自身默认画质配置」。</p>
+
+<h3>3.1 Android</h3>
+<div class="tbl-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>机型（芯片+运存）</th><th>画面</th><th>帧率</th>
+      <th class="num">大厅静置均值</th><th class="num">大厅静置峰值</th>
+      <th class="num">烽火地带均值</th><th class="num">烽火地带峰值</th>
+      <th class="num">全面战场均值</th><th class="num">全面战场峰值</th>
+      <th class="num">三场景峰值最大</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>realme Q2<br><span class="src">天玑800U + 6G</span></td><td>流畅</td><td>中(30)</td>
+      <td class="num">1519.2</td><td class="num">1568</td>
+      <td class="num">1408.2</td><td class="num">1468</td>
+      <td class="num">1970</td><td class="num">2145</td>
+      <td class="num" style="color:var(--accent);font-weight:700">2145</td></tr>
+    <tr><td>OPPO R17 Pro<br><span class="src">骁龙710 + 8G</span></td><td>标准</td><td>中(30)</td>
+      <td class="num">1349.8</td><td class="num">1391</td>
+      <td class="num">1897.2</td><td class="num">1972</td>
+      <td class="num">1736.8</td><td class="num">1929</td>
+      <td class="num" style="color:var(--accent);font-weight:700">1972</td></tr>
+    <tr><td>小米 8<br><span class="src">骁龙845 + 8G</span></td><td>精致</td><td>高(40)</td>
+      <td class="num">1550.8</td><td class="num">1587</td>
+      <td class="num">2598</td><td class="num" style="color:var(--red);font-weight:700">2778</td>
+      <td class="num">2385.1</td><td class="num">2636</td>
+      <td class="num" style="color:var(--accent);font-weight:700">2778</td></tr>
+    <tr><td>红米 K30<br><span class="src">骁龙865 + 6G</span></td><td>精致</td><td>超高(50)</td>
+      <td class="num">1650.7</td><td class="num" style="color:var(--amber);font-weight:700">1691</td>
+      <td class="num">2440.7</td><td class="num">2577</td>
+      <td class="num">2310.7</td><td class="num">2526</td>
+      <td class="num" style="color:var(--accent);font-weight:700">2577</td></tr>
+    <tr><td>小米 11<br><span class="src">骁龙888 + 8G</span></td><td>高清</td><td>超高(50)</td>
+      <td class="num">1467</td><td class="num">1510</td>
+      <td class="num">1974.4</td><td class="num">2192</td>
+      <td class="num">1869</td><td class="num">2180</td>
+      <td class="num">2192</td></tr>
+    <tr><td>小米 11<br><span class="src">骁龙888 + 8G（高帧）</span></td><td>精致</td><td>90帧</td>
+      <td class="num">—</td><td class="num">—</td>
+      <td class="num">1948</td><td class="num">2142</td>
+      <td class="num">2022.4</td><td class="num">2253</td>
+      <td class="num">2253</td></tr>
+    <tr><td>iQOO 12<br><span class="src">8Gen3 + 12G</span></td><td>高清</td><td>120帧</td>
+      <td class="num">—</td><td class="num">—</td>
+      <td class="num">2190.9</td><td class="num">2348</td>
+      <td class="num">2124.1</td><td class="num">2345</td>
+      <td class="num">2348</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>3.2 iOS</h3>
+<div class="tbl-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>机型（芯片+运存）</th><th>画面</th><th>帧率</th>
+      <th class="num">大厅静置均值</th><th class="num">大厅静置峰值</th>
+      <th class="num">烽火地带均值</th><th class="num">烽火地带峰值</th>
+      <th class="num">全面战场均值</th><th class="num">全面战场峰值</th>
+      <th class="num">三场景峰值最大</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>iPhone 7<br><span class="src">A10 + 2G</span></td><td>流畅</td><td>中(30)</td>
+      <td class="num">761.9</td><td class="num">776</td>
+      <td class="num">1179.8</td><td class="num">1243</td>
+      <td class="num">1256.6</td><td class="num">1359</td>
+      <td class="num" style="color:var(--accent);font-weight:700">1359</td></tr>
+    <tr><td>iPhone 8P<br><span class="src">A11 + 3G</span></td><td>标准</td><td>中(30)</td>
+      <td class="num">854.4</td><td class="num">867</td>
+      <td class="num">1406.6</td><td class="num">1526</td>
+      <td class="num">1382</td><td class="num">1472</td>
+      <td class="num" style="color:var(--accent);font-weight:700">1526</td></tr>
+    <tr><td>iPhone XS<br><span class="src">A12 + 4G</span></td><td>精致</td><td>高(40)</td>
+      <td class="num">979.7</td><td class="num">995</td>
+      <td class="num">1462.1</td><td class="num">1567</td>
+      <td class="num">1591.9</td><td class="num">1828</td>
+      <td class="num" style="color:var(--accent);font-weight:700">1828</td></tr>
+    <tr><td>iPhone 11<br><span class="src">A13 + 4G</span></td><td>高清</td><td>超高(50)</td>
+      <td class="num">1056.5</td><td class="num">1062</td>
+      <td class="num">1977.3</td><td class="num">2150</td>
+      <td class="num">1824.1</td><td class="num">2016</td>
+      <td class="num" style="color:var(--accent);font-weight:700">2150</td></tr>
+    <tr><td>iPhone 14 Pro<br><span class="src">A16 + 8G</span></td><td>极致</td><td>超高(50)</td>
+      <td class="num">1023.5</td><td class="num">1040</td>
+      <td class="num">1962.7</td><td class="num">2114</td>
+      <td class="num">1881.4</td><td class="num">2119</td>
+      <td class="num">2119</td></tr>
+    <tr><td>iPhone 14 Pro<br><span class="src">A16 + 8G（高帧）</span></td><td>标准</td><td>120帧</td>
+      <td class="num">—</td><td class="num">—</td>
+      <td class="num">1804.1</td><td class="num">1927</td>
+      <td class="num">1699</td><td class="num">1898</td>
+      <td class="num">1927</td></tr>
+    <tr><td>iPhone 16<br><span class="src">A18 + 8G</span></td><td>高清</td><td>超高(50)</td>
+      <td class="num">1111.8</td><td class="num">1114</td>
+      <td class="num">1988.6</td><td class="num">2091</td>
+      <td class="num">1935.9</td><td class="num">2086</td>
+      <td class="num">2091</td></tr>
+    <tr><td>iPhone 16<br><span class="src">A18 + 8G（高帧）</span></td><td>终极</td><td>极限(60)</td>
+      <td class="num">—</td><td class="num">—</td>
+      <td class="num">1989.1</td><td class="num" style="color:var(--red);font-weight:700">2209</td>
+      <td class="num">1988.6</td><td class="num">2160</td>
+      <td class="num" style="color:var(--accent);font-weight:700">2209</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>3.3 全局极值</h3>
+<div class="grid2">
+  <div class="stat"><div class="lab">Android 三场景内存峰值最大值</div><div class="val" style="color:var(--accent)">2778 MB</div><div class="note">小米 8 · 烽火地带 60min</div></div>
+  <div class="stat"><div class="lab">iOS 三场景内存峰值最大值</div><div class="val" style="color:var(--accent)">2209 MB</div><div class="note">iPhone 16 · 烽火地带 60min（极限60帧）</div></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s4"><span class="n">04</span>分档内存预算（核心）</h2>
+
+<div class="callout">
+  <div class="t">预算推导口径（务必先读）</div>
+  <p style="margin-top:0"><b>预算上限 = 该档已测机型「三场景峰值最大值」× 1.15（15% 内容增长余量），向上取整到 100 MB。</b></p>
+  <ul style="margin-bottom:0">
+    <li><b>1.15 的余量系数</b>是本规范给出的<b>建议值（推导）</b>，不是文档中的既有数字。团队若已有既定系数，按团队口径替换。</li>
+    <li>标注 <span class="tag drv">推导</span> 的单元格为本规范计算得出；标注 <span class="tag na">无实测</span> 的档位没有直接样本，<b>不代入公式、不猜数</b>。</li>
+    <li>预算表<b>按平台各自成立</b>，iOS 与 Android 的数字不可互推（见 §1.1 口径警告）。</li>
+  </ul>
+</div>
+
+<h3>4.1 iOS 分档预算</h3>
+<div class="tbl-wrap">
+<table>
+  <thead>
+    <tr><th>档位</th><th>代表已测机型</th><th>物理内存</th><th class="num">实测峰值 (MB)</th><th class="num">建议预算上限 (MB)</th><th class="num">占物理内存</th><th>数据依据</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><span class="stage">一档</span></td><td>iPhone 16（A18）<br>iPhone 14 Pro（A16）</td><td class="mono">8 GB</td><td class="num">2209</td><td class="num" style="color:var(--accent);font-weight:700">2600</td><td class="num">27.0%</td><td><span class="tag ok">实测</span></td></tr>
+    <tr><td><span class="stage">二档</span></td><td>iPhone 11（A13）</td><td class="mono">4 GB</td><td class="num">2150</td><td class="num" style="color:var(--accent);font-weight:700">2500</td><td class="num" style="color:var(--amber)">52.5%</td><td><span class="tag ok">实测</span></td></tr>
+    <tr><td><span class="stage">三挡</span></td><td>iPhone XS（A12）</td><td class="mono">4 GB</td><td class="num">1828</td><td class="num" style="color:var(--accent);font-weight:700">2100</td><td class="num">44.6%</td><td><span class="tag ok">实测</span></td></tr>
+    <tr><td><span class="stage">四档</span></td><td>iPhone 8P（A11）</td><td class="mono">3 GB</td><td class="num">1526</td><td class="num" style="color:var(--accent);font-weight:700">1800</td><td class="num">49.7%</td><td><span class="tag ok">实测</span></td></tr>
+    <tr><td><span class="stage">五档</span></td><td>iPhone 7（A10）</td><td class="mono">2 GB</td><td class="num">1359</td><td class="num" style="color:var(--accent);font-weight:700">1600</td><td class="num" style="color:var(--red);font-weight:700">66.4%</td><td><span class="tag ok">实测</span></td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">「占物理内存」= 实测峰值 ÷ 该机型物理内存，用于评估被系统回收的风险。阈值建议见 §7.3。</p>
+
+<div class="callout warn">
+  <div class="t">iOS 侧两个需要拍板的点</div>
+  <ol style="margin:0">
+    <li><b>一档与二档预算几乎重合（2600 vs 2500）</b>——因为 iPhone 11 的实测峰值（2150）反而高于 iPhone 14 Pro（2114）。
+        硬件更强的一档没有拿到更高的内存额度。若一档要承载「终极+极限60帧」这类高配档，建议单独放宽（例如 2800–3000 MB），<b>否则一档与二档在内存上不构成区分度</b>。</li>
+    <li><b>iPhone 7（五档）占用率已达 66.4%</b>，是全部样本中最接近危险线的一台。2G 设备上再增长内容需格外谨慎。</li>
+  </ol>
+</div>
+
+<h3>4.2 Android 分档预算</h3>
+<div class="tbl-wrap">
+<table>
+  <thead>
+    <tr><th>档位</th><th>代表已测机型</th><th>物理内存</th><th class="num">实测峰值 (MB)</th><th class="num">建议预算上限 (MB)</th><th class="num">占物理内存</th><th>数据依据</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><span class="stage">一档</span></td><td>iQOO 12（8Gen3 / Adreno 750）</td><td class="mono">12 GB</td><td class="num">2348</td><td class="num" style="color:var(--accent);font-weight:700">2700</td><td class="num">19.1%</td><td><span class="tag ok">实测</span></td></tr>
+    <tr><td><span class="stage">二档</span></td><td>红米 K30（骁龙865 / Adreno 650）<br>小米 11（骁龙888 / Adreno 660）</td><td class="mono">6 / 8 GB</td><td class="num">2577</td><td class="num" style="color:var(--accent);font-weight:700">3000</td><td class="num">41.9%</td><td><span class="tag ok">实测</span></td></tr>
+    <tr><td><span class="stage">三挡</span></td><td>小米 8（骁龙845 / Adreno 630）</td><td class="mono">8 GB</td><td class="num" style="color:var(--red);font-weight:700">2778</td><td class="num" style="color:var(--accent);font-weight:700">3200</td><td class="num">33.9%</td><td><span class="tag ok">实测</span></td></tr>
+    <tr><td><span class="stage">四档</span></td><td>OPPO R17 Pro（骁龙710 / Adreno 616）</td><td class="mono">8 GB</td><td class="num">1972</td><td class="num" style="color:var(--accent);font-weight:700">2300</td><td class="num">24.1%</td><td><span class="tag ok">实测</span></td></tr>
+    <tr><td><span class="stage">五档</span></td><td>realme Q2（天玑800U / Mali-G57）<br><span class="src">非高通系，仅作近似参考</span></td><td class="mono">6 GB</td><td class="num">2145</td><td class="num" style="color:var(--accent);font-weight:700">2500</td><td class="num">34.9%</td><td><span class="tag mid">近似</span></td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">
+  <span class="tag mid">近似</span> = 该档无恰好命中的样本，用相邻段的非高通机型代替，结论不牢靠 —— 见 §8。<br>
+  <b>高通五档</b>（Adreno 512/615、SD660）与 <b>非高通四档</b>（Mali G76/G68、麒麟980/990）<b>完全没有实测样本</b>，预算空缺 <span class="tag na">无实测</span>。
+</p>
+
+<h3>4.3 关键发现：安卓侧峰值与档位不成正比</h3>
+
+<div class="callout bad">
+  <div class="t">把表按档位从高到低排，数字不是递减的</div>
+  <div class="tbl-wrap" style="margin:12px 0 0">
+  <table>
+    <thead><tr><th>档位</th><th>机型</th><th class="num">实测峰值</th><th>排序</th></tr></thead>
+    <tbody>
+      <tr><td><span class="stage">三挡</span></td><td>小米 8</td><td class="num" style="color:var(--red);font-weight:700">2778</td><td><span class="tag bad">最高</span></td></tr>
+      <tr><td><span class="stage">二档</span></td><td>红米 K30</td><td class="num">2577</td><td><span class="tag mid">次高</span></td></tr>
+      <tr><td><span class="stage">一档</span></td><td>iQOO 12</td><td class="num">2348</td><td>—</td></tr>
+      <tr><td><span class="stage">二档</span></td><td>小米 11</td><td class="num">2253</td><td>—</td></tr>
+      <tr><td><span class="stage">五档</span></td><td>realme Q2</td><td class="num">2145</td><td>—</td></tr>
+      <tr><td><span class="stage">四档</span></td><td>OPPO R17 Pro</td><td class="num" style="color:var(--green);font-weight:700">1972</td><td><span class="tag ok">最低</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<p><b>数据事实</b>：安卓全部样本的内存峰值挤在 <b>1972 ~ 2778 MB</b> 区间（跨度约 41%），且与设备档位、画质档位<b>均无明显单调关系</b>——
+最低档的 realme Q2（流畅+中30帧）峰值 2145 MB，反而高于最高档 iQOO 12（高清+120帧）的 2348 MB 只差 200 MB；
+而三挡小米 8（精致+高40帧）以 2778 MB 居首。</p>
+
+<p><b>对照 iOS</b>：iOS 侧则明显单调 —— 大厅静置峰值从五档 776 → 四档 867 → 三挡 995 → 二档 1062 → 一档 1114 MB，逐档递增，无反转。</p>
+
+<p><b>对规范的影响</b>（这是本节最重要的结论）：</p>
+<ul>
+  <li>既然安卓侧峰值由<b>场景</b>主导、而非由档位主导，那"按档位给安卓内存预算"这件事本身就<b>区分度很低</b>——五档 2500 与一档 2700 只差 200 MB，而档间硬件差距是数量级的。</li>
+  <li>因此本规范<b>同时给出简化口径</b>（见 §4.4），供团队二选一。</li>
+  <li>根因<b>未定论</b>。可能来源：① 老机型系统/后台占用口径差异；② 场景资源体量差异大于画质差异；③ 个别样本异常。属 <b>【待确认】</b>，需补测定位，见 §8。</li>
+</ul>
+
+<h3>4.4 简化口径（备选方案）</h3>
+<p>若团队希望减少分档维护成本，可按平台设<b>单一红线</b>：</p>
+<div class="grid2">
+  <div class="stat">
+    <div class="lab">Android 统一红线</div>
+    <div class="val" style="color:var(--accent)">3200 MB</div>
+    <div class="note">= 全局实测最大 2778 × 1.15，取整。覆盖全部已测安卓样本</div>
+  </div>
+  <div class="stat">
+    <div class="lab">iOS 统一红线</div>
+    <div class="val" style="color:var(--accent)">2600 MB</div>
+    <div class="note">= 全局实测最大 2209 × 1.15，取整。覆盖全部已测 iOS 样本</div>
+  </div>
+</div>
+<div class="callout warn">
+  <div class="t">简化口径的代价</div>
+  统一红线会让<b>低档设备失去保护</b>：iPhone 7 只有 2GB 物理内存，按 2600 MB 红线放行意味着允许占用到 127% —— 线上必然被杀进程。
+  所以统一红线<b>必须叠加 §7.3 的「物理内存占用率」约束</b>，两者同时满足才放行。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s5"><span class="n">05</span>场景预算拆解</h2>
+
+<p>内存水位<b>由场景主导</b>：大厅静置只到局内的 60~78%。预算应以<b>局内</b>为准。</p>
+
+<div class="tbl-wrap">
+<table>
+  <thead>
+    <tr><th>场景</th><th>平台</th><th class="num">实测最低峰值</th><th class="num">实测最高峰值</th><th class="num">建议场景预算 (MB)</th><th>是否卡线</th></tr>
+  </thead>
+  <tbody>
+    <tr><td rowspan="2">大厅静置 10min</td><td>Android</td><td class="num">1391</td><td class="num">1691</td><td class="num" style="color:var(--accent)">1900</td><td><span class="tag na">仅参考</span></td></tr>
+    <tr><td>iOS</td><td class="num">776</td><td class="num">1114</td><td class="num" style="color:var(--accent)">1300</td><td><span class="tag na">仅参考</span></td></tr>
+    <tr><td rowspan="2">烽火地带 连续 60min</td><td>Android</td><td class="num">1468</td><td class="num" style="color:var(--red)">2778</td><td class="num" style="color:var(--accent)">3200</td><td><span class="tag bad">卡线</span></td></tr>
+    <tr><td>iOS</td><td class="num">1243</td><td class="num" style="color:var(--red)">2209</td><td class="num" style="color:var(--accent)">2600</td><td><span class="tag bad">卡线</span></td></tr>
+    <tr><td rowspan="2">全面战场 连续 60min</td><td>Android</td><td class="num">1929</td><td class="num">2636</td><td class="num" style="color:var(--accent)">3100</td><td><span class="tag bad">卡线</span></td></tr>
+    <tr><td>iOS</td><td class="num">1359</td><td class="num">2160</td><td class="num" style="color:var(--accent)">2500</td><td><span class="tag bad">卡线</span></td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">场景预算 = 该场景该平台的实测最高峰值 × 1.15，向上取整到 100 MB。</p>
+
+<div class="callout good">
+  <div class="t">可用的快速判读</div>
+  <ul style="margin:0">
+    <li><b>局内峰值 ≈ 大厅静置峰值 × 1.8 ~ 2.0</b>（Android 约 1.8×，iOS 约 1.9×）。若某版本局内/大厅比值显著超出，说明局内资源加载失控，比绝对值更早暴露问题。</li>
+    <li><b>烽火地带通常是峰值场景</b>（Android 4/6 台、iOS 4/8 条记录中为最高），优先拿它做内存准入。</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s6"><span class="n">06</span>美术资源侧内存规则</h2>
+
+<p>以下摘自《三角洲行动》性能分档 →「美术制作规范」页签。<b>该页签只覆盖武器部分</b>，其余类目（场景、角色、特效等）原表为空。</p>
+
+<h3>6.1 武器面数规范</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>类别</th><th>面数上限</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td>UI 模型</td><td class="mono">≤ 4.5 万面</td><td>—</td></tr>
+    <tr><td>1P 模型（第一人称）</td><td class="mono">2 万 ~ 2.5 万面</td><td>区间值，取自原表</td></tr>
+    <tr><td>3P 模型 LOD0</td><td class="mono">1P 的 50%</td><td>即 1.0 ~ 1.25 万面</td></tr>
+    <tr><td>3P 模型 LOD1</td><td class="mono">LOD0 的 50%</td><td>即 0.5 ~ 0.63 万面</td></tr>
+    <tr><td>3P 模型 LOD2</td><td class="mono">LOD1 的 50%</td><td>即 0.25 ~ 0.31 万面</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>6.2 武器贴图分辨率规范</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>部件</th><th>分辨率</th><th>部件</th><th>分辨率</th><th>部件</th><th>分辨率</th></tr></thead>
+  <tbody>
+    <tr><td>Bar 枪管</td><td class="mono">512 或 256</td><td>Rec 机匣</td><td class="mono" style="color:var(--amber)">1024</td><td>Muz 枪口</td><td class="mono">256</td></tr>
+    <tr><td>Bip 脚架</td><td class="mono">256</td><td>Sco 准镜</td><td class="mono" style="color:var(--amber)">1024</td><td>PisG 后握把</td><td class="mono">512</td></tr>
+    <tr><td>Dev 战术装备</td><td class="mono">512</td><td>Sto 枪托</td><td class="mono">512</td><td>Reas 照门</td><td class="mono">256</td></tr>
+    <tr><td>FroG 前握把</td><td class="mono">256</td><td>Spe</td><td class="mono" style="color:var(--amber)">1024</td><td>Tri</td><td class="mono">256</td></tr>
+    <tr><td>Fros 机瞄准星</td><td class="mono">256</td><td>Han 护木</td><td class="mono">512</td><td>StockP</td><td class="mono">256</td></tr>
+    <tr><td>Mag 弹夹</td><td class="mono">512</td><td>Mou 镜架</td><td class="mono">256</td><td>Handle</td><td class="mono">256</td></tr>
+    <tr><td>Bullet</td><td class="mono">256</td><td>GripTape</td><td class="mono">256</td><td>Eyec</td><td class="mono">256</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">单张 1024 给到 3 个部件（Rec 机匣 / Sco 准镜 / Spe），其余 512 或 256。原表末行有「端手一体制作规范 / 端手一体角色规范」标题但<b>正文为空</b> —— 见 §8。</p>
+
+<h3>6.3 分辨率 → 内存换算表</h3>
+<div class="callout">
+  <div class="t">换算口径（推导，需与项目实际压缩格式对齐）</div>
+  <p style="margin-top:0">单层贴图内存 = 宽 × 高 × 每像素字节数；完整 mip 链再 × 1.33。移动端常用 ASTC，每像素占用随块大小变化：</p>
+  <p style="margin-bottom:0"><code>ASTC 4x4 = 0.50 B/px</code>　<code>ASTC 6x6 ≈ 0.22 B/px</code>　<code>ASTC 8x8 = 0.125 B/px</code></p>
+</div>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>分辨率</th><th class="num">ASTC 4x4（单层 / 含 mip）</th><th class="num">ASTC 6x6（单层 / 含 mip）</th><th class="num">ASTC 8x8（单层 / 含 mip）</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">256 × 256</td><td class="num">32 KB / 43 KB</td><td class="num">14.2 KB / 18.9 KB</td><td class="num">8 KB / 10.7 KB</td></tr>
+    <tr><td class="mono">512 × 512</td><td class="num">128 KB / 171 KB</td><td class="num">56.9 KB / 75.9 KB</td><td class="num">32 KB / 42.7 KB</td></tr>
+    <tr><td class="mono">1024 × 1024</td><td class="num">512 KB / 683 KB</td><td class="num">227.6 KB / 303.4 KB</td><td class="num">128 KB / 170.7 KB</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">
+  <b>使用说明</b>：用这张表把 §6.2 的分辨率规范折算成 MB，即可得"一把武器贴图内存上限"。<br>
+  <b>前提假设</b>：① ASTC 压缩；② 按完整 mip 链计；③ 单张贴图仅一个图集通道（不含 RMA / Normal 等附加通道）。
+  项目实际使用的是哪种 ASTC 块大小<b>未在本批文档中出现</b> —— <span class="tag na">待确认</span>，确认后本表可直接作为美术侧卡口。
+</p>
+
+<!-- ============================================================ -->
+<h2 id="s7"><span class="n">07</span>验收方法与红线</h2>
+
+<h3>7.1 测试场景定义（摘自《【三角洲行动】性能测试》→「用例」页签）</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>测试模块</th><th>场景</th><th>步骤</th><th>备注</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>烽火地带</b><br>大厅静置 10min</td>
+      <td>在大厅中静置 10min，不做任何操作</td>
+      <td>① 登录游戏至大厅，等待内存稳定<br>② 开始标记<br>③ 在大厅中静置 10min，不做任何操作<br>④ 10min 后结束标记</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td rowspan="2"><b>局内对战</b></td>
+      <td>烽火地带</td>
+      <td>① 进入烽火地带游戏大厅，记录温度<br>② 点击「行前备战」，选择零号大坝<br>③ 进入对局后开始标记，每 10min 记录一次温度<br>④ 对局结束标记，连续对局约 60min</td>
+      <td rowspan="2">① WiFi 模式测试<br>② 点击设置更换玩法</td>
+    </tr>
+    <tr>
+      <td>全面战场</td>
+      <td>① 进入全面战场游戏大厅，记录温度<br>② 选择攻防模式，点击开始游戏<br>③ 进入对局后开始标记，每 10min 记录一次温度<br>④ 对局结束标记，连续对局约 60min</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>7.2 准入判定</h3>
+<div class="card">
+  <h4>一次验收 = 同时满足以下全部条件</h4>
+  <ol>
+    <li><b>分档红线</b>：该机型所属档位的「建议预算上限」不被突破（§4.1 / §4.2）。</li>
+    <li><b>场景红线</b>：局内（烽火地带 / 全面战场）峰值不超过 §5 的场景预算。</li>
+    <li><b>物理内存约束</b>：峰值 ÷ 物理内存 ≤ 阈值（§7.3）。</li>
+    <li><b>口径一致</b>：与基线同工具（PerfDog）、同模式（WiFi）、同场景时长（60min）复测，可比。</li>
+  </ol>
+  <p style="margin-bottom:0"><b>不满足任一条件 → 打回</b>，并附上超标场景与超标量。</p>
+</div>
+
+<h3>7.3 物理内存占用率阈值（建议）</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>占用率</th><th>判定</th><th>处置</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">≤ 40%</td><td><span class="tag ok">健康</span></td><td>放行</td></tr>
+    <tr><td class="mono">40% ~ 55%</td><td><span class="tag mid">关注</span></td><td>放行，但需跟踪增长趋势</td></tr>
+    <tr><td class="mono">55% ~ 70%</td><td><span class="tag mid">预警</span></td><td>需说明增长来源，禁新增常驻资源</td></tr>
+    <tr><td class="mono">&gt; 70%</td><td><span class="tag bad">红线</span></td><td>不通过。后台被系统回收风险高</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="legend">
+  <b>阈值说明</b>：本表阈值是本规范给出的<b>建议值（推导）</b>，非文档既有数字。<br>
+  <b>按此口径复核现有样本</b>：iPhone 7（五档）66.4% 已进入「预警」区间，是唯一接近红线的机型，
+  而它恰好是档位最低、物理内存最小的 2GB 设备 —— <b>五档应作为内存增长的第一道闸门</b>。<br>
+  其余样本均在「健康」或「关注」区间（Android 19.1%~41.9%，iOS 26.4%~52.5%）。
+</p>
+
+<!-- ============================================================ -->
+<h2 id="s8"><span class="n">08</span>待确认与风险清单</h2>
+
+<p>以下条目<b>在本批文档中找不到依据</b>，本规范不代为填充数值，全部标记为待确认。</p>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th style="width:44px">#</th><th>事项</th><th>影响</th><th>建议动作</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="mono">1</td>
+      <td><b>高通系分档表「内存」整列空白</b>（五档~一档）</td>
+      <td>无法按官方内存段校验档位划分是否正确</td>
+      <td>向文档 owner 补齐该列</td>
+    </tr>
+    <tr>
+      <td class="mono">2</td>
+      <td><b>安卓峰值与档位不单调</b>（三挡 2778 &gt; 一档 2348）</td>
+      <td>直接影响"预算是否该按档位差异化"的结论</td>
+      <td>补测：同场景下加测高通五档 / 非高通四档，并复核小米 8 样本</td>
+    </tr>
+    <tr>
+      <td class="mono">3</td>
+      <td><b>iOS 与 Android 内存口径是否可比</b></td>
+      <td>决定分档预算能否跨平台统一表述</td>
+      <td>明确 PerfDog 两侧的取值定义，或统一改用同一指标</td>
+    </tr>
+    <tr>
+      <td class="mono">4</td>
+      <td><b>iOS 占比合计仅 78.23%</b>，差额 ~20% 无归属</td>
+      <td>档位覆盖率不完整，可能出现未覆盖设备</td>
+      <td>确认剩余占比构成；确认「不支持机型 1.735」的单位（%）</td>
+    </tr>
+    <tr>
+      <td class="mono">5</td>
+      <td><b>15% 余量系数、70% 占用率阈值</b>均为本规范推导</td>
+      <td>预算数值会随系数变化</td>
+      <td>与团队既有口径对齐后固化到 v1.0 正式版</td>
+    </tr>
+    <tr>
+      <td class="mono">6</td>
+      <td><b>项目实际使用的 ASTC 块大小未记录</b></td>
+      <td>§6.3 换算表无法落到唯一数值</td>
+      <td>确认压缩格式后锁定换算表</td>
+    </tr>
+    <tr>
+      <td class="mono">7</td>
+      <td><b>美术制作规范仅覆盖武器</b>；「端手一体角色规范」正文为空</td>
+      <td>场景/角色/特效的内存约束完全缺失</td>
+      <td>补齐其余类目，否则美术侧内存无人卡口</td>
+    </tr>
+    <tr>
+      <td class="mono">8</td>
+      <td><b>非高通系表头误写为「国内代表设备（高通）」</b></td>
+      <td>文档可读性，可能误读分档</td>
+      <td>修正表头</td>
+    </tr>
+    <tr>
+      <td class="mono">9</td>
+      <td><b>「三挡 / 三档」用字不一致</b></td>
+      <td>轻微，影响检索与对齐</td>
+      <td>统一用字</td>
+    </tr>
+    <tr>
+      <td class="mono">10</td>
+      <td><b>iOS 一档与二档预算实测重合</b></td>
+      <td>一档在内存维度无区分度</td>
+      <td>决定是否为一档单独放宽</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<hr>
+
+<h3>数据来源</h3>
+<ul class="src">
+  <li><b>档位定义 / 帧率画质矩阵 / 美术制作规范</b> —— 《三角洲行动》性能分档（企业微信文档）
+      · sheet <code>手游性能分档</code>、<code>美术制作规范</code></li>
+  <li><b>实测内存/帧率/功耗温度</b> —— 【三角洲行动】性能测试（企业微信文档）
+      · sheet <code>手游测试数据</code>（大厅静置 / 烽火地带60min / 全面战场60min）、<code>设置信息</code>、<code>用例</code></li>
+  <li><b>采集工具</b> —— PerfDog（性能狗），WiFi 模式。原始 case 链接见源表「测试链接」列。</li>
+</ul>
+
+<footer>
+  《三角洲行动》手游内存规范 v1.0（草案） · 编制日期 2026-10-08<br>
+  本文件中标注 <span class="tag drv">推导</span> / <span class="tag mid">近似</span> / <span class="tag na">待确认</span> 的数值均非源文档既有数据，使用前请先闭环 §8 清单。
+</footer>
+
+</div>
+</body>
+</html>
