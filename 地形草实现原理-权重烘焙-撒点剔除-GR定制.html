@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>UE5 地形草（Landscape Grass）实现原理 — GR 分叉源码考古</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --ink:#1c2126; --ink2:#4a5560; --ink3:#7a8791;
+    --line:#e3e7eb; --accent:#1a6fd4; --accent-bg:#eef4fc;
+    --warn-bg:#fff8e6; --warn-line:#e8c46a; --warn-ink:#7a5a12;
+    --bad-bg:#fdeeee; --bad-line:#e0a0a0; --bad-ink:#8a3030;
+    --ok-bg:#eef8f0; --ok-line:#8fc39a; --ok-ink:#2c6b3a;
+    --code:#f2f4f6; --code-ink:#243;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.75 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:1080px;margin:0 auto;padding:36px 28px 90px;}
+  h1{font-size:27px;line-height:1.35;margin:0 0 6px;letter-spacing:-.3px}
+  .sub{color:var(--ink3);font-size:13.5px;margin-bottom:26px}
+  h2{font-size:20px;margin:44px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+  p{margin:10px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 22px;margin:16px 0}
+  code,.mono{font-family:"JetBrains Mono",Consolas,"Courier New",monospace;font-size:13px;
+    background:var(--code);color:var(--code-ink);padding:1.5px 5px;border-radius:4px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+    overflow-x:auto;font-size:12.5px;line-height:1.65;margin:12px 0}
+  pre code{background:none;padding:0}
+  .ref{font-family:Consolas,monospace;font-size:12px;color:var(--accent);
+    background:var(--accent-bg);padding:1px 5px;border-radius:4px;white-space:nowrap}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px;background:var(--card)}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:#f0f3f6;font-weight:600}
+  td code{font-size:12px}
+  .callout{border-left:4px solid var(--accent);background:var(--accent-bg);
+    border-radius:0 8px 8px 0;padding:12px 18px;margin:16px 0}
+  .warn{border-left:4px solid var(--warn-line);background:var(--warn-bg);color:var(--warn-ink);
+    border-radius:0 8px 8px 0;padding:12px 18px;margin:16px 0}
+  .bad{border-left:4px solid var(--bad-line);background:var(--bad-bg);color:var(--bad-ink);
+    border-radius:0 8px 8px 0;padding:12px 18px;margin:16px 0}
+  .ok{border-left:4px solid var(--ok-line);background:var(--ok-bg);color:var(--ok-ink);
+    border-radius:0 8px 8px 0;padding:12px 18px;margin:16px 0}
+  .warn b,.bad b,.ok b,.callout b{color:inherit}
+  ul,ol{margin:10px 0;padding-left:24px}
+  li{margin:5px 0}
+  .tag{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:20px;
+    background:var(--accent-bg);color:var(--accent);margin-right:6px;font-weight:600}
+  .tag.self{background:var(--warn-bg);color:var(--warn-ink)}
+  svg{display:block;margin:18px auto;max-width:100%}
+  .cap{text-align:center;color:var(--ink3);font-size:12.5px;margin-top:-6px}
+  hr{border:none;border-top:1px solid var(--line);margin:34px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>UE5 地形草（Landscape Grass）实现原理<br><span style="font-size:17px;color:var(--ink2);font-weight:400">GR / 三角洲分叉源码考古 · 权重烘焙 · 撒点算法 · 剔除定制</span></h1>
+<div class="sub">仓库 <code>C:\GR_main</code> · 引擎 <code>UE5EA</code>（UE 5.5.4 分叉）· 每条结论均附 <code>文件:行号</code> 证据</div>
+
+<div class="callout">
+<b>一句话结论：</b>地形草不是"美术摆出来的实例"，而是一套 <b>材质权重 → GPU 烘焙 → 扁平权重表 → CPU 概率撒点 → 后台线程建剔除树 → 运行时动态 HISM 上屏</b> 的程序化系统。整套链路的重心全在引擎侧，游戏工程几乎不碰它。
+</div>
+
+<h2>0. 先纠一个概念 —— 你 session 里的"转 ISM"<span class="tag self">重点</span></h2>
+
+项目配置里确实有 <code>foliage.ForceISM=1</code>（<span class="ref">DefaultEngine.ini:268</span>），CVar 定义在 <span class="ref">WorldPartitionLevelHelper.cpp:95-100</span>，帮助文本写着 "all <b>FoliageInstancedStaticMeshComponent</b> will be replaced with InstancedStaticMeshComponent during cooking"。
+
+<b>但它管不到地形草</b>，两条独立的理由：
+
+1. <b>类型不匹配</b>：转换用 <code>IFA-&gt;ForEachComponent&lt;UFoliageInstancedStaticMeshComponent&gt;(...)</code>（<span class="ref">WorldPartitionLevelHelper.cpp:1760</span>）筛选，只遍历 <b>InstancedFoliageActor 上手动摆放的植被</b>。地形草的组件类型是 <code>UGrassInstancedStaticMeshComponent</code>（<span class="ref">GrassInstancedStaticMeshComponent.h:10</span>，继承 <code>UHierarchicalInstancedStaticMeshComponent</code>），不在筛选范围内。
+2. <b>时机不匹配</b>：转换发生在 <b>cook 期的关卡 Actor 上</b>（<span class="ref">WorldPartitionLevelHelper.cpp:1758</span>）。而地形草组件是 <code>ALandscapeProxy</code> 在 <b>运行时</b>用 <code>NewObject&lt;UGrassInstancedStaticMeshComponent&gt;(this, NAME_None, RF_Transient)</code> 动态造出来的（<span class="ref">LandscapeGrass.cpp:3000</span>），<b>cook 期根本不存在</b>，没有可转换的对象。
+
+<div class="ok">结论：<b><code>foliage.ForceISM</code> 是"植被 Foliage → 平铺 ISM"的 cook 期优化，与地形草是两条完全独立的链路。</b>地形草的实例承载组件至今仍是 HISM，靠自建 ClusterTree 做剔除。</div>
+
+<h2>1. 架构总览</h2>
+
+<svg viewBox="0 0 1020 470" width="1020" height="470" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#5a6b7a"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1020" height="470" fill="#f7f8fa"/>
+
+  <!-- 阶段一 作者期 -->
+  <rect x="20" y="20" width="300" height="120" rx="9" fill="#eef4fc" stroke="#1a6fd4" stroke-width="1.5"/>
+  <text x="170" y="44" text-anchor="middle" font-size="13.5" font-weight="700" fill="#1a6fd4">① 作者期（编辑器）</text>
+  <text x="38" y="70" font-size="12.5" fill="#243">地形材质里放 LandscapeGrassOutput 节点</text>
+  <text x="38" y="91" font-size="12.5" fill="#243">每种草一根输入 → 输出 0~1 权重</text>
+  <text x="38" y="112" font-size="12.5" fill="#243">遍历 ULandscapeGrassType（含多个 FGrassVariety）</text>
+  <text x="38" y="131" font-size="11.5" fill="#7a8791">上限 32 个 GrassType / 节点</text>
+
+  <!-- 阶段二 GPU烘焙 -->
+  <rect x="360" y="20" width="300" height="120" rx="9" fill="#fdf3e6" stroke="#d99a3c" stroke-width="1.5"/>
+  <text x="510" y="44" text-anchor="middle" font-size="13.5" font-weight="700" fill="#a86a12">② 权重烘焙（GPU + 回读）</text>
+  <text x="378" y="70" font-size="12.5" fill="#243">FLandscapeGrassMapsBuilder 驱动六态状态机</text>
+  <text x="378" y="91" font-size="12.5" fill="#243">渲染整条 PF_B8G8R8A8 长条 RT</text>
+  <text x="378" y="112" font-size="12.5" fill="#243">每 pass 打包 4 个权重，pass0 的 RG 存高度</text>
+  <text x="378" y="131" font-size="11.5" fill="#7a8791">异步回读 → FLandscapeComponentGrassData</text>
+
+  <!-- 阶段三 CPU撒点 -->
+  <rect x="700" y="20" width="300" height="120" rx="9" fill="#eef8f0" stroke="#3f8f52" stroke-width="1.5"/>
+  <text x="850" y="44" text-anchor="middle" font-size="13.5" font-weight="700" fill="#2c6b3a">③ 撒点（后台线程）</text>
+  <text x="718" y="70" font-size="12.5" fill="#243">FAsyncGrassBuilder::Build()</text>
+  <text x="718" y="91" font-size="12.5" fill="#243">网格+抖动 或 Halton 序列</text>
+  <text x="718" y="112" font-size="12.5" fill="#243">权重当概率：Weight ≥ rand() 才保留</text>
+  <text x="718" y="131" font-size="11.5" fill="#7a8791">产出 InstanceBuffer + ClusterTree</text>
+
+  <line x1="320" y1="80" x2="356" y2="80" stroke="#5a6b7a" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="660" y1="80" x2="696" y2="80" stroke="#5a6b7a" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <!-- 中间：调度 -->
+  <rect x="20" y="180" width="980" height="96" rx="9" fill="#ffffff" stroke="#c4ccd4" stroke-width="1.4"/>
+  <text x="510" y="204" text-anchor="middle" font-size="13.5" font-weight="700" fill="#4a5560">④ 调度：ALandscapeProxy::UpdateGrass() — 每帧摊帧驱动（按相机距离 + GuardBand）</text>
+  <text x="40" y="230" font-size="12.5" fill="#243">MustHaveDistance = GuardBandMultiplier(1.3) × EndCullDistance × CullDistanceScale　→ 开始创建</text>
+  <text x="40" y="250" font-size="12.5" fill="#243">DiscardDistance　 = GuardBandDiscardMultiplier(1.4) × EndCullDistance × CullDistanceScale　→ 丢弃回收</text>
+  <text x="40" y="269" font-size="11.5" fill="#7a8791">每帧限量：MaxCreatePerFrame=1 个组件、MaxAsyncTasks=4 个后台任务；按距离排序优先建近处</text>
+
+  <line x1="170" y1="142" x2="170" y2="176" stroke="#5a6b7a" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="510" y1="142" x2="510" y2="176" stroke="#5a6b7a" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="850" y1="142" x2="850" y2="176" stroke="#5a6b7a" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <!-- 阶段五 上屏 -->
+  <rect x="20" y="308" width="470" height="140" rx="9" fill="#f2f0fa" stroke="#6b5cc4" stroke-width="1.5"/>
+  <text x="255" y="332" text-anchor="middle" font-size="13.5" font-weight="700" fill="#5040a0">⑤ 上屏：HISM 承载</text>
+  <text x="38" y="358" font-size="12.5" fill="#243">UGrassInstancedStaticMeshComponent（HISM 子类）</text>
+  <text x="38" y="379" font-size="12.5" fill="#243">AcceptPrebuiltTree() 整体接收后台建好的树</text>
+  <text x="38" y="400" font-size="12.5" fill="#243">AttachToComponent(LandscapeProxy 根组件)</text>
+  <text x="38" y="421" font-size="12.5" fill="#243">NoCollision / 不参与导航 / Mobility=Static</text>
+  <text x="38" y="440" font-size="11.5" fill="#7a8791">对象池复用（qiuzijian）+ PrecachePSOs()</text>
+
+  <rect x="530" y="308" width="470" height="140" rx="9" fill="#f2f0fa" stroke="#6b5cc4" stroke-width="1.5"/>
+  <text x="765" y="332" text-anchor="middle" font-size="13.5" font-weight="700" fill="#5040a0">⑥ 剔除：ClusterTree + 自研开关</text>
+  <text x="548" y="358" font-size="12.5" fill="#243">FClusterNode 树逐节点视锥 + 距离剔除</text>
+  <text x="548" y="379" font-size="12.5" fill="#243">蓝圈剔除 bUseBlueCircleCulling（无条件 true）</text>
+  <text x="548" y="400" font-size="12.5" fill="#243">概率剔除 grass.ProbabilisticCulling（默认关）</text>
+  <text x="548" y="421" font-size="12.5" fill="#243">遮挡层 OcclusionLayerNum 分层</text>
+  <text x="548" y="440" font-size="11.5" fill="#7a8791">走 HISM proxy，不进 Lumen 场景</text>
+
+  <line x1="255" y1="276" x2="255" y2="304" stroke="#5a6b7a" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="765" y1="276" x2="765" y2="304" stroke="#5a6b7a" stroke-width="1.4" marker-end="url(#ar)"/>
+</svg>
+<div class="cap">图 1 · 地形草六阶段总览</div>
+
+<h2>2. 配置层：ULandscapeGrassType / FGrassVariety</h2>
+
+<p>一个 <code>ULandscapeGrassType</code>（<span class="ref">LandscapeGrassType.h:184</span>）只是 <code>TArray&lt;FGrassVariety&gt; GrassVarieties</code>（<span class="ref">LandscapeGrassType.h:189</span>）的容器 —— 一个草类型下可以挂多种草（大草/小草/花）。字段很少：</p>
+
+<table>
+<tr><th>字段</th><th>位置</th><th>含义</th></tr>
+<tr><td><code>GrassVarieties</code></td><td><span class="ref">LandscapeGrassType.h:189</span></td><td>草种类列表，每种一个 mesh + 参数</td></tr>
+<tr><td><code>bEnableDensityScaling</code></td><td><span class="ref">LandscapeGrassType.h:196</span></td><td>是否受 <code>grass.densityScale</code> 全局缩放；同时决定加载时是否丢弃其权重数据</td></tr>
+<tr><td><code>StateHash</code></td><td><span class="ref">LandscapeGrassType.h:199</span></td><td><code>ComputeStateHash()</code> 对整个对象做 CRC，用于变更检测</td></tr>
+</table>
+
+<p><code>FGrassVariety</code>（<span class="ref">LandscapeGrassType.h:32</span>）才是参数主体，默认值集中定义在 <span class="ref">LandscapeGrass.cpp:1315-1346</span>：</p>
+
+<table>
+<tr><th>字段</th><th>默认值</th><th>作用</th></tr>
+<tr><td><code>GrassMesh</code></td><td>nullptr</td><td>为 null 则整个 variety 跳过（<span class="ref">LandscapeGrass.cpp:2842</span>）</td></tr>
+<tr><td><code>GrassDensity</code></td><td>400</td><td>密度，注释称 "per 10 m²"（<span class="ref">LandscapeGrassType.h:44</span>），实际量纲见 §4 警示</td></tr>
+<tr><td><code>bUseGrid</code></td><td><b>true</b></td><td>true=抖动网格；false=Halton 低差异序列（<span class="ref">LandscapeGrass.cpp:2847</span>）</td></tr>
+<tr><td><code>PlacementJitter</code></td><td>1.0</td><td>网格抖动量，内部 clamp 到 [0, 0.99]（<span class="ref">LandscapeGrass.cpp:2243</span>）</td></tr>
+<tr><td><code>StartCullDistance</code></td><td>10000</td><td>开始淡出距离（配合 PerInstanceFadeAmount 节点）</td></tr>
+<tr><td><code>EndCullDistance</code></td><td>10000</td><td>完全淡出 / 整簇剔除距离，<b>还决定组件是否被创建</b></td></tr>
+<tr><td><code>DetailMode</code></td><td>DM_Low</td><td>高于 <code>r.DetailMode</code> 时密度直接置 0（<span class="ref">LandscapeGrass.cpp:1816</span>）</td></tr>
+<tr><td><code>AllowedDensityRange</code></td><td>(0.0, 1.0)</td><td>权重落在该区间才可能生成</td></tr>
+<tr><td><code>Scaling</code></td><td>Uniform</td><td>Uniform / Free / <b>TrueFree</b> / LockXY（<span class="ref">LandscapeGrassType.h:17-29</span>）</td></tr>
+<tr><td><code>RandomRotation</code></td><td>true</td><td>随机 Yaw 0~360</td></tr>
+<tr><td><code>AlignToSurface</code></td><td>true</td><td>按地表法线倾斜</td></tr>
+<tr><td><code>MinLOD</code></td><td>-1</td><td>-1 表示沿用 StaticMesh 自身 MinLOD</td></tr>
+<tr><td><code>bCastDynamicShadow</code></td><td>true</td><td>被 <code>grass.DisableDynamicShadows</code> 全局压制</td></tr>
+</table>
+
+<div class="warn">
+<b>不存在</b> "是否使用网格体 / 是否 procedural" 这类字段 —— 已确认未找到。最接近的只有 <code>bUseGrid</code>（网格 vs Halton <b>放置序列</b>），与 procedural mesh 无关。
+</div>
+
+<h2>3. 数据：一张"高度 + 权重"的扁平表</h2>
+
+<p>地形草<b>不缓存任何实例变换</b>。每个 <code>ULandscapeComponent</code> 持有一份 <code>FLandscapeComponentGrassData</code>（<span class="ref">LandscapeComponent.h:203</span>），内部就是一块连续内存：</p>
+
+<svg viewBox="0 0 980 210" width="980" height="210" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="980" height="210" fill="#f7f8fa"/>
+  <text x="20" y="26" font-size="13" font-weight="700" fill="#243">HeightWeightData : TArray&lt;uint8&gt;　（单块连续内存，NumElements = (ComponentSizeQuads+1)²）</text>
+
+  <rect x="20" y="46" width="290" height="54" fill="#eef4fc" stroke="#1a6fd4" stroke-width="1.4"/>
+  <text x="165" y="70" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1a6fd4">高度：NumElements × uint16</text>
+  <text x="165" y="89" text-anchor="middle" font-size="11.5" fill="#4a5560">每顶点一个高度（GetLocalHeight 还原）</text>
+
+  <rect x="310" y="46" width="200" height="54" fill="#eef8f0" stroke="#3f8f52" stroke-width="1.4"/>
+  <text x="410" y="70" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2c6b3a">权重 A：NumElements × uint8</text>
+  <text x="410" y="89" text-anchor="middle" font-size="11.5" fill="#4a5560">GrassType A，每顶点 0~255</text>
+
+  <rect x="510" y="46" width="200" height="54" fill="#eef8f0" stroke="#3f8f52" stroke-width="1.4"/>
+  <text x="610" y="70" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2c6b3a">权重 B：NumElements × uint8</text>
+  <text x="610" y="89" text-anchor="middle" font-size="11.5" fill="#4a5560">GrassType B</text>
+
+  <rect x="710" y="46" width="250" height="54" fill="#f2f0fa" stroke="#6b5cc4" stroke-width="1.4" stroke-dasharray="5,4"/>
+  <text x="835" y="70" text-anchor="middle" font-size="12.5" fill="#5040a0">… 每个 GrassType 一段</text>
+  <text x="835" y="89" text-anchor="middle" font-size="11.5" fill="#5040a0">全零的段会被剥离（省内存）</text>
+
+  <path d="M20 134 L310 134" stroke="#1a6fd4" stroke-width="1.4"/>
+  <text x="150" y="150" text-anchor="middle" font-size="11.5" fill="#1a6fd4">WeightOffsets[Type] = 该段起始字节偏移</text>
+  <path d="M310 134 L960 134" stroke="#3f8f52" stroke-width="1.4"/>
+  <text x="700" y="150" text-anchor="middle" font-size="11.5" fill="#2c6b3a">TMap&lt;ULandscapeGrassType*, int32&gt; WeightOffsets 记录各段起点</text>
+
+  <text x="20" y="182" font-size="12" fill="#4a5560">三态语义（HasValidData）： NumElements &lt; 0 → 还没算； == 0 → 算过但全零已剥离； &gt; 0 → 有非零权重</text>
+  <text x="20" y="201" font-size="11.5" fill="#7a8791">见 LandscapeComponent.h:226-232 · LandscapeGrass.cpp:1487-1493</text>
+</svg>
+<div class="cap">图 2 · FLandscapeComponentGrassData 内存布局</div>
+
+<p>打包逻辑在 <span class="ref">LandscapeGrass.cpp:1544-1579</span>（<code>InitializeFrom</code>）：先把高度 memcpy 进去，再按 GrassType 逐个追加权重段并记录偏移。读取时 <code>GetWeight(x,y) = WeightData[x + Stride*y] / 255.f</code>（<span class="ref">LandscapeGrass.cpp:1879</span>），<code>Stride = ComponentSizeQuads + 1</code>（<span class="ref">LandscapeGrass.cpp:1865</span>）。</p>
+
+<p>序列化有明确的版本演进（<span class="ref">LandscapeGrass.cpp:1634-1731</span>）：关键分水岭是 <code>LandscapeGrassSingleArray</code>（<span class="ref">LandscapeGrass.cpp:1674</span>）—— 在此之前高度与权重是分开的两个容器，之后才统一成 <code>NumElements / WeightOffsets / HeightWeightData</code> 三件套；另一条是 <code>LandscapeSupportPerComponentGrassTypes</code>（<span class="ref">LandscapeGrass.cpp:1642</span>），把旧的 <code>MaterialStateIds</code> 换成单一 <code>GenerationHash</code>。</p>
+
+<h2>4. 权重从哪来：材质节点 → GPU 烘焙 → 回读</h2>
+
+<h3>4.1 材质侧</h3>
+<p>地形材质里的 <code>LandscapeGrassOutput</code> 节点，每个输入是一个 <code>FGrassInput</code>（<span class="ref">MaterialExpressionLandscapeGrassOutput.h:17</span>），持有 <code>Name</code> / <code>GrassType</code> / <code>Input</code>，节点上限 <b>32</b> 个草类型（<span class="ref">MaterialExpressionLandscapeGrassOutput.h:46</span>）。编译时把引脚透传到自定义输出槽，未连线则恒为 0（<span class="ref">LandscapeGrass.cpp:1191-1201</span>）。</p>
+
+<h3>4.2 GPU 烘焙</h3>
+<p>由 <code>FLandscapeGrassMapsBuilder</code>（<span class="ref">LandscapeGrassMapsBuilder.h:37</span>，由 <code>ULandscapeSubsystem</code> 持有）驱动，每个 component 走一个六态状态机（<span class="ref">LandscapeGrassMapsBuilder.h:91-99</span>）：</p>
+
+<pre><code>Pending → NotReady → TextureStreaming → Rendering → AsyncFetch → GrassMapsPopulated</code></pre>
+
+<p>渲染采用<b>一整条横向长条 RT</b>（不是每 variety 一张纹理）：</p>
+<ul>
+<li>目标格式 <code>PF_B8G8R8A8</code>（<span class="ref">LandscapeGrassWeightExporter.cpp:519</span>），无块压缩、无持久 UTexture，纯 RDG 临时资源，回读后丢弃。</li>
+<li>分辨率 = <b>一个地形顶点一个纹素</b>：<code>ComponentSizeVerts = ComponentSizeQuads + 1</code>（<span class="ref">LandscapeGrassWeightExporter.cpp:565</span>），例如 63 quads → 64×64。</li>
+<li>高度占用 2 个通道，故每 pass 净装 4 个权重：<code>NumPasses = ceil((2 + NumGrassMaps) / 4)</code>（<span class="ref">LandscapeGrassWeightExporter.h:64</span>）；pass 0 的 RG 存高度、BA 存权重 0/1（<span class="ref">LandscapeGrassWeight.usf:82-96</span>）。</li>
+<li>整条 RT 宽度 = 所有 component × pass 横向拼接（<span class="ref">LandscapeGrassWeightExporter.cpp:586-588</span>），正交俯视、强制 LOD 0（<span class="ref">LandscapeGrassWeightExporter.cpp:501</span>）。</li>
+</ul>
+
+<p>回读后 <code>FetchResults</code>（<span class="ref">LandscapeGrassWeightExporter.cpp:763-779</span>）做解交织：高度按 <code>R&lt;&lt;8|G</code> 还原成 uint16，权重按 stride 4 的字节视图取（<span class="ref">LandscapeGrassWeightExporter.cpp:814-815</span>），最终 <code>InitializeFrom(..., bStripEmptyWeights = true)</code>（<span class="ref">LandscapeGrassWeightExporter.cpp:898</span>）写入 <code>Component-&gt;GrassData</code>（<span class="ref">LandscapeGrassWeightExporter.cpp:924</span>）。</p>
+
+<div class="warn">
+<b>移动端关键限制：</b>Grass weight 导出 shader 要求 <b>SM5</b>（<span class="ref">LandscapeGrassWeightExporter.cpp:54</span>、<span class="ref">:97</span>、<span class="ref">:124</span>）。即移动端（ES3_1）<b>不能在运行时生成 grassmap</b>，只能用烘焙进包的数据 —— 这决定了移动端草的密度是"策划期定死的"。
+</div>
+
+<h2>5. 撒点算法：权重当概率用</h2>
+
+<p>核心在 <code>FAsyncGrassBuilder::Build()</code>（<span class="ref">LandscapeGrass.cpp:2173</span>），跑在<b>后台线程</b>。候选点数量由密度反推网格边长：</p>
+
+<pre><code>SqrtMaxInstances = CeilToInt32(Sqrt(|Extent.X * Extent.Y * GrassDensity / 1000.0f / 1000.0f|))</code></pre>
+<p style="font-size:12.5px;color:var(--ink3)">—— <span class="ref">LandscapeGrass.cpp:1837</span>。<code>Extent</code> 单位为 cm（<span class="ref">LandscapeGrass.cpp:1829-1831</span>）。</p>
+
+<div class="warn">
+<b>量纲警示（实测踩点）：</b><code>GrassDensity</code> 的注释写 "Instances per 10 square meters"（<span class="ref">LandscapeGrassType.h:44</span>），但公式除的是 <code>1e6</code>。在 cm² 量纲下 <code>1e6 cm² = 100 m²</code>，与注释声称的 10 m² 差一个数量级。<b>调密度时以公式实测为准，不要按注释心算。</b>（本条为源码字面差异，未找到其他说明。）
+</div>
+
+<p>两条撒点路径，保留判据完全一致：</p>
+
+<table>
+<tr><th>路径</th><th>触发</th><th>位置</th><th>说明</th></tr>
+<tr><td>Halton 序列</td><td><code>bUseGrid == false</code></td><td><span class="ref">LandscapeGrass.cpp:2181-2239</span></td><td><code>Halton(idx + BaseIndex, 2)</code> / <code>(..., 3)</code> 生成 XY，低差异、无网格感</td></tr>
+<tr><td>抖动网格</td><td><code>bUseGrid == true</code>（默认）</td><td><span class="ref">LandscapeGrass.cpp:2240-2374</span></td><td>规则网格 + 两个独立随机数做 jitter（<span class="ref">LandscapeGrass.cpp:2271-2273</span>）</td></tr>
+</table>
+
+<pre><code>Instance.bKeep = (Weight &gt; AllowedDensityRange.Min)
+              &amp;&amp; (Weight &lt;= AllowedDensityRange.Max)
+              &amp;&amp; (Weight &gt;= RandomStream.GetFraction())   // ← 权重即概率
+              &amp;&amp; !IsExcluded(Instance.Pos);</code></pre>
+<p style="font-size:12.5px;color:var(--ink3)">—— Halton 分支 <span class="ref">LandscapeGrass.cpp:2205-2207</span>；网格分支 <span class="ref">LandscapeGrass.cpp:2285-2287</span>。</p>
+
+<div class="callout">
+<b>这是整个系统最优雅的一点：权重不是"数量"，而是"生存概率"。</b>权重 0.5 意味着该候选点约 50% 概率长出一棵草。所以策划刷权重直接控制疏密，而实例数天然随权重线性缩放，无需额外的数量映射表。
+</div>
+
+<p>权重采样是<b>双线性插值</b>（取周围 4 个顶点），高度按四边形三角剖分做重心坐标还原（<span class="ref">LandscapeGrass.cpp:2409-2468</span>）。朝向计算有两种：</p>
+<ul>
+<li><code>AlignToSurface</code> 开启时，网格分支用<b>相邻采样点叉乘</b>求法线（<span class="ref">LandscapeGrass.cpp:2327-2334</span>）</li>
+<li>分叉自研的修正路径见 §8</li>
+</ul>
+
+<h2>6. 调度：按相机距离摊帧</h2>
+
+<p>入口 <code>ALandscapeProxy::UpdateGrass(const TArray&lt;FVector&gt;&amp; Cameras, ...)</code>（<span class="ref">LandscapeGrass.cpp:2673</span> / <span class="ref">:2680</span>），三层距离门限：</p>
+
+<table>
+<tr><th>门限</th><th>公式</th><th>位置</th></tr>
+<tr><td>开始创建</td><td><code>MustHaveDistance = GuardBandMultiplier(1.3) × EndCullDistance × CullDistanceScale</code></td><td><span class="ref">LandscapeGrass.cpp:2844</span></td></tr>
+<tr><td>丢弃回收</td><td><code>DiscardDistance = GuardBandDiscardMultiplier(1.4) × EndCullDistance × CullDistanceScale</code></td><td><span class="ref">LandscapeGrass.cpp:2845</span></td></tr>
+<tr><td>代理级粗筛</td><td><code>MaxInstanceDiscardDistance × max(1.4, 1.3)</code></td><td><span class="ref">LandscapeGrass.cpp:2728-2730</span></td></tr>
+</table>
+
+<p>两个 guard band 的差值（1.4 vs 1.3）正是<b>迟滞带</b>：进入用 1.3、退出用 1.4，避免相机在边界抖动导致反复建/删。外围还有：</p>
+<ul>
+<li><b>每帧限额</b>：<code>grass.MaxCreatePerFrame</code>（默认 1）个组件、<code>grass.MaxAsyncTasks</code>（默认 4）个后台任务（<span class="ref">LandscapeGrass.cpp:2963</span>）。</li>
+<li><b>优先级排序</b>：<code>GrassCreationPrioritized</code> 时按相机距离升序排，先建近的（<span class="ref">LandscapeGrass.cpp:2784</span>）。</li>
+<li><b>超大批切分</b>：<code>SqrtSubsections = Clamp(Ceil(√MaxInstances / √MaxInstancesPerComponent), 1, 16)</code>（<span class="ref">LandscapeGrass.cpp:2858</span>），受 <code>grass.MaxInstancesPerComponent</code>（默认 65536，<span class="ref">LandscapeGrass.cpp:129</span>）控制。</li>
+<li><b>防抖回收</b>：<code>grass.MinTimeToKeepGrass</code>（5 秒）<b>且</b> <code>grass.MinFramesToKeepGrass</code>（30 帧）双条件同时满足才回收（<span class="ref">LandscapeGrass.cpp:3141-3155</span>），且每帧只删一个（<span class="ref">LandscapeGrass.cpp:3199-3201</span>）。</li>
+</ul>
+
+<h2>7. 实例分组粒度 —— draw call 的真正来源</h2>
+
+<p>分组键 <code>FCachedLandscapeFoliage::FGrassCompKey</code>（<span class="ref">LandscapeProxy.h:259-297</span>）是个八元组：</p>
+
+<pre><code>(LandscapeComponent, GrassType, SqrtSubsections, CachedMaxInstancesPerComponent,
+ SubsectionX, SubsectionY, NumVarieties, VarietyIndex)</code></pre>
+
+<div class="callout">
+<b>不是"每种草一个 HISM"，也不是"每个 component 一个"</b>，而是<b>每个 (LandscapeComponent × GrassType × VarietyIndex × 子分块) 各一个 <code>UGrassInstancedStaticMeshComponent</code></b>（键填充 <span class="ref">LandscapeGrass.cpp:2914-2922</span>，创建 <span class="ref">LandscapeGrass.cpp:2997-3000</span>）。
+<br><br>这就是 draw call 的来源：<code>地形 component 数 × 草类型数 × 子分块数</code>。默认参数下（component 63 quads ≈ 63m、密度 400）单个 component 约 1.6 万实例，远低于 65536 阈值，所以 <code>SqrtSubsections = 1</code> —— 但一旦地形 component 尺寸或密度上去，切分就会触发，组件数按平方增长。
+</div>
+
+<h2>8. 上屏与剔除：异步建树 + 自研开关</h2>
+
+<h3>8.1 独立于基类的异步路径</h3>
+<p>草<b>完全不使用</b>基类 HISM 的 <code>BuildTreeAsync()</code> / <code>ApplyBuildTreeAsync()</code>。它走自己的路：</p>
+
+<ol>
+<li>后台线程：<code>FAsyncGrassBuilder::Build()</code> 末尾调 <code>BuildTreeAnyThread(...)</code>（<span class="ref">LandscapeGrass.cpp:2383</span>），后者是纯函数，内部构造 <code>FClusterBuilder</code> 并 <code>BuildTree()</code>（<span class="ref">InstancedGrass.cpp:18-44</span>）。</li>
+<li>主线程：<code>ProcessAsyncGrassInstanceTasks</code>（<span class="ref">LandscapeGrass.cpp:3211</span>）轮询完成，调 <code>AcceptPrebuiltTree(ClusterTree, ..., &amp;InstanceBuffer)</code>（<span class="ref">LandscapeGrass.cpp:3246</span>）整体接收。</li>
+</ol>
+
+<p>为保证"不碰基类状态机"，构造函数里显式把实例数据管理器切成外部模式（<span class="ref">InstancedGrass.cpp:13</span>），并在 <code>BuildComponentInstanceData</code> 里用一串 <code>check()</code> 断言源数据恒空（<span class="ref">InstancedGrass.cpp:100-129</span>）。旧的 <code>AcceptPrebuiltTree</code> 重载被直接 <code>check(false)</code> 禁死（<span class="ref">InstancedGrass.cpp:46-49</span>）。</p>
+
+<h3>8.2 实例位置跨平台一致</h3>
+<p>随机种子是 <code>GrassType名 + Component名 + SubX + SubY + VarietyIndex</code> 的 CRC32（<span class="ref">LandscapeGrass.cpp:2987</span>），写进 <code>InstancingRandomSeed</code>（<span class="ref">LandscapeGrass.cpp:3024</span>）—— 保证<b>不同平台/不同机器上草的位置完全一致</b>，这对联机射击游戏很关键。</p>
+
+<h3>8.3 渲染属性（一次性钉死）</h3>
+<table>
+<tr><th>属性</th><th>值</th><th>位置</th></tr>
+<tr><td>碰撞</td><td><code>NoCollision</code> + <code>bDisableCollision = true</code></td><td><span class="ref">LandscapeGrass.cpp:3020-3022</span></td></tr>
+<tr><td>导航</td><td><code>SetCanEverAffectNavigation(false)</code></td><td><span class="ref">LandscapeGrass.cpp:3023</span></td></tr>
+<tr><td>Mobility</td><td><code>Static</code></td><td><span class="ref">LandscapeGrass.cpp:3014</span></td></tr>
+<tr><td>编辑器交互</td><td><code>bSelectable = false</code> / <code>bHasPerInstanceHitProxies = false</code></td><td><span class="ref">LandscapeGrass.cpp:3017-3018</span></td></tr>
+<tr><td>静态阴影</td><td><code>bCastStaticShadow = false</code></td><td><span class="ref">LandscapeGrass.cpp:3027</span></td></tr>
+<tr><td>PSO</td><td>创建时 <code>PrecachePSOs()</code></td><td><span class="ref">LandscapeGrass.cpp:3040</span></td></tr>
+</table>
+
+<div class="ok">
+<b>草默认完全无碰撞且不可配置</b> —— <code>FGrassVariety</code> 里没有任何碰撞相关 UPROPERTY。若游戏需要草有物理反馈，必须改引擎代码。同样，草<b>不进 Lumen 场景</b>（非 Nanite 动态路径下 <code>bVisibleInLumenScene = false</code>，<span class="ref">HierarchicalInstancedStaticMesh.cpp:809-810</span>）。
+</div>
+
+<h3>8.4 剔除增强（分叉自研）</h3>
+<p>草实例的 GPU 剔除在 <code>NaniteCullingCommon.ush</code> 里被扩展了两个函数（同文件同时服务 HISM / Nanite 剔除管线）：</p>
+
+<ul>
+<li><b>蓝圈剔除</b> <code>BlueCircleCulling()</code>（<span class="ref">NaniteCullingCommon.ush:307-327</span>）：以玩家为中心画半径圆，圈外实例整体剔除。半径硬编码多留 1500 单位，源码注释直白写着 <code>// Why? Ask @wanmuxin</code>（<span class="ref">NaniteCullingCommon.ush:320</span>）。草组件<b>无条件</b>开启（<span class="ref">GrassInstancedStaticMeshComponent.cpp:37</span>）。</li>
+<li><b>概率剔除</b> <code>ProbabilisticInstanceCulling()</code>（<span class="ref">NaniteCullingCommon.ush:330-354</span>）：用 <code>Hash31(InstancePosition)</code> 给每个实例生成稳定随机值，与随距离插值的阈值比较，实现<b>按距离概率抽稀</b>而非硬裁切 —— 远处草渐次消失而非整片突变。</li>
+</ul>
+
+<div class="warn">
+<b>概率剔除当前是"实现了但没开"的状态：</b>总开关 <code>grass.ProbabilisticCulling.Enable</code> 默认 <code>false</code>（<span class="ref">GrassInstancedStaticMeshComponent.cpp:17-24</span>），三个参数 CVar（<code>BeginCullingDistance</code> / <code>EndCullingDistance</code> / <code>EndCullingPercent</code>，定义在 <span class="ref">LandscapeGrass.cpp:836-855</span>）在 <code>S1Game/Config</code> 下<b>无任何覆盖</b>。这是现成的一个优化抓手，可直接试。
+</div>
+
+<h2>9. 移动端</h2>
+
+<div class="bad">
+<b>实测结论：草实例化链路对移动端没有任何分支。</b>在 <code>LandscapeGrass.cpp</code> / <code>InstancedGrass.cpp</code> / <code>GrassInstancedStaticMeshComponent.cpp</code> 三个文件里，<code>PLATFORM_ANDROID</code>、<code>IsMobilePlatform</code>、<code>ES3_1</code>、<code>[GR Mobile]</code> <b>全部未找到</b>。<code>FeatureLevel</code> 只作为参数透传（<span class="ref">LandscapeGrass.cpp:1810</span>、<span class="ref">:1939</span>、<span class="ref">:3102</span>），不参与任何条件判断。
+</div>
+
+<p>移动端差异全在<b>上游的 grassmap 烘焙</b>（§4.2 的 SM5 限制），以及项目侧的缩放配置：</p>
+
+<table>
+<tr><th>配置</th><th>值</th><th>位置</th></tr>
+<tr><td><code>grass.DensityScale</code> / <code>grass.CullDistanceScale</code></td><td>FoliageQuality@0..4 = <b>0.1 / 0.1 / 0.25 / 0.4 / 0.6</b></td><td><span class="ref">AndroidScalability.ini:7-35</span></td></tr>
+<tr><td>低端机（HDD）入局内战斗</td><td>强制 <code>grass.DensityScale = 0.1</code> + <code>r.DetailMode = 0</code></td><td><span class="ref">S1UserSettings.cpp:931-937</span></td></tr>
+<tr><td>相机高速移动时</td><td><code>grass.TickInterval</code> 拉长为默认值的 2 倍</td><td><span class="ref">S1CameraModifier_CameraVelocity.cpp:69</span></td></tr>
+</table>
+
+<div class="callout">
+注意 <code>FoliageQuality@0</code> 与 <code>@1</code> <b>完全相同</b>（都是 0.1），且最高档 <code>@4</code> 也只有 0.6 —— 整体比引擎默认（1.0）激进压低。这是移动端草性能的第一道闸门。
+</div>
+
+<h2>10. 本分叉（GR）的定制清单</h2>
+
+<p>这个分叉对草的改动<b>全部在引擎侧</b>，用 <code>@wanmuxin</code> / <code>[yinnhaowang]</code> / <code>#pragma region Engine ZXB</code> / <code>Guanyan Modified</code> / <code>qiuzijian</code> / <code>Gongruhe</code> / <code>@shiyu</code> 等标记区分。</p>
+
+<table>
+<tr><th>作者</th><th>改动</th><th>位置</th></tr>
+<tr><td rowspan="6"><b>@wanmuxin</b><br><span style="font-size:11.5px;color:var(--ink3)">LandscapeBridge</span></td>
+    <td>新增 <code>bUseLandscapeHeightToFixAlignWhenUseGird</code> + <code>DegreesDifferenceThresholdToFixAlign</code>（默认 20°）：网格撒点时若相邻点算出的法线与地形法线夹角超阈值，<b>改用地形法线对齐</b>，防草穿地/悬空</td>
+    <td><span class="ref">LandscapeGrassType.h:56-61</span><br><span class="ref">LandscapeGrass.cpp:2336-2346</span></td></tr>
+<tr><td><code>WeightScale</code>：<code>WeightScale = Lerp(1, Weight, WeightScale)</code> 后乘进最终缩放 —— 权重同时控制草体大小</td><td><span class="ref">LandscapeGrassType.h:99-100</span><br><span class="ref">LandscapeGrass.cpp:2291</span>、<span class="ref">:2317-2319</span></td></tr>
+<tr><td>新增 <code>EGrassScaling::TrueFree</code> 枚举档</td><td><span class="ref">LandscapeGrassType.h:23</span></td></tr>
+<tr><td>草权重图 shader 适配自研 <code>FLandscapeFixedGridBridgeVertexFactory</code></td><td><span class="ref">LandscapeGrass.cpp:1012-1016</span></td></tr>
+<tr><td>BlueCircle Culling（草组件无条件开启）</td><td><span class="ref">GrassInstancedStaticMeshComponent.cpp:37</span></td></tr>
+<tr><td>遗留 TODO：<code>grass.AvgEnable</code> 标注 "seems added by GR, but need to adapt to UE 5.5"</td><td><span class="ref">LandscapeGrass.cpp:161-166</span></td></tr>
+
+<tr><td rowspan="2"><b>Guanyan</b></td>
+    <td><b>改写了官方语义</b>：<code>EGrassScaling::Free</code> 下 ScaleZ 被忽略，改用权重驱动 Z 缩放（官方原本是独立随机）</td>
+    <td><span class="ref">LandscapeGrassType.h:23</span><br><span class="ref">LandscapeGrass.cpp:2137-2142</span></td></tr>
+<tr><td><code>SampleLandscapeAtLocationLocal</code> 增加 <code>SampleOffset</code> 参数</td><td><span class="ref">LandscapeGrass.cpp:2409-2413</span></td></tr>
+
+<tr><td rowspan="4"><b>#pragma region<br>Engine ZXB</b></td>
+    <td>新增 <code>grass.CompensateTickInterval</code>（默认 INT_MAX），在 CVar sink 里对 <code>grass.TickInterval</code> 取 <b>Min</b> 覆盖</td>
+    <td><span class="ref">LandscapeGrass.cpp:114-121</span></td></tr>
+<tr><td>新增 <code>grass.CompensateMaxCreatePerFrame</code>（默认 0），对 <code>grass.MaxCreatePerFrame</code> 取 <b>Max</b> 覆盖 —— 建草追不上时临时提速</td><td><span class="ref">LandscapeGrass.cpp:212-218</span><br><span class="ref">:2712-2715</span></td></tr>
+<tr><td><b>修复 tick bug</b>：<code>ShouldTickGrass()</code> 的取模判断 <code>(GFrameNumber + Offset) % Interval</code> 改为帧号差值比较，解决暂停/极低帧率后一次性大批量更新卡顿</td><td><span class="ref">LandscapeProxy.h:1172-1191</span></td></tr>
+<tr><td><b>规避 shader binding 崩溃</b>：GrassWeightMap 导出前校验 <code>CachedUniformExpressionShaderMap == GetRenderingThreadShaderMap()</code>，不匹配则跳过该 MeshBatch</td><td><span class="ref">LandscapeGrassWeightExporter.cpp:358-364</span></td></tr>
+
+<tr><td rowspan="2"><b>[yinnhaowang]</b></td>
+    <td>概率剔除总开关 + 三参数 CVar + shader 实现</td><td><span class="ref">GrassInstancedStaticMeshComponent.cpp:17-24</span><br><span class="ref">NaniteCullingCommon.ush:330-354</span></td></tr>
+<tr><td><code>foliage.ForceISM</code> / <code>foliage.AutoSplit</code> / <code>foliage.cook.AdditionalProcessing</code>（<b>作用于 Foliage，非地形草</b>）+ cook 期转换实现</td><td><span class="ref">WorldPartitionLevelHelper.cpp:66-101</span><br><span class="ref">:1758-1860</span></td></tr>
+
+<tr><td><b>qiuzijian</b></td>
+    <td>草组件<b>对象池</b>：命中的话调 <code>OnObjectCreate()</code> 重建 Owner，避免反复 NewObject/Destroy</td><td><span class="ref">LandscapeGrass.cpp:3001-3007</span><br><span class="ref">GrassInstancedStaticMeshComponent.cpp:44-49</span></td></tr>
+
+<tr><td><b>Gongruhe</b></td>
+    <td><code>SetForceHiddenInPVSSceneCapture(true)</code> —— 草不参与 PVS 烘焙</td><td><span class="ref">InstancedGrass.cpp:15</span></td></tr>
+
+<tr><td><b>@shiyu</b></td>
+    <td>蓝圈剔除 shader（<code>RadiusExt = 1500.0f</code>）</td><td><span class="ref">NaniteCullingCommon.ush:307-327</span></td></tr>
+
+<tr><td><b>JLP</b></td>
+    <td><code>GR_SHOULD_CACHE_SHADER</code>：草权重 shader 的跨平台缓存判定钩子</td><td><span class="ref">LandscapeGrassWeightExporter.cpp:94</span>、<span class="ref">:121</span></td></tr>
+</table>
+
+<h2>11. 已知风险点</h2>
+
+<div class="bad">
+<b>① <code>UpdateGrassTypes()</code> 的 CRC 短路被注释掉了</b>（<span class="ref">LandscapeGrass.cpp:946-953</span>，带 <code>@wanmuxin</code> TODO）。后果：编辑器里每次调用都无条件 <code>SetGrassTypes</code> 并置 <code>bChanged = true</code>，使得 grassmap builder 里 <code>UpdateGrassTypes()</code> 的检查恒为真 —— <b>每次 Build 都会强制重建所有 component 并 <code>MarkPackageDirty()</code></b>。编辑大关卡时这是实打实的开销。
+</div>
+
+<div class="bad">
+<b>② <code>BuildTreeAnyThread</code> 里硬编码了两个常量</b>（<span class="ref">InstancedGrass.cpp:34-35</span>）：<code>DensityScaling = 1.0f</code>、<code>InstancingRandomSeed = 1</code>，旁边还留着作者的存疑注释 <code>// do grass need this?</code>（<span class="ref">InstancedGrass.cpp:33</span>）。当前因为 <code>InGenerateInstanceScalingRange = false</code>（<span class="ref">LandscapeGrass.cpp:2383</span>）该 seed 不参与抽样，暂时无害；<b>但一旦将来启用密度裁剪，所有草块会共享同一裁剪模式</b>（组件真实的 seed 是 <code>FolSeed</code>，<span class="ref">LandscapeGrass.cpp:3024</span>，两者不一致）。
+</div>
+
+<div class="warn">
+<b>③ shader binding 规避会静默丢绘制</b>：ZXB 那段校验（<span class="ref">LandscapeGrassWeightExporter.cpp:358-364</span>）在材质代理过期时直接跳过 MeshBatch，不报错。若排查"某些 component 的草权重图莫名缺失"，这是第一嫌疑点。
+</div>
+
+<h2>12. CVar 速查</h2>
+
+<table>
+<tr><th>CVar</th><th>默认</th><th>作用</th><th>位置</th></tr>
+<tr><td><code>grass.Enable</code></td><td>1</td><td>总开关</td><td><span class="ref">LandscapeGrass.cpp:155</span></td></tr>
+<tr><td><code>grass.densityScale</code></td><td>1</td><td>全局密度缩放（Scalability）</td><td><span class="ref">LandscapeGrass.cpp:141</span></td></tr>
+<tr><td><code>grass.CullDistanceScale</code></td><td>1</td><td>全局剔除距离缩放</td><td><span class="ref">LandscapeGrass.cpp:148</span></td></tr>
+<tr><td><code>grass.TickInterval</code></td><td>1</td><td>草更新帧间隔</td><td><span class="ref">LandscapeGrass.cpp:107</span></td></tr>
+<tr><td><code>grass.MaxCreatePerFrame</code></td><td>1</td><td>每帧最多建几个草组件</td><td><span class="ref">LandscapeGrass.cpp:206</span></td></tr>
+<tr><td><code>grass.MaxAsyncTasks</code></td><td>4</td><td>并发后台建树任务数</td><td><span class="ref">LandscapeGrass.cpp:135</span></td></tr>
+<tr><td><code>grass.MaxInstancesPerComponent</code></td><td>65536</td><td>单组件实例上限，触发子分块</td><td><span class="ref">LandscapeGrass.cpp:129</span></td></tr>
+<tr><td><code>grass.GuardBandMultiplier</code></td><td>1.3</td><td>进入距离系数</td><td><span class="ref">LandscapeGrass.cpp:89</span></td></tr>
+<tr><td><code>grass.GuardBandDiscardMultiplier</code></td><td>1.4</td><td>离开距离系数</td><td><span class="ref">LandscapeGrass.cpp:95</span></td></tr>
+<tr><td><code>grass.MinFramesToKeepGrass</code></td><td>30</td><td>回收前最少保留帧数</td><td><span class="ref">LandscapeGrass.cpp:101</span></td></tr>
+<tr><td><code>grass.MinTimeToKeepGrass</code></td><td>5.0</td><td>回收前最少保留秒数</td><td><span class="ref">LandscapeGrass.cpp:123</span></td></tr>
+<tr><td><code>grass.CullSubsections</code></td><td>1</td><td>是否按子分块剔除</td><td><span class="ref">LandscapeGrass.cpp:176</span></td></tr>
+<tr><td><code>grass.DisableGPUCull</code></td><td>0</td><td>调试：置位后剔除距离归零</td><td><span class="ref">LandscapeGrass.cpp:182</span></td></tr>
+<tr><td><code>grass.DisableDynamicShadows</code></td><td>0</td><td>全局关闭草动态阴影</td><td><span class="ref">LandscapeGrass.cpp:194</span></td></tr>
+<tr><td><code>grass.DiscardDataOnLoad</code></td><td>0</td><td>加载时丢弃草权重数据</td><td><span class="ref">LandscapeGrass.cpp:169</span></td></tr>
+<tr><td><code>grass.PrerenderGrassmaps</code></td><td>1</td><td>编辑器预烘全部 grassmap</td><td><span class="ref">LandscapeGrass.cpp:188</span></td></tr>
+<tr><td><code>grass.GrassMap.UseRuntimeGeneration</code></td><td>0</td><td>运行时生成 grassmap（需 SM5）</td><td><span class="ref">LandscapeGrassMapsBuilder.cpp:39</span></td></tr>
+<tr><td><code>grass.ProbabilisticCulling.Enable</code></td><td>false</td><td>概率剔除总开关（未启用）</td><td><span class="ref">GrassInstancedStaticMeshComponent.cpp:17</span></td></tr>
+<tr><td><code>r.Velocity.EnableLandscapeGrass</code></td><td>false</td><td>草 WPO 输出速度</td><td><span class="ref">GrassInstancedStaticMeshComponent.cpp:7</span></td></tr>
+<tr><td><code>r.RayTracing.Geometry.LandscapeGrass</code></td><td>0</td><td>草是否进光追（帮助文本写 "default = 1"，与实际不符，疑似上游笔误）</td><td><span class="ref">LandscapeGrass.cpp:232-235</span></td></tr>
+<tr><td><code>grass.CompensateTickInterval</code></td><td>INT_MAX</td><td><b>自研</b>：覆盖 TickInterval（取 Min）</td><td><span class="ref">LandscapeGrass.cpp:114</span></td></tr>
+<tr><td><code>grass.CompensateMaxCreatePerFrame</code></td><td>0</td><td><b>自研</b>：覆盖 MaxCreatePerFrame（取 Max）</td><td><span class="ref">LandscapeGrass.cpp:212</span></td></tr>
+</table>
+
+<p style="font-size:13px;color:var(--ink3)">调试命令：<code>grass.DumpGrassData</code>（<span class="ref">LandscapeGrass.cpp:247</span>）、<code>grass.FlushCache</code>（<span class="ref">LandscapeGrass.cpp:3333</span>）、<code>grass.DumpExclusionBoxes</code>（<span class="ref">LandscapeGrass.cpp:3345</span>）。</p>
+
+<h2>13. 一页总结</h2>
+
+<div class="card">
+<ol>
+<li><b>它是程序化系统，不是资产</b>：材质权重 → GPU 烘焙 → 扁平权重表 → CPU 概率撒点 → 动态组件上屏。没有任何一处"存实例变换"的持久化数据。</li>
+<li><b>权重即概率</b>（<span class="ref">LandscapeGrass.cpp:2285-2287</span>）：<code>Weight ≥ rand()</code> 决定该候选点是否长草。这是整个设计最优雅的一点。</li>
+<li><b>一切为了不卡帧</b>：后台线程撒点 + 建树，主线程只做 <code>AcceptPrebuiltTree</code>；每帧限量 1 组件/4 任务；双 guard band 迟滞；5 秒+30 帧双条件防抖回收；对象池复用组件。</li>
+<li><b>draw call = 地形 component × 草类型 × 子分块</b>（<span class="ref">LandscapeProxy.h:259-297</span>）。这是移动端草开销的结构性来源。</li>
+<li><b>移动端没有专属分支</b>，所有移动端差异来自：① grassmap 烘焙的 SM5 限制（不能运行时生成）；② <code>AndroidScalability.ini</code> 的 0.1~0.6 密度缩放；③ 项目侧两处 CVar 动态调参。</li>
+<li><b>改动的重心全在引擎</b>：@wanmuxin 的 LandscapeBridge 贴地对齐 + WeightScale + 蓝圈剔除、ZXB 的降帧补偿 + tick bug 修复 + shader binding 崩溃规避、yinnhaowang 的概率剔除、qiuzijian 的对象池。游戏工程只有 2 处 CVar 驱动。</li>
+<li><b><code>foliage.ForceISM</code> 与地形草无关</b>：它只转换 cook 期 InstancedFoliageActor 上的 <code>UFoliageInstancedStaticMeshComponent</code>，而草的组件是运行时 RF_Transient 动态创建的，cook 期不存在。</li>
+</ol>
+</div>
+
+<div class="warn" style="margin-top:26px">
+<b>本文档的边界：</b>未找到 <code>UGrassInput</code> 类型（实际是 <code>FGrassInput</code>）、未找到 <code>GrassMapBuildContext</code> / <code>bIsBuildingGrassMaps</code> 字段、未找到 <code>LandscapeGrass.LOD</code> 这个 CVar、未找到地形草转 ISM 的任何分支或开关、未找到任何"草砖 / GrassTile"自研方案。<code>grass.AvgEnable</code> 声明了但在同文件内未见使用点。以上均属"确认不存在"，非遗漏。
+</div>
+
+<hr>
+<p style="font-size:12.5px;color:var(--ink3)">
+考古范围：<code>UE5EA/Engine/Source/Runtime/{Landscape,Foliage,Engine,Renderer}</code> · <code>UE5EA/Engine/Shaders/Private</code> · <code>S1Game/{Source,Config,Plugins}</code><br>
+所有结论均以本分叉（<code>++GR+main</code>）源码为准；网络二手资料未采信。
+</p>
+
+</div>
+</body>
+</html>
