@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<!--
+  mode B · 横向技术专题汇总 · UE 手游特效（VFX）方案
+  mobile-game-tech-summary skill
+  主题色：电光青 #00e5ff → 霓虹橙 #ff7043（特效能量感）
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>头部 UE 手游特效方案汇总 · 移动端 VFX 技术路线速查</title>
+<style>
+  :root{
+    --bg:#0f1419;--bg-card:#1a2028;--border:#2a3441;
+    --text:#e6edf3;--text-dim:#9aa5b1;--text-mute:#6b7684;
+    --accent:#00e5ff;
+    --accent-2:#ffa726;
+    --accent-3:#66bb6a;
+    --accent-4:#ef5350;
+    --accent-5:#ff7043;
+    --code-bg:#0d1117;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.7}
+  .container{max-width:1180px;margin:0 auto;padding:32px 28px 80px}
+  header{background:linear-gradient(135deg,#0b2b3a 0%,#3b1d4f 100%);padding:48px 28px 56px;margin-bottom:32px;border-bottom:1px solid var(--border)}
+  header .inner{max-width:1180px;margin:0 auto}
+  h1{font-size:32px;margin:0 0 12px;font-weight:700;background:linear-gradient(90deg,var(--accent),var(--accent-5));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .subtitle{color:var(--text-dim);font-size:16px;margin:0}
+  .meta{margin-top:18px;display:flex;gap:16px;flex-wrap:wrap}
+  .meta-item{font-size:13px;color:var(--text-mute)}
+  .meta-item strong{color:var(--accent);margin-right:6px}
+  h2{font-size:22px;margin:40px 0 18px;padding-left:14px;border-left:4px solid var(--accent);line-height:1.3}
+  h3{font-size:17px;margin:24px 0 12px;color:var(--accent-2);font-weight:600}
+  h4{font-size:15px;margin:16px 0 8px;color:var(--accent-3);font-weight:600}
+  p{margin:10px 0}
+  ul,ol{padding-left:22px;margin:10px 0}
+  li{margin:5px 0}
+  code{background:var(--code-bg);color:#ffb74d;padding:2px 7px;border-radius:4px;font-family:"JetBrains Mono",Consolas,monospace;font-size:13px;border:1px solid var(--border)}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:16px 0;transition:border-color .2s}
+  .card:hover{border-color:#3a4759}
+  .grid{display:grid;gap:16px}
+  .grid-2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .grid-3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .pill{display:inline-block;padding:3px 10px;background:rgba(0,229,255,.12);border:1px solid rgba(0,229,255,.35);color:var(--accent);border-radius:12px;font-size:12px;font-family:Consolas,monospace}
+  .pill.warn{background:rgba(255,167,38,.12);border-color:rgba(255,167,38,.4);color:var(--accent-2)}
+  .pill.green{background:rgba(102,187,106,.12);border-color:rgba(102,187,106,.4);color:var(--accent-3)}
+  .pill.red{background:rgba(239,83,80,.12);border-color:rgba(239,83,80,.4);color:var(--accent-4)}
+  .pill.purple{background:rgba(171,71,188,.14);border-color:rgba(171,71,188,.4);color:#ce93d8}
+  .pill.orange{background:rgba(255,112,67,.12);border-color:rgba(255,112,67,.4);color:var(--accent-5)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:rgba(0,229,255,.08);color:var(--accent);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .stage{background:var(--bg-card);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:16px 20px;margin-bottom:8px;position:relative}
+  .stage h4{margin:6px 0 8px;color:var(--accent);font-size:16px}
+  .callout{background:linear-gradient(135deg,rgba(0,229,255,.08),rgba(255,112,67,.06));border:1px solid rgba(0,229,255,.25);border-radius:8px;padding:14px 18px;margin:16px 0;font-size:14px}
+  .callout-title{font-weight:600;color:var(--accent);margin-bottom:6px;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+  .callout.warn{background:linear-gradient(135deg,rgba(255,167,38,.08),rgba(239,83,80,.06));border-color:rgba(255,167,38,.3)}
+  .callout.warn .callout-title{color:var(--accent-2)}
+  .toc{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px 22px;margin-bottom:30px}
+  .toc-title{font-size:13px;color:var(--text-dim);margin-bottom:8px;letter-spacing:1px}
+  .toc ol{padding-left:20px;margin:0}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  footer{text-align:center;color:var(--text-mute);font-size:12px;padding:20px 0 0;margin-top:40px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <h1>头部 UE 手游特效方案汇总 · 移动端 VFX 技术路线速查</h1>
+    <p class="subtitle">横向对比 11 款 Unreal 引擎头部手游的特效（VFX）技术方案：粒子系统选型 · 材质驱动 · 半透明治理 · 生态/天气级特效 · 移动端预算</p>
+    <div class="meta">
+      <div class="meta-item"><strong>覆盖引擎</strong>UE4 / UE4.26 / UE5（Cascade / Niagara / 深度定制）</div>
+      <div class="meta-item"><strong>覆盖视角</strong>移动端 TBDR 架构（Adreno / Mali / Apple GPU）</div>
+      <div class="meta-item"><strong>标杆案例</strong>暗区突围 · 永劫无间手游 · 三角洲行动</div>
+      <div class="meta-item"><strong>核心指标</strong>粒子预算 / Overdraw / 材质指令数 / 带宽</div>
+      <div class="meta-item"><strong>整理日期</strong>2026-08-20</div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+<div class="callout warn">
+  <div class="callout-title">资料口径</div>
+  本份为<strong>横向专题汇总</strong>：优先引用 GDC / UFSH / UOD / Unite 演讲、官方开发者访谈与公开技术博客；个人截帧与社区经验单独标注。个别游戏（如王者荣耀世界）公开技术资料以官方宣发与媒体实测为主，深度有限，已标注为「快速覆盖型」。具体数字均为「约 / 典型 / 旗舰机型推」，非精确规格。
+</div>
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ol>
+    <li><a href="#basics">一、UE 特效方案基础入门</a></li>
+    <li><a href="#summary">二、核心结论速览</a></li>
+    <li><a href="#concept">三、概念辨析</a></li>
+    <li><a href="#engine">四、UE 特效体系：引擎机制对比</a></li>
+    <li><a href="#why-fail">五、端游方案为何在移动端失效</a></li>
+    <li><a href="#resource">六、资源治理层：让特效"跑得动"</a></li>
+    <li><a href="#benchmark">七、标杆案例深拆</a></li>
+    <li><a href="#cases">八、11 款 UE 手游案例横向对比</a></li>
+    <li><a href="#pitfalls">九、避坑清单</a></li>
+    <li><a href="#checklist">十、落地 Checklist 与定位工具</a></li>
+    <li><a href="#refs">十一、参考资料</a></li>
+  </ol>
+</div>
+
+<!-- ============ 1. UE 特效基础入门 ============ -->
+<h2 id="basics">一、UE 特效方案基础入门</h2>
+<p>横向对比之前，先把 UE 特效体系的地基拉通：粒子系统怎么演进、一个特效实例怎么跑起来、资产怎么构成、在游戏里分几类。懂这套，后面各章的对比才有落点。</p>
+
+<h3>1.1 两代粒子系统：Cascade → Niagara</h3>
+<div class="grid grid-2">
+  <div class="card">
+    <h4>Cascade（UE4 早期，存量项目在用）</h4>
+    <ul>
+      <li>模块化堆叠：Spawn / Lifetime / Initial Velocity / Color over Life 等模块像搭积木一样拼出一个发射器，手艺人友好</li>
+      <li>但数据流是"固定的模块序列"，跨模块共享数据、读引擎场景信息（RT / 距离场 / 网格）能力弱</li>
+      <li>移动端现状：幻塔 / 龙族幻想 / 永劫无间手游等 UE4 手游大量存量特效仍跑在 Cascade 上；优化手法（关碰撞、Atlas 压缩）与 Niagara 通用</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Niagara（UE4.4 引入，UE5 主推）</h4>
+    <ul>
+      <li>数据驱动 + 可编程：System → Emitter → Particle 三层，用 <strong>Data Interface</strong> 接引擎数据（场景 / 网格 / 音频 / RT / 距离场），用 <strong>Simulation Stage</strong> 做可编程模拟</li>
+      <li>能力上限远高于 Cascade（GPU 模拟、粒子间通信、RT 读写），但移动端能力集受限，多数项目只取 CPU 模拟 + Sprite 渲染这一小撮</li>
+      <li>深度定制案例：无限暖暖从代码底层重构粒子碰撞、用粒子间通信做"落叶受脚步气流影响"的交互</li>
+    </ul>
+  </div>
+</div>
+
+<h3>1.2 头部 UE 手游的粒子系统选型现实</h3>
+<p>回到 11 款案例本身：它们到底跑 Cascade 还是 Niagara？答案几乎从不由"技术先进性"决定，而是由<strong>引擎版本 + 立项时间</strong>决定。厂商极少公开声明选型，下表按证据等级标注。</p>
+
+<table>
+  <thead><tr><th>游戏</th><th>引擎 / 立项-上线</th><th>粒子系统选型</th><th>证据等级</th></tr></thead>
+  <tbody>
+    <tr><td><strong>PUBG Mobile</strong></td><td>UE4（2017 立项 · 2018 上线）</td><td><strong>Cascade</strong></td><td>🔴 硬约束：2018 年 Niagara 未稳定，只有 Cascade</td></tr>
+    <tr><td><strong>和平精英</strong></td><td>UE4 改（2018-2019 上线）</td><td><strong>Cascade</strong></td><td>🔴 硬约束：UE4 早期项目</td></tr>
+    <tr><td><strong>龙族幻想</strong></td><td>UE4（2016 立项 · 2019 上线）</td><td><strong>Cascade</strong></td><td>🔴 硬约束：UE4.2x 时代；刘冰提的"GPU 粒子"即 Cascade 的 GPU 发射器</td></tr>
+    <tr><td><strong>黎明觉醒</strong></td><td>UE4（2019 立项 · 2023 上线）</td><td>Cascade 为主</td><td>🟡 推断：UE4 生产项目，迁移成本高</td></tr>
+    <tr><td><strong>暗区突围</strong></td><td>UE4.26（2020 立项 · 2023 上线）</td><td>Cascade 为主</td><td>🟡 推断：天气 / 体积云是自研材质，粒子走旧管线</td></tr>
+    <tr><td><strong>幻塔</strong></td><td>UE4.26（2019 立项 · 2022 上线）</td><td>Cascade 为主</td><td>🟡 推断：2022 年前生产项目用 Niagara 风险高</td></tr>
+    <tr><td><strong>三角洲行动</strong></td><td>UE4 改（2020 立项 · 2024 上线）</td><td>Cascade + 大量材质驱动特效</td><td>🟡 推断：GDC2025 讲的特效几乎全是材质 / 数据驱动，粒子反而次要</td></tr>
+    <tr><td><strong>永劫无间手游</strong></td><td>UE4（端游 2019 开发 · 手游 2024）</td><td>Cascade（沿袭端游管线）</td><td>🟡 推断：沿袭端游资产最合理</td></tr>
+    <tr><td><strong>鸣潮</strong></td><td>UE4.26（2020 立项 · 2024 上线）</td><td>Cascade 为主，可能试点 Niagara</td><td>🟡 推断：库洛深度定制引擎，但 UFSH2023 只讲渲染不讲粒子</td></tr>
+    <tr><td><strong>王者荣耀世界</strong></td><td>UE5（2021 立项 · 2025 上线）</td><td><strong>Niagara</strong></td><td>🟢 高置信：UE5 新项目用 Cascade 无意义（官方已弃用）</td></tr>
+    <tr><td><strong>无限暖暖</strong></td><td>UE5（2023-2024 上线）</td><td><strong>Niagara</strong></td><td>✅ 直接证据：UFSH2024 明确讲 Niagara 逐粒子编程 / 粒子间通信</td></tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <div class="callout-title">选型的决定性变量是版本时间线，不是技术优劣</div>
+  <ul>
+    <li>Niagara 首次实验性接入 <strong>UE4.4（2015）</strong>，成熟可生产要等到 <strong>UE4.23–4.26（2019–2020）</strong>，UE5（2022）全面主推并弃用 Cascade</li>
+    <li><strong>2019 前立项的 UE4 手游 → Cascade 无疑</strong>（PUBG Mobile / 和平精英 / 龙族幻想）</li>
+    <li>2020–2022 的 UE4.26 项目 → Cascade 为主（迁移成本 + 团队习惯）</li>
+    <li>UE5 项目 → Niagara（无限暖暖有官方演讲直接证实）</li>
+  </ul>
+</div>
+
+<div class="callout warn">
+  <div class="callout-title">自研封装才是真相</div>
+  头部团队的真实架构是三层：<strong>自研特效框架</strong>（配置表 / 技能打包 / 热更 / 分级——美术真正面对的东西）→ 驱动 <strong>粒子系统</strong>（Cascade 或 Niagara 只作底层执行器）→ 决定观感的是 <strong>材质 + 序列帧 Atlas + 预算治理</strong>。所以"用 Cascade 还是 Niagara"对很多团队是伪命题，这也是公开资料查不到直接答案的原因。
+</div>
+
+<h3>1.3 一个特效实例怎么跑起来</h3>
+<table>
+  <thead><tr><th>概念</th><th>作用</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Niagara System</strong></td><td>一个完整特效（如"一次爆炸"），由 1~N 个 Emitter 组成，对应一个 .uasset</td></tr>
+    <tr><td><strong>Niagara Emitter</strong></td><td>一种粒子行为模板（"爆炸的火焰" / "爆炸的碎片"），决定 Spawn 速率、生命周期、运动、渲染方式</td></tr>
+    <tr><td><strong>Particle</strong></td><td>Emitter 生成的单个实例（一颗火星、一片烟）</td></tr>
+    <tr><td><strong>Spawn 时机</strong></td><td>Burst（一次性爆发，如爆炸）vs Rate（持续发射，如火把 / 瀑布 / 雨）</td></tr>
+    <tr><td><strong>Data Interface</strong></td><td>Niagara 与外部世界的通道：采样网格 / 距离场、读写 RenderTarget、接音频与场景灯光</td></tr>
+    <tr><td><strong>Simulation Stage</strong></td><td>可编程 GPU 模拟阶段（移动端受限，需评估能力集再启用）</td></tr>
+    <tr><td><strong>渲染器</strong></td><td>Sprite（面片，最省）/ Mesh（网格）/ Ribbon（条带拖尾）/ Ribbon Trails / MCParticles</td></tr>
+    <tr><td><strong>粒子材质</strong></td><td>粒子本质是"带材质的面片"，材质决定观感：Additive（加色，火焰）/ Translucent（透明，烟雾）/ Masked（遮罩，弹片）</td></tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  <div class="callout-title">为什么 Simulation Stage 在移动端受限</div>
+  <p>Simulation Stage 的本质是"把粒子模拟做成 GPU 上的可编程 Compute 多阶段流水线"（粒子数据当 buffer，用 Compute 级联读改写再渲染）。它需要的四样东西在移动端各自缩水，叠加成"受限"：</p>
+  <ol>
+    <li><strong>能力集 / API</strong>：GLES 中低端无可靠 compute（暗区突围 GDC2022 原话"许多移动设备不支持计算着色器"→ LUT 改用像素着色器分帧更新）；iOS Metal 计算支持最好——Android 下限 vs iOS 上限分裂巨大。UE 的 Feature Level（ES3_1 / SM5）直接决定 GPU emitter 能否编译</li>
+    <li><strong>TBDR 架构</strong>：粒子 buffer 是跨 tile 的全局随机访问数据，用不上 on-chip tile 内存，每次读改写打到 L2 / DRAM；多 stage 级联 = 同一份粒子数据在 DRAM 上来回跑 N 趟，带宽 + 发热双重打击</li>
+    <li><strong>sim→render 强制同步</strong>：compute 写完渲染读，每个特效一个隐式 barrier，频繁 compute↔graphics 切换产生流水线气泡（CPU 模拟无此跨管线同步）</li>
+    <li><strong>驱动稳定性</strong>：移动驱动对 SSBO 随机写 / 原子 / 动态 buffer 扩容（粒子增长触发 realloc）历史 bug 多——UE 默认关 GPU 排序（<code>fx.Niagara.AllowGPUSorting=0</code>），默认 GPU 碰撞不可用（无限暖暖重构粒子碰撞、火焰案例改用 Cylinder Location 模拟聚集）</li>
+    <li><strong>性能预算</strong>：移动 GPU 核少频低，Simulation Stage 跟 BasePass / 后处理抢同一块 GPU，复杂 multi-stage 模拟在手机上吃不消</li>
+  </ol>
+  <p><strong>"评估能力集再启用"的实操 = 分级开关</strong>：GLES 中低端默认 CPU 模拟，Vulkan 旗舰 / iOS Metal 才评估 GPU 模拟；GPU 排序 / 碰撞 / 复杂流场默认关；GPU 路径必须保留 CPU fallback 随时切换。</p>
+</div>
+
+<h3>1.4 资产构成与制作流程</h3>
+<ul>
+  <li><strong>资产链</strong>：序列帧贴图 / Atlas → 粒子材质（Unlit / Additive / Masked + 时间动画）→ Niagara System / Cascade → 触发（技能 / 命中 / 环境 / 蓝图）</li>
+  <li><strong>制作流程</strong>：设计概念 → 出序列帧素材（手绘 / 引擎预渲染 / Houdini 等工具离线生成）→ 拼 Atlas → 写粒子材质 → 调粒子参数 → 挂触发 → 分档调优</li>
+  <li><strong>移动端差异</strong>：素材按机型分级（贴图 512 上限）、压缩格式（ASTC / ETC2）、材质强制走 Mobile Shader Model——预算在"产出资产"这一步就定死，而不是等上了真机再救</li>
+</ul>
+
+<h3>1.5 UE 特效在游戏里的分类（移动端视角）</h3>
+<table>
+  <thead><tr><th>分类</th><th>典型表现</th><th>头部 UE 手游例子</th></tr></thead>
+  <tbody>
+    <tr><td>技能特效（主动演出）</td><td>大招 / 技能释放 / 变身</td><td>永劫万钧奥义三阶段</td></tr>
+    <tr><td>战斗反馈（被动反馈）</td><td>命中 / 受击 / 暴击 / 击杀</td><td>幻塔刀光打击感（UE 官方访谈强调为开发重点）</td></tr>
+    <tr><td>环境特效（氛围层）</td><td>天气 / 水体 / 生态 / 漂浮粒子</td><td>暗区动态天气、三角洲生态战损</td></tr>
+    <tr><td>UI 特效（图内表现）</td><td>伤害数字 / 飘字 / 屏幕反馈</td><td>移动端轻量 UMG + 粒子面片</td></tr>
+    <tr><td>屏幕空间特效（全屏后处理）</td><td>体积光 / 光晕 / 冲击波 / 折射</td><td>和平精英极清丁达尔体积光</td></tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <div class="callout-title">给移动端的第一课</div>
+  UE 特效在端游的默认假设是"GPU 时间 + 显存 + 能力集都够"，手游三者全被砍。<strong>移动端 UE 特效工作流的起点，就是先把端游默认值全部推翻</strong>——这正是第 5 章"端游方案为何失效"和第 6 章"资源治理层"要解决的问题，横向对比前先记住这一课。
+</div>
+
+<!-- ============ 2. 核心结论 ============ -->
+<h2 id="summary">二、核心结论速览</h2>
+<div class="grid grid-3">
+  <div class="card">
+    <h4>特效的四层心智模型</h4>
+    <ul>
+      <li><strong>材质驱动层</strong>：UV 走形 / WPO / 溶解 / 扫光 / 闪烁——不产生粒子，零排序成本</li>
+      <li><strong>粒子系统层</strong>：Niagara / Cascade / 自研——移动端以 CPU 模拟为主，GPU 粒子受限于能力集</li>
+      <li><strong>屏幕空间层</strong>：体积光 / 光晕 / 冲击波——一次全屏 Pass 换全局表现</li>
+      <li><strong>生态演出层</strong>：天气 / 生态战损 / 大招演出——数据驱动，跨模块共享状态</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>移动端特效三条铁律</h4>
+    <ul>
+      <li><strong>预算先行</strong>：单技能粒子约 200–500，DC 10–20，贴图 256–512（端游量级减一个数量级）</li>
+      <li><strong>半透明克制</strong>：Overdraw 是 TBDR 头号杀手，特效叠加尽量 ≤2 层、能用 Mask 不用 Alpha</li>
+      <li><strong>模拟降级</strong>：碰撞 / 物理 / GPU 模拟逐档降级；能烘焙的烘焙（Flipbook、Atlas 通道压缩）</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>头部 UE 手游共性手段</h4>
+    <ul>
+      <li>材质分级（PC 丰富 / 移动端简化），同一资产多级 LOD</li>
+      <li>动态天气 / 体积云做成 LUT 分帧更新，避免每帧全量计算</li>
+      <li>数据驱动生态特效（Clipmap 健康度 → 燃烧 / 战损，零材质变体）</li>
+      <li>自定义 RHI 修改（Mali FPK、Adreno 写带宽坑）保特效下限</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout">
+  <div class="callout-title">总体取舍</div>
+  UE 手游特效的本质不是"把端游特效做小"，而是<strong>换一套技术底座</strong>：TBDR 架构下带宽与 Overdraw 取代"粒子数量"成为第一瓶颈，头部团队普遍把特效做进<strong>材质分级</strong>（同一个资产在不同机型走不同 Shader 路径）、把全局氛围做成<strong>数据驱动</strong>（Clipmap / LUT / 天气状态），让"便宜的特效"与"贵的特效"由同一套数据在不同设备上分别表达。产品定位决定特效策略：FPS 重写实演出（暗区、三角洲），二次元重风格化半透明与演出（鸣潮、永劫）。
+</div>
+
+<!-- ============ 2. 概念辨析 ============ -->
+<h2 id="concept">三、概念辨析</h2>
+<p>特效专题最容易混淆的概念，先拉通口径（下表站在移动端视角，标注每项的代价排序）。</p>
+
+<table>
+  <thead><tr><th>概念</th><th>是什么</th><th>移动端代价 / 非线性点</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Niagara vs Cascade</td>
+      <td>UE 两代粒子系统。Niagara 数据驱动、可编程（Data Interface / CPU-GPU 混合模拟）；Cascade 为 UE4 早期模块化系统，UE5 已边缘化</td>
+      <td>Niagara GPU 模拟（Compute / Simulation Stage）在移动端能力集受限；很多 UE 手游团队选型时直接砍掉 GPU Emitter，或深度定制 Niagara 源码（如无限暖暖重构粒子碰撞）</td>
+    </tr>
+    <tr>
+      <td>GPU 粒子 vs CPU 粒子</td>
+      <td>GPU 粒子在 Compute / VS 阶段模拟，省 CPU；CPU 粒子逐颗跑 Game Thread 逻辑，可碰撞可交互</td>
+      <td>移动端 GPU 粒子受无 Geometry Shader / 无 Tessellation / Compute 上限限制；祖龙（龙族幻想）称 GPU 粒子吞吐量可达 CPU 粒子百倍级，但落地仍需顶点色 / VT 配合。CPU 粒子 + 定点数预算仍是多数 UE 手游的默认底座</td>
+    </tr>
+    <tr>
+      <td>Flipbook / SubUV / Atlas</td>
+      <td>序列帧动画三种承载：Flipbook=整帧序列；SubUV=UE 内置的 UV 网格动画；Atlas=多序列打包到一张图（可跨通道压缩）</td>
+      <td>大序列帧贴图是带宽大户。行业做法：4 张火焰序列帧压缩进一张 512×512 RGBA——R 通道存火焰、G 存烟雾、B 存火花、A 存透明度，一份采样成本换四路表现</td>
+    </tr>
+    <tr>
+      <td>材质驱动特效 vs 粒子驱动</td>
+      <td>材质驱动：UV 走形、World Position Offset、溶解、扫光、Fresnel 边缘光——本质是 Shader 动画，无实例；粒子驱动：发射 / 回收 / 生命周期</td>
+      <td>材质驱动零排序零实例成本，是移动端"廉价特效"第一选择（永劫的丝滑拖尾闪电即 UV 速度 + 法线绕动实现）；但材质指令数过线（如 180 条 → 65 条）是常见翻车点</td>
+    </tr>
+    <tr>
+      <td>屏幕空间特效</td>
+      <td>体积光（丁达尔）、Bloom 光晕、镜头光晕、冲击波 / 折射扭曲、Hit Stop 全屏闪——一次 PostProcess 覆盖全屏</td>
+      <td>和平精英"极清"丁达尔、镜头光晕即此层。代价是像素着色成本与全屏 Pass 依赖；移动端 SceneTexture:SceneColor 采样是"性能杀手"级操作，常见替代是噪声纹理 UV 扰动伪造扭曲</td>
+    </tr>
+    <tr>
+      <td>半透明排序 vs OIT</td>
+      <td>半透明按深度从前到后排序再混合；OIT（顺序无关透明）无需排序，逐像素维护透明列表</td>
+      <td>OIT 移动端基本不可行（需 SM5.1 / Rasterizer Order Views）。排序错误的兜底：统一 Sort Priority、关闭 Depth Test、半透明自遮挡走 Custom Depth</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============ 3. 引擎机制对比 ============ -->
+<h2 id="engine">四、UE 特效体系：引擎机制对比</h2>
+<p>UE 本身在移动端暴露的特效杠杆与对应 CVar / 模块，是每个 UE 手游项目特效调优的公共底盘。</p>
+
+<table>
+  <thead><tr><th>机制</th><th>适用对象</th><th>原理</th><th>移动端代价 / 限制</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Niagara CPU 模拟</td>
+      <td>通用技能 / 环境特效</td>
+      <td>Game Thread 逐颗更新，Data Interface 读引擎数据</td>
+      <td>可碰撞可交互（无限暖暖落叶受气流影响即此）；数量上限由 CPU 预算决定</td>
+    </tr>
+    <tr>
+      <td>Niagara GPU 模拟</td>
+      <td>大数量烟尘 / 流场 / 涟漪</td>
+      <td>Compute / Simulation Stage 批处理</td>
+      <td>移动端能力集受限：GPU 排序、复杂 Vector Field、粒子碰撞常被禁用。官方清单：<code>fx.Niagara.AllowGPUSorting=0</code> 关 GPU 排序</td>
+    </tr>
+    <tr>
+      <td>Niagara Render Target / 距离场读写</td>
+      <td>高单位数 RTS / 大面积流体</td>
+      <td>粒子写 RT 再由材质采样，或采样 Distance Field 做环境交互</td>
+      <td>Epic 在 Unreal Fest Orlando 2025「Chasing Waterfalls」演示：移动 RTS 用 Niagara 读写 RT + 多值打包（一个 float 存多值）+ 距离场做特效，属进阶玩法，成本需精细核算</td>
+    </tr>
+    <tr>
+      <td>Cascade 遗留系统</td>
+      <td>UE4 存量项目</td>
+      <td>模块化粒子发射器</td>
+      <td>多数 UE4 手游仍跑 Cascade（幻塔 / 龙族幻想 / 永劫等），Niagara 迁移成本高；优化手法（碰撞关、Atlas 压缩）两代通用</td>
+    </tr>
+    <tr>
+      <td>材质粒子（无实例特效）</td>
+      <td>武器拖尾 / 边缘光 / 地面法阵</td>
+      <td>纯 Shader 动画：UV 走形、Panner、溶解、Fresnel</td>
+      <td>零实例成本，移动端首选；但材质指令数要压（案例：火焰特效 180 → 65 条，GPU 15ms → 4ms）</td>
+    </tr>
+    <tr>
+      <td>Mobile Shader Model</td>
+      <td>全部移动端材质</td>
+      <td>裁剪不支持的特性，输出低开销 Shader</td>
+      <td>特效材质强制 Mobile SM；禁用复杂 Material Function、Texture ≤1024、避免动态材质参数</td>
+    </tr>
+    <tr>
+      <td>LOD 分级</td>
+      <td>粒子系统 / 特效蓝图</td>
+      <td>按距离 / 画质档切 Spawn 数量、贴图 Mip、是否启用子发射器</td>
+      <td>远距离直接关特效 / 降 Spawn Rate；Burst 拆分 2–3 次错帧避免"同步死亡"抖动</td>
+    </tr>
+    <tr>
+      <td>EarlyZ / PrePass</td>
+      <td>不透明 + Mask 特效</td>
+      <td><code>r.Mobile.EarlyZPass</code> 先写深度，让含 clip 的 Mask 也能 early-z kill</td>
+      <td>Draw Call / binning 翻倍；从抓帧看多数头部项目没开 PrePass（低端机压力），Mask 特效通常受限于此</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============ 4. 端游为何失效 ============ -->
+<h2 id="why-fail">五、端游方案为何在移动端失效</h2>
+<p>这是模式 B 的核心价值点——头部 UE 手游的特效团队几乎全部踩过"端游逻辑直接上手机"的坑，失效根因集中在 TBDR 架构与移动能力集。</p>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h4>架构级失效（TBDR / Tile-based）</h4>
+    <ul>
+      <li><strong>Overdraw 乘数成本</strong>：移动 GPU 逐 Tile 渲染，半透明多层叠加的像素着色次数乘数增长——两个粒子重叠即可让 Shader Complexity 视图变白。UWA 经验：移动平台填充倍数均值控制在 3.0 以下</li>
+      <li><strong>无 Geometry Shader / 无 Tessellation</strong>：端游粒子常见的 GS 分发、曲面细分做不了，Ribbon / 复杂 Mesh 粒子退化为 Sprite</li>
+      <li><strong>OIT 不可行</strong>：顺序无关透明需要 SM5.1 + ROV，移动端无解，只能排序 + 混合模式治理</li>
+      <li><strong>带宽与发热</strong>：大贴图、多 Pass、全屏后处理每像素读写都会触发降频——4K 序列帧贴图在手机上就是发热源</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>能力集失效（Feature Set）</h4>
+    <ul>
+      <li><strong>GPU 粒子碰撞 / 复杂 Vector Field 被禁</strong>：Niagara GPU 排序都要关（<code>AllowGPUSorting=0</code>），端游流场特效直接不能跑</li>
+      <li><strong>SceneTexture:SceneColor 采样</strong>：常用于热扭曲 / 折射 / 反射，在移动端是"性能杀手"，案例中一处采样即让 60fps 掉到 30fps，需用噪声 UV 扰动伪造</li>
+      <li><strong>深度回读坑</strong>：Mali 上 Depth Fetch 会打掉 FPK（Early-Z），指令数异常升高（鸣潮 UFSH2023 踩坑），需改走 GBuffer 重新编码</li>
+      <li><strong>硬件能力差异</strong>：从骁龙 625（PUBG Mobile 低档 60fps 基准）到 8Gen3，十年机型跨度决定必须做"端手独立配方"而不是同一特效按比例缩放</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout warn">
+  <div class="callout-title">本质</div>
+  端游特效的默认假设是"GPU 时间足够 + 显存足够 + 有能力集"，移动端三者全部被破坏。因此头部团队把特效设计逻辑整体反转：<strong>先在材质 / 数据 / LOD 层把"不花钱的表现"做足，再花预算买粒子</strong>——而不是反过来。
+</div>
+
+<!-- ============ 5. 资源治理层 ============ -->
+<h2 id="resource">六、资源治理层：让特效"跑得动"</h2>
+
+<h3>粒子预算表（手游 vs 端游，行业通行参考）</h3>
+<table>
+  <thead><tr><th>维度</th><th>端游典型</th><th>手游典型（骁龙 870 档）</th><th>备注</th></tr></thead>
+  <tbody>
+    <tr><td>单技能粒子数</td><td>5000–10000</td><td>200–500（含拖尾 / 光晕辅助粒子）</td><td>王者荣耀单技能即此量级</td></tr>
+    <tr><td>Draw Call</td><td>50–100</td><td>10–20</td><td>合并相同材质粒子批次可大幅收敛（王者 GDC2024：团战 15–60fps → 45–60fps）</td></tr>
+    <tr><td>贴图分辨率</td><td>2048–4096</td><td>256–512</td><td>Android ASTC / ETC2，iOS 硬件压缩</td></tr>
+    <tr><td>渲染模式</td><td>GPU + CPU 混合</td><td>以 CPU 模拟为主</td><td>GPU 粒子限能力集场景</td></tr>
+  </tbody>
+</table>
+
+<h3>贴图治理</h3>
+<ul>
+  <li><strong>Atlas 通道压缩</strong>：R / G / B / A 四个通道各存一路序列帧（火焰 / 烟雾 / 火花 / 透明度），一张 512×512 顶四张资源</li>
+  <li><strong>压缩格式</strong>：丢弃用不到的 Alpha 通道（RGBA8 → 无 Alpha 格式），案例中 1024² RGBA 的浪费 Alpha 直接换 512² 省带宽</li>
+  <li><strong>ASTC 4×4 / 6×6</strong>：按特效贴图明暗细节要求选块大小，越粗糙的烟雾越可以用大块（6×6 / 8×8）降带宽</li>
+</ul>
+
+<h3>材质指令数治理</h3>
+<ul>
+  <li>关闭 Tangent Space Normal / Subsurface / 复杂材质函数，仅保留 BaseColor / Opacity / Emissive</li>
+  <li>时间动画用 <code>Panner + Time</code> 驱动 UV 偏移，替代逐帧 Switch 或法线动画</li>
+  <li>案例参考：火焰特效 180 条指令 → 65 条，GPU 从 15ms 降到 4ms（视觉效果损失极小）</li>
+</ul>
+
+<h3>生命周期治理</h3>
+<ul>
+  <li>Burst 拆 2–3 次错帧 2–3 帧，延迟子发射器约 0.1s，寿命随机化（1.0–2.0s）——平滑粒子池的"同步死亡 / 重生"尖峰</li>
+  <li>远距离按距离 LOD 缩放 Spawn 数量，甚至直接关闭</li>
+  <li>Pooling：复用并重置 Niagara System，而非反复 Kill / Respawn</li>
+</ul>
+
+<!-- ============ 6. 标杆案例 ============ -->
+<h2 id="benchmark">七、标杆案例深拆</h2>
+
+<div class="stage">
+  <h4>标杆 A · 暗区突围：主机级动态天气在手机上的落地</h4>
+  <span class="pill">GDC2022</span><span class="pill">腾讯魔方</span><span class="pill">UE4.26</span>
+  <p>拟真 FPS 手游，把以往只有主机才有的动态天气 + 体积云搬上手机，是「生态 / 氛围级特效」的教科书。</p>
+  <ul>
+    <li><strong>物理大气散射</strong>：借鉴 UE SkyAtmosphere，用 LUT 减少计算量（透光度 / 多重散射 / 天空视图 / 大气透视 4 张）</li>
+    <li><strong>移动端四点取舍</strong>：
+      ① 舍弃大气透视 LUT，改用高度雾，省 3D 纹理采样；
+      ② LUT 全改 2D 后可用像素着色器更新（大量移动设备不支持 Compute）；
+      ③ 利用局内时间变化慢，<strong>分帧计算每个 LUT</strong>，每帧只算少量像素，低端机也扛得住；
+      ④ 天空视图 LUT 半八面体参数化 + 丢弃地平线以下内容，省约 50% 光线行进，GPU 从 1.35ms → 0.77ms（约省 40%）</li>
+    <li><strong>体积云</strong>：Worley 噪声 3D 纹理定义云密度，基础层 + 细节层两层噪声多次平铺，处理光在云中的多次反弹</li>
+  </ul>
+</div>
+
+<div class="stage">
+  <h4>标杆 B · 永劫无间手游：技能特效从设计到性能</h4>
+  <span class="pill">雷火艺术中心</span><span class="pill">网易 24</span><span class="pill">UE4</span>
+  <p>动作竞技品类，技能特效既吃美术表现又吃同屏性能，是「演出型特效」的样本。</p>
+  <ul>
+    <li><strong>万钧技能特效（特效师"老九"拆解）</strong>：
+      预研参考闪电侠影视表现，围绕「闪避雷电拖尾 / 雷枪 / 引雷」定质感方向；
+      丝滑拖尾闪电 = <strong>材质 UV 速度 + 拖尾属性 + 法线贴图绕动流动</strong>，保证高速移动下每帧不重复；
+      经脉电流 = 按角色做闪电经脉模型，<strong>UV 走形</strong>实现从胸口向四肢的生长；
+      奥义变身三阶段（天雷引身 → 构造生长 → 雷电披风 + 双雷枪）分层演出</li>
+    <li><strong>S2 性能治理</strong>：火焰特效粒子<strong>自适应剔除</strong>；宁红夜等英雄技能 / 奥义特效在不动表现前提下大幅减算；优化战斗技能计算；同屏多人时角色材质性能专项提升、关闭局外挂饰投影</li>
+    <li><strong>漫渲版（渲染层延伸）</strong>：一套时装两套画风的风格化渲染，与特效共用光照系统重制材质</li>
+  </ul>
+</div>
+
+<div class="stage">
+  <h4>标杆 C · 三角洲行动：数据驱动的生态战损特效</h4>
+  <span class="pill">GDC2025</span><span class="pill">天美 J3/Y1</span><span class="pill">UE4 改</span>
+  <p>大世界 FPS 的「场景级特效」思路：不堆粒子，用全局数据枢纽驱动。</p>
+  <ul>
+    <li><strong>Clipmap 全局数据枢纽</strong>：植被健康度 / 四季 / 水域 / 地形湿度压缩到一张动态更新纹理，内存从约 100MB → 2.5MB，移动端才装得下</li>
+    <li><strong>燃烧 / 战损特效零变体</strong>：健康度数值区间编码在 Clipmap 通道（0.1–0.85 健康 / 四季，0.9–1 战损 / 燃烧），材质采样 LUT 做平滑燃烧过渡——<strong>不新增任何材质变体</strong>；PC 端丰富细节（烧焦树叶 / 火星），移动端简化成颜色变黑，靠材质质量分级表达</li>
+    <li><strong>PCG VFX 预设</strong>：Houdini 离线生成画笔预设（落叶 / 浮尘 / 烟雾 / 雾气），移动端独立 HDA 降级配方</li>
+    <li><strong>水体特效分级</strong>：Flow Map 采样（PC 3 次 + 余弦混合，移动端高配 2 次、低配线性混合）；反射 PC 走 SSR + 多级 IBL，移动端仅 IBL</li>
+  </ul>
+</div>
+
+<!-- ============ 7. 案例横向对比 ============ -->
+<h2 id="cases">八、11 款 UE 手游案例横向对比</h2>
+<table>
+  <thead><tr><th>游戏</th><th>引擎</th><th>类型</th><th>关键特效手段</th><th>亮点 / 亮点数据</th><th>来源</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>三角洲行动</strong></td><td>UE4 改</td><td>FPS 大世界</td>
+      <td>Clipmap 生态战损（零变体）· 水体 FlowMap 分级 · PCG VFX 预设 · 假阴影 / Billboard 远景</td>
+      <td>生态数据内存 100MB → 2.5MB；移动端低配水体线性混合</td>
+      <td><span class="pill">GDC2025</span></td>
+    </tr>
+    <tr>
+      <td><strong>和平精英</strong></td><td>UE4 改</td><td>FPS 大世界</td>
+      <td>极清模式：丁达尔体积光 · 体素化光照 · 镜头光晕 · 体积雾 · 真实水体 · 植被风动动态阴影</td>
+      <td>6 档画质分级；极清仅旗舰机型 + 部分地图开放</td>
+      <td><span class="pill orange">官方宣发</span><span class="pill">GDC2023</span></td>
+    </tr>
+    <tr>
+      <td><strong>暗区突围</strong></td><td>UE4.26</td><td>FPS 半开放</td>
+      <td>物理大气散射 LUT 分帧更新 · 体积云 Worley 双层 · 移动光追（反射 / 软阴影 / AO）</td>
+      <td>天空 LUT 半八面体省约 40% GPU（1.35 → 0.77ms）；BLAS 4700 → 700 个</td>
+      <td><span class="pill">GDC2022/2024</span></td>
+    </tr>
+    <tr>
+      <td><strong>鸣潮</strong></td><td>UE4.26</td><td>开放世界 NPR</td>
+      <td>One Pass Deferred 重写 · 移动端 TAAU（NPR 边缘像素占比高）· 半透明独立渲染路径 · UE4 移植光追</td>
+      <td>莫宁半透明玻璃质感需独立渲染路径；RTX4060 2K 光追 60fps（PC）</td>
+      <td><span class="pill">UFSH2023/2025</span><span class="pill purple">专访</span></td>
+    </tr>
+    <tr>
+      <td><strong>永劫无间手游</strong></td><td>UE4</td><td>动作竞技</td>
+      <td>技能特效材质驱动（UV 走形拖尾 / 经脉生长）· 火焰粒子自适应剔除 · 同屏材质优化</td>
+      <td>万钧奥义三阶段演出；粒子自适应剔除降计算量</td>
+      <td><span class="pill orange">雷火艺术中心</span><span class="pill">更新公告</span></td>
+    </tr>
+    <tr>
+      <td><strong>幻塔</strong></td><td>UE4.26</td><td>开放世界 ARPG</td>
+      <td>UE 官方访谈确认粒子效果为开发重点（刀光打击感）· 材质分级 · 高性能阴影 · 风格化渲染管线</td>
+      <td>跨端多平台标杆；UE5 风格化管线编辑器与终端 1:1</td>
+      <td><span class="pill">UOD/UFSH</span><span class="pill">官方访谈</span></td>
+    </tr>
+    <tr>
+      <td><strong>王者荣耀世界</strong></td><td>UE5</td><td>开放世界 MOBA</td>
+      <td>Nanite 高面数 + Lumen 全动态 GI · 技能特效粒子并发处理 · 光效分层 · 粒子碰撞反馈</td>
+      <td>中高端安卓 60 帧目标；资料以宣发 / 实测为主（快速覆盖型）</td>
+      <td><span class="pill orange">官方宣发</span><span class="pill warn">深度有限</span></td>
+    </tr>
+    <tr>
+      <td><strong>黎明觉醒</strong></td><td>UE4</td><td>开放世界生存</td>
+      <td>定制 Shading Model（皮肤 / 头发 / 车漆）· 反射三档（Planar / SSR / Cubemap）· 动态天气（雨 / 沙尘 / 酸雨）· 水晶特效材质</td>
+      <td>国内第一款 UE 生存手游；UOD2021 移动端实时 GI + 多线程渲染</td>
+      <td><span class="pill">UOD2021</span><span class="pill orange">官方访谈</span></td>
+    </tr>
+    <tr>
+      <td><strong>无限暖暖</strong></td><td>UE5</td><td>开放世界换装</td>
+      <td>Niagara 逐粒子编程 + 粒子间通信（落叶受气流影响 / 尾巴缠绕）· 从代码底层重构粒子碰撞 · 自研布料 / 毛发 / 珠宝材质</td>
+      <td>首款 UE5 跨端开放世界（400km² 首图）；GPUDriven 同屏百万植被</td>
+      <td><span class="pill">UFSH2024</span></td>
+    </tr>
+    <tr>
+      <td><strong>龙族幻想</strong></td><td>UE4</td><td>MMORPG</td>
+      <td>GPU 粒子（吞吐量可达 CPU 粒子百倍级）· 全动态昼夜 + 风雨雷电天气 · UMaterial Instance Dynamic 质量分级</td>
+      <td>国内首款 UE4 次世代 MMORPG 手游；GPU 粒子 + 顶点色 + VT 做移动端酷炫特效</td>
+      <td><span class="pill">BIGC2021</span><span class="pill">UOD</span></td>
+    </tr>
+    <tr>
+      <td><strong>PUBG Mobile</strong></td><td>UE4</td><td>战术竞技</td>
+      <td>多层性能优化策略（渲染管线 / 功能 / 引擎）覆盖十年老机到旗舰 · 材质 Additive→Masked 省 10fps（社区经验）</td>
+      <td>骁龙 625 低档 60fps 基准；百人战场同屏特效治理</td>
+      <td><span class="pill">GDC Dev Summit</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <div class="callout-title">横向观察</div>
+  <ol>
+    <li><strong>UE4 仍是移动特效主战场</strong>：11 款中 9 款 UE4 / UE4.26，UE5（王者世界 / 无限暖暖）走的是"引擎新特性换画质上限"路线，但特效落地依然靠 Niagara + 材质分级，没有脱离铁律</li>
+    <li><strong>"氛围级特效"正在替代"粒子堆砌"</strong>：暗区天气、三角洲生态、和平极清体积光——头部项目把预算花在数据驱动的全局表现上，粒子反而克制</li>
+    <li><strong>源码级定制是常态</strong>：Mali FPK / Adreno 写带宽 / 粒子碰撞重构 / 半透明独立路径，UE 手游团队普遍改 RHI 或重写管线为特效兜底</li>
+  </ol>
+</div>
+
+<!-- ============ 8. 避坑清单 ============ -->
+<h2 id="pitfalls">九、避坑清单</h2>
+<div class="grid grid-2">
+  <div class="card">
+    <h4>渲染 / 性能雷区</h4>
+    <ul>
+      <li><strong>半透明多层堆叠</strong>：无论材质多便宜，堆叠后像素着色次数乘数增长——Overdraw 是特效第一杀手</li>
+      <li><strong>SceneTexture:SceneColor 采样</strong>：热扭曲 / 折射反射的"性能杀手"，一处即可 60 → 30fps，改用噪声 UV 扰动伪造</li>
+      <li><strong>GPU 排序 / 复杂 Vector Field 未关</strong>：<code>fx.Niagara.AllowGPUSorting=0</code> 按官方清单必查</li>
+      <li><strong>Mask 材质 PreZ 闪烁</strong>：Prepass 与 Basepass 的 VS 编译选项不一致会导致 iOS 上部分像素无法通过 early-z 闪烁</li>
+      <li><strong>Mali Depth Fetch</strong>：打掉 FPK（Early-Z），指令数异常升高，需改 GBuffer 重新编码（鸣潮坑）</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>流程 / 资产雷区</h4>
+    <ul>
+      <li><strong>粒子池同步死亡 / 重生</strong>：同寿命 Burst 造成的帧尖峰，拆分错帧 + 随机化寿命解决</li>
+      <li><strong>大序列帧贴图</strong>：4K Flipbook 在手机上就是发热源，Atlas 通道压缩 + 512 上限</li>
+      <li><strong>材质指令数爆表</strong>：Normal / Subsurface / 复杂函数开着不关，移动 GPU 极敏感</li>
+      <li><strong>PreZ 后 Mask 与 Opaque 排序</strong>：开启 PreZ 后先 Mask 后 Opaque，depth 相同则后者覆盖前者，需显式处理</li>
+      <li><strong>用 admin / 高配机型验收特效</strong>：内测环境与真机路径不同，需用分档机型 + 正式路径验证（与"薛定谔的用户"同理）</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 9. Checklist ============ -->
+<h2 id="checklist">十、落地 Checklist 与定位工具</h2>
+
+<h3>特效预算决策表</h3>
+<table>
+  <thead><tr><th>决策点</th><th>低端机</th><th>中端机（870 档）</th><th>旗舰机（8Gen3）</th></tr></thead>
+  <tbody>
+    <tr><td>粒子模拟</td><td>CPU 模拟，Collision / Drag 全关</td><td>CPU 为主，GPU 模拟限场景</td><td>GPU 模拟可按需开</td></tr>
+    <tr><td>单技能粒子数</td><td>约 150–300</td><td>约 200–500</td><td>约 500–1000</td></tr>
+    <tr><td>贴图</td><td>256，无 Alpha 通道</td><td>512，Atlas 通道压缩</td><td>512–1024，ASTC</td></tr>
+    <tr><td>材质</td><td>Unlit + Additive，≤60 条</td><td>Unlit / 简化光照，≤100 条</td><td>完整光照 + 简化材质函数</td></tr>
+    <tr><td>屏幕空间特效</td><td>关闭</td><td>体积光简化 / 降分辨率</td><td>丁达尔 / 光晕 / 折射可用</td></tr>
+    <tr><td>特效 LOD</td><td>远距离直接关闭</td><td>距离降 Spawn / 降 Mip</td><td>完整 LOD</td></tr>
+  </tbody>
+</table>
+
+<h3>定位工具与命令</h3>
+<ul>
+  <li><strong>UE</strong>：<code>stat unit</code> / <code>stat gpu</code> / <code>stat Niagara</code> / Niagara Performance Viewer；材质编辑器 Stats 看指令数；Shader Complexity 视图定位 Overdraw 热区（粒子重叠即变白）</li>
+  <li><strong>移动端</strong>：UWA GOT 的 Overdraw 可视化（填充倍数均值目标 ≤3.0）、Mipmap 层级统计；Snapdragon Profiler 帧步进看特效 Draw / Fill 占比；RenderDoc 单特效热区回放</li>
+  <li><strong>流程</strong>：先 Shader Complexity 全局扫 → 再按 Pass 统计特效占比 → 逐资产看材质指令数 / 贴图 → 用分档机型回归（铁律：<em>profile first, 不猜测</em>）</li>
+</ul>
+
+<!-- ============ 10. 参考 ============ -->
+<h2 id="refs">十一、参考资料</h2>
+<h3>会议演讲（权威）</h3>
+<ul>
+  <li>GDC 2025 · 王理川 / 焦航（天美）：《三角洲行动》高性能高品质的端手地形和生态技术</li>
+  <li>GDC 2024 · 王理川（天美 Y1）：《三角洲行动》世界创建：跨平台开发美术管线和工具</li>
+  <li>GDC 2022 · 陈家铭 / 应若晨（腾讯魔方）：《暗区突围》主机级动态天气系统</li>
+  <li>GDC 2024 · 王俊宏（腾讯魔方）：《暗区突围》手游中的光线追踪实现</li>
+  <li>UFSH 2023 · 王宏波（库洛）：《鸣潮》基于虚幻引擎 4 的多平台效果和性能优化实践</li>
+  <li>UFSH 2025 · 王鑫（库洛）：《鸣潮》中的光线追踪——用光线构建动漫风格开放世界</li>
+  <li>UOD 2021 · 魏知晓（光子）：《黎明觉醒》中的移动端实时 GI 和多线程渲染优化</li>
+  <li>UFSH 2024 · 解卫博（叠纸）：《无限暖暖》虚幻引擎 5 结合自研技术打造高品质跨平台游戏</li>
+  <li>BIGC 2021 · 王远明（祖龙）：《龙族幻想》材质系统优化和在天气系统中的应用</li>
+  <li>UOD 2021 · 徐丹（完美世界）：《幻塔》移动平台优化</li>
+  <li>Unreal Fest Orlando 2025 · Matt Oztalay（Epic）：Chasing Waterfalls——Using Niagara to Power a Mobile RTS</li>
+  <li>GDC Dev Summit · Fan Zhang（LIGHTSPEED）：PUBG MOBILE Performance Optimization on Mobile Platform</li>
+</ul>
+<h3>官方文档 / 社区 / 博客</h3>
+<ul>
+  <li>Epic：《移动设备性能指南》/ Mobile Rendering Features（UE 5.1–5.7 文档）</li>
+  <li>UE 官方开发者访谈：《幻塔》《无限暖暖》幕后（unrealengine.com）</li>
+  <li>雷火艺术中心特效师"老九"：《教你在特效环节掌控雷电：万钧的技能特效是怎么制作的》</li>
+  <li>CSDN：《UE5 Niagara 火焰特效性能优化实战：从 GPU 负载到移动端适配》《从移动端到 PC：UE Niagara 性能预算与优化清单》</li>
+  <li>2ds.cn 商业游戏特效规范：《手游与端游的特效制作标准差异》</li>
+  <li>游戏葡萄 / 游资网 / GameLook 关于和平精英"极清画质"、王者荣耀世界公测的公开报道与实测</li>
+</ul>
+<h3>个人截帧 / 经验</h3>
+<ul>
+  <li>本工作区（MobileWorkSpace）UE5 移动渲染项目中的特效 overdraw / Shader Complexity 排查经验，作为定性参考</li>
+</ul>
+
+<footer>头部 UE 手游特效方案汇总 · 内部研究文档 · 信息基于公开演讲与官方资料整理，数字为行业典型参考值，具体以各项目实测为准</footer>
+
+</div>
+</body>
+</html>

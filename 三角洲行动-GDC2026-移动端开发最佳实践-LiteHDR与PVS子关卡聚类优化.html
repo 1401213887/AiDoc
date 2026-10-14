@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>《三角洲行动》移动端开发最佳实践 · GDC 2026 技术分享</title>
+<style>
+  :root{
+    --bg:#0f1419;--bg-card:#1a2028;--border:#2a3441;
+    --text:#e6edf3;--text-dim:#9aa5b1;--text-mute:#6b7684;
+    --accent:#ffb020;--accent-2:#4fc3f7;--accent-3:#66bb6a;--accent-4:#ef5350;--accent-5:#ab47bc;
+    --code-bg:#0d1117;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.75}
+  .container{max-width:1180px;margin:0 auto;padding:32px 28px 80px}
+  header{background:linear-gradient(135deg,#2a2416 0%,#12212e 100%);padding:48px 28px 56px;margin-bottom:32px;border-bottom:1px solid var(--border)}
+  header .inner{max-width:1180px;margin:0 auto}
+  h1{font-size:31px;margin:0 0 12px;font-weight:700;background:linear-gradient(90deg,var(--accent),var(--accent-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .subtitle{color:var(--text-dim);font-size:16px;margin:0}
+  .meta{margin-top:18px;display:flex;gap:16px;flex-wrap:wrap}
+  .meta-item{font-size:13px;color:var(--text-mute)}
+  .meta-item strong{color:var(--accent);margin-right:6px}
+  h2{font-size:22px;margin:44px 0 18px;padding-left:14px;border-left:4px solid var(--accent);line-height:1.3}
+  h3{font-size:17.5px;margin:28px 0 12px;color:var(--accent-2);font-weight:600}
+  h4{font-size:15px;margin:20px 0 8px;color:var(--accent-3);font-weight:600}
+  p{margin:10px 0}
+  ul,ol{padding-left:22px;margin:10px 0}
+  li{margin:5px 0}
+  code{background:var(--code-bg);color:#ffb74d;padding:2px 7px;border-radius:4px;font-family:"JetBrains Mono",Consolas,monospace;font-size:13px;border:1px solid var(--border)}
+  pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow-x:auto;font-family:"JetBrains Mono",Consolas,monospace;font-size:12.5px;line-height:1.65;color:#c9d4de;margin:14px 0}
+  pre .cm{color:#6b7684}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:16px 0}
+  .grid{display:grid;gap:16px}
+  .grid-2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .grid-3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .pill{display:inline-block;padding:3px 10px;background:rgba(255,176,32,.12);border:1px solid rgba(255,176,32,.38);color:var(--accent);border-radius:12px;font-size:12px;font-family:Consolas,monospace}
+  .pill.blue{background:rgba(79,195,247,.12);border-color:rgba(79,195,247,.38);color:var(--accent-2)}
+  .pill.green{background:rgba(102,187,106,.12);border-color:rgba(102,187,106,.4);color:var(--accent-3)}
+  .pill.red{background:rgba(239,83,80,.12);border-color:rgba(239,83,80,.4);color:var(--accent-4)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:rgba(255,176,32,.08);color:var(--accent);font-weight:600;font-size:13px;letter-spacing:.5px}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .callout{background:linear-gradient(135deg,rgba(255,176,32,.08),rgba(79,195,247,.06));border:1px solid rgba(255,176,32,.25);border-radius:8px;padding:14px 18px;margin:16px 0;font-size:14px}
+  .callout-title{font-weight:600;color:var(--accent);margin-bottom:6px;font-size:13px;letter-spacing:.5px}
+  .callout.warn{background:linear-gradient(135deg,rgba(239,83,80,.08),rgba(255,176,32,.06));border-color:rgba(239,83,80,.3)}
+  .callout.warn .callout-title{color:var(--accent-4)}
+  .toc{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px 22px;margin-bottom:30px}
+  .toc-title{font-size:13px;color:var(--text-dim);margin-bottom:8px;letter-spacing:1px}
+  .toc ol{padding-left:20px;margin:0}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  .fig{margin:20px 0;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px}
+  .fig svg{width:100%;height:auto;display:block;border-radius:8px}
+  .fig-cap{font-size:12.5px;color:var(--text-dim);margin-top:10px;line-height:1.65}
+  .fig-cap b{color:var(--accent)}
+  footer{text-align:center;color:var(--text-mute);font-size:12px;padding:20px 0 0;margin-top:44px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <h1>《三角洲行动》· 移动端开发最佳实践</h1>
+    <p class="subtitle">高通 × 腾讯天美 GDC 2026 技术分享 —— 场景流送、PVS 子关卡聚类与 LiteHDR 渲染管线</p>
+    <div class="meta">
+      <div class="meta-item"><strong>引擎</strong>Unreal Engine 5</div>
+      <div class="meta-item"><strong>类型</strong>F2P 战术第一人称射击</div>
+      <div class="meta-item"><strong>平台</strong>PC / iOS / Android / 主机</div>
+      <div class="meta-item"><strong>API</strong>Vulkan · OpenGL ES</div>
+      <div class="meta-item"><strong>目标平台</strong>Snapdragon 8 Elite Gen 5</div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+<div class="callout warn">
+  <div class="callout-title">资料说明</div>
+  本文整理自《三角洲行动》移动端开发最佳实践的公开分享（GDC 2026，高通 × 腾讯天美）。文中全部数值均直接取自该分享原文；原文未给出的参数（如 HDR 压缩曲线 K 值的取值范围）已就地标注，未做推测填充。文中插图依据原文描述重绘，用于说明结构与数据流，不代表官方原始幻灯片。
+</div>
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ol>
+    <li><a href="#summary">一、核心结论速览</a></li>
+    <li><a href="#bg">二、背景：跨平台统一开发的技术全景</a></li>
+    <li><a href="#complexity">三、优化前：场景复杂度的现实</a></li>
+    <li><a href="#cpu">四、CPU 与内存 · 场景侧优化</a></li>
+    <li><a href="#gpu">五、GPU 与渲染 · 渲染侧优化</a></li>
+    <li><a href="#takeaway">六、关键启示与未来方向</a></li>
+    <li><a href="#refs">七、参考资料</a></li>
+  </ol>
+</div>
+
+<h2 id="summary">一、核心结论速览</h2>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="960" height="480" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7684"/>
+    </marker>
+  </defs>
+  <rect width="960" height="480" rx="10" fill="#141b22"/>
+  <text x="480" y="36" text-anchor="middle" font-size="17" fill="#e6edf3">《三角洲行动》跨平台统一开发 · 技术全景与两条优化主线</text>
+
+  <rect x="250" y="56" width="460" height="44" rx="6" fill="#1e2731" stroke="#3a4759"/>
+  <text x="480" y="84" text-anchor="middle" font-size="13.5" fill="#c9d4de">统一资产源 · 跨 PC / iOS / Android / 主机（F2P 战术 FPS）</text>
+
+  <path d="M480,100 V112 H250 V130" fill="none" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a1)"/>
+  <path d="M480,100 V112 H710 V130" fill="none" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a1)"/>
+
+  <rect x="40" y="136" width="420" height="36" rx="6" fill="#2a2416" stroke="#ffb020" stroke-opacity="0.55"/>
+  <text x="250" y="159" text-anchor="middle" font-size="14" font-weight="600" fill="#ffb020">CPU 与内存 · 场景侧</text>
+
+  <rect x="500" y="136" width="420" height="36" rx="6" fill="#17252f" stroke="#4fc3f7" stroke-opacity="0.55"/>
+  <text x="710" y="159" text-anchor="middle" font-size="14" font-weight="600" fill="#4fc3f7">GPU 与渲染 · 渲染侧</text>
+
+  <rect x="40" y="184" width="420" height="52" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="58" y="206" font-size="13.5" fill="#ffb020">高性能场景管线</text>
+  <text x="58" y="224" font-size="11.5" fill="#93a1b0">子关卡分层切分 · 按尺寸 / 功能 / 引用关系分级流送</text>
+
+  <rect x="40" y="246" width="420" height="52" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="58" y="268" font-size="13.5" fill="#ffb020">资源重组合批</text>
+  <text x="58" y="286" font-size="11.5" fill="#93a1b0">纹理图集 · 材质合批 · 模型合批（含距离分级）</text>
+
+  <rect x="40" y="308" width="420" height="52" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="58" y="330" font-size="13.5" fill="#ffb020">PVS 可见性预计算</text>
+  <text x="58" y="348" font-size="11.5" fill="#93a1b0">反向推导不可见子关卡 → Ward 链聚类重构</text>
+
+  <rect x="40" y="370" width="420" height="52" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="58" y="392" font-size="13.5" fill="#ffb020">SAGC 主动调频</text>
+  <text x="58" y="410" font-size="11.5" fill="#93a1b0">重载任务前置提频，消除流送 / GC 卡顿</text>
+
+  <rect x="500" y="184" width="420" height="52" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="518" y="206" font-size="13.5" fill="#4fc3f7">LiteHDR 渲染管线</text>
+  <text x="518" y="224" font-size="11.5" fill="#93a1b0">场景→后处理合并为单物理 Pass，G-Buffer 不出 Tile</text>
+
+  <rect x="500" y="246" width="420" height="52" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="518" y="268" font-size="13.5" fill="#4fc3f7">Tile Memory Heap</text>
+  <text x="518" y="286" font-size="11.5" fill="#93a1b0">异构分辨率 Pass 间片上 SRAM 重映射，零 DRAM 写回</text>
+
+  <rect x="500" y="308" width="420" height="52" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="518" y="330" font-size="13.5" fill="#4fc3f7">VRS 可变着色率</text>
+  <text x="518" y="348" font-size="11.5" fill="#93a1b0">单帧空间维：平坦区 2×2 / 4×4，细节区保 1×1</text>
+
+  <rect x="500" y="370" width="420" height="52" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="518" y="392" font-size="13.5" fill="#4fc3f7">DFP 动态帧预测</text>
+  <text x="518" y="410" font-size="11.5" fill="#93a1b0">跨帧时间维：静态片元复用历史着色，动态像素重算</text>
+
+  <line x1="40" y1="440" x2="920" y2="440" stroke="#2a3441"/>
+  <text x="480" y="464" text-anchor="middle" font-size="12" fill="#9aa5b1">底层逻辑：把 Shader 算力喂给视觉焦点，在人眼钝感区做隐蔽优化 —— 以「像素复用」换 GPU 算力与 Tile 带宽</text>
+</svg>
+<div class="fig-cap"><b>图 1</b> · 跨平台统一开发的技术全景与两条优化主线。左侧为 CPU / 内存场景侧，右侧为 GPU / 渲染侧，各自四项抓手。</div>
+</div>
+
+
+<div class="grid grid-2" style="margin-top:18px">
+  <div class="card">
+    <h4>两条主线</h4>
+    <ul>
+      <li><b>CPU / 内存（场景侧）</b>：高性能场景管线 → 资源重组合批 → PVS 可见性预计算 → SAGC 主动调频</li>
+      <li><b>GPU / 渲染（渲染侧）</b>：LiteHDR 单 Pass 管线 → Tile Memory Heap → VRS → DFP</li>
+      <li>两条线互不重叠：前者解决「内存里不该装的东西」，后者解决「Tile 外不该搬的数据」</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>一句话底层逻辑</h4>
+    <ul>
+      <li>GPU 优化不只是简单地 Cut Down 算力，更来自<b>对已 Shader 像素的复用</b></li>
+      <li>利用帧间的 Temporal（时间）&amp; Spatial（空间）连贯性，<b>以像素复用换取 GPU 算力与 Tile 带宽</b></li>
+      <li>移动端开发本质是在硬件 Limit 下做动态资源分配 —— 把 Shader 算力喂给视觉焦点，在人眼钝感区做隐蔽优化</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout">
+  <div class="callout-title">总体取舍</div>
+  《三角洲行动》的移动端优化路线不是「砍画质换帧率」，而是从<b>资产生产管线</b>（子关卡切分规范、合批规范）与<b>渲染架构</b>（单物理 Pass、片上内存复用）两头同时重做。单纯降低分辨率、简化材质或关闭实时光照等通用手段，无法同时满足 PC 级视觉品质与高帧率竞技要求。
+</div>
+
+<h2 id="bg">二、背景：跨平台统一开发的技术全景</h2>
+<p>作为跨 PC、iOS、Android 及主机平台的 F2P 战术第一人称射击游戏，《三角洲行动》需要移动端在保留 PC 级高密度资产与游戏复杂度的同时，维持极高的竞技帧率与功耗表现。本次技术实践基于高通 Snapdragon 8 Elite Gen 5 平台（第三代 Oryon CPU、Adreno GPU 及 18MB 独立高速内存）展开。</p>
+
+<p>PC 与移动端统一开发的架构设计中，项目重构并共享了一套跨四大模块的技术栈：</p>
+
+<table>
+  <thead><tr><th>模块</th><th>覆盖内容</th></tr></thead>
+  <tbody>
+    <tr><td><b>资源</b><br>Resource</td><td>统一的资产标准化工具链与 LOD 规范。涵盖模型 / 特效 / 骨骼网格、植被与水体系统、贴图合并与压缩、HLOD、虚拟材质（VT）、CDLOD 地形（Landscape）、场景分层及 Decal / 可破坏物机制。</td></tr>
+    <tr><td><b>玩法</b><br>Gameplay</td><td>双端对齐的核心战斗与逻辑架构。包括枪感机制与射击控制、多元游戏模式、物理与布娃娃（Ragdoll）系统、IK / FK 动画解算、载具状态机（FSM）、角色技能，以及大厅、战斗通行证与用户设置。</td></tr>
+    <tr><td><b>系统</b><br>System</td><td>跨平台基础设施与平台服务。涵盖账号鉴权、本地化、CI 持续集成、热更新与版本发布、任务追踪、网络传输、音频、击杀回放、UI 框架、反作弊与程序化内容生成（PCG）。</td></tr>
+    <tr><td><b>底层技术</b></td><td>MMap 内存映射、SQLite、GC 优化、CrashSight 异常监控、PerfDog / PerfSight 性能分析流程；并整合管线优化（前向渲染、大气 / 静态光照 / LiteHDR、阴影、平面反射、实时光照、VRS、动态帧预测）、流送控制与可扩展性策略（URO、TaskGraph、PSO Caching、HLSL 渲染器与曲线拟合）。</td></tr>
+  </tbody>
+</table>
+
+<p>分工上：引擎底层负责渲染与硬件适配；资产流水线保障创作工作流与工具链的高效落地；玩法系统确保跨平台核心逻辑的一致性；局外系统涵盖武器自定义、社交互动与性能基准评估；最终在此基础上实现移动端与 PC 双端的深度性能调优。</p>
+
+<h2 id="complexity">三、优化前：场景复杂度的现实</h2>
+
+<p>在 PC 与移动端双端统一开发的流程中，最先面临的硬阻碍是<b>PC 级高密度场景与移动端有限硬件资源之间的矛盾</b>。以典型地图「潮汐」为例：为在移动端呈现与 PC 版不相上下的画面细节，地图不仅在水平方向摆放了大量建筑、掩体和道具，垂直高度上同样叠加了极高精度的资产。</p>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 390" width="960" height="390" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <rect width="960" height="390" rx="10" fill="#141b22"/>
+  <text x="40" y="36" font-size="16.5" fill="#e6edf3">未优化原始关卡：单块 300m × 300m 区域的数据规模</text>
+  <text x="40" y="58" font-size="12" fill="#9aa5b1">全部指标均在「未做任何移动端适配」的 PC 级资产下测得</text>
+
+  <rect x="40" y="76" width="286" height="104" rx="8" fill="#1e2731" stroke="#33414f"/>
+  <text x="58" y="102" font-size="12" fill="#9aa5b1">子关卡 Sub-level</text>
+  <text x="58" y="140" font-size="28" font-weight="700" fill="#ffb020">300</text>
+  <text x="58" y="162" font-size="11" fill="#6b7684">切分粗放、缺层级，非必要区域强制常驻</text>
+
+  <rect x="337" y="76" width="286" height="104" rx="8" fill="#1e2731" stroke="#33414f"/>
+  <text x="355" y="102" font-size="12" fill="#9aa5b1">Actor 总数</text>
+  <text x="355" y="140" font-size="28" font-weight="700" fill="#ffb020">80,430</text>
+  <text x="355" y="162" font-size="11" fill="#6b7684">庞大组件树，每帧遍历 + 状态更新开销大</text>
+
+  <rect x="634" y="76" width="286" height="104" rx="8" fill="#1e2731" stroke="#33414f"/>
+  <text x="652" y="102" font-size="12" fill="#9aa5b1">Component 总数</text>
+  <text x="652" y="140" font-size="28" font-weight="700" fill="#ffb020">67,179</text>
+  <text x="652" y="162" font-size="11" fill="#6b7684">渲染管线每帧仍需大量遍历与计算</text>
+
+  <rect x="40" y="194" width="286" height="104" rx="8" fill="#1e2731" stroke="#33414f"/>
+  <text x="58" y="220" font-size="12" fill="#9aa5b1">静态网格 Mesh</text>
+  <text x="58" y="258" font-size="28" font-weight="700" fill="#ffb020">3,130</text>
+  <text x="58" y="280" font-size="11" fill="#6b7684">全量加载每帧触发 1,000+ 次 DrawCall</text>
+
+  <rect x="337" y="194" width="286" height="104" rx="8" fill="#1e2731" stroke="#33414f"/>
+  <text x="355" y="220" font-size="12" fill="#9aa5b1">纹理 Texture</text>
+  <text x="355" y="258" font-size="28" font-weight="700" fill="#ffb020">6,151 张</text>
+  <text x="355" y="280" font-size="11" fill="#6b7684">体积 3,706 × 1.3MB，易触发 OOM</text>
+
+  <rect x="634" y="194" width="286" height="104" rx="8" fill="#1e2731" stroke="#33414f"/>
+  <text x="652" y="220" font-size="12" fill="#9aa5b1">每帧 DrawCall</text>
+  <text x="652" y="258" font-size="28" font-weight="700" fill="#ef5350">1,000+</text>
+  <text x="652" y="280" font-size="11" fill="#6b7684">CPU 提交渲染指令开销严重超标</text>
+
+  <rect x="40" y="312" width="880" height="58" rx="8" fill="#2a1a1a" stroke="#ef5350" stroke-opacity="0.4"/>
+  <text x="60" y="338" font-size="12.5" font-weight="600" fill="#ef5350">根因</text>
+  <text x="100" y="338" font-size="12.5" fill="#c9d4de">① 前期缺少移动端 DrawCall / 显存预算硬约束，美术以 PC 视觉表现为准</text>
+  <text x="100" y="358" font-size="12.5" fill="#c9d4de">② UE 原生「公共光照挂单张静态网格 + 大关卡分区」触发连带加载</text>
+</svg>
+<div class="fig-cap"><b>图 2</b> · 未优化原始关卡的数据规模。单块 300m × 300m 区域的子关卡、Actor、Component、网格与纹理数量均已超出移动端承载极限。</div>
+</div>
+
+
+<h3>行业通用手段在本项目的局限</h3>
+<table>
+  <thead><tr><th>通用方案</th><th>在本项目中的失效原因</th></tr></thead>
+  <tbody>
+    <tr><td>传统关卡流送<br>Level Streaming</td><td>按玩家距离动态加载 / 卸载关卡。<b>但原始资产缺少精细的子关卡切分与层级隔离</b>，玩家处于视野开阔区域时仍会加载大部分关卡资产，内存占用过高。</td></tr>
+    <tr><td>软件遮挡剔除与<br>PVS 预计算（SOC）</td><td>虽能剔除被遮挡物体，<b>但场景物件密度较高</b>，剔除部分资产后残留的可见组件依然较多，产生大量 DrawCall，导致移动端 CPU 与 GPU 负载过高，出现发热降频与帧率波动。</td></tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <div class="callout-title">结论</div>
+  运行时通用剔除解决不了问题 —— 必须从架构层面重做。项目组由此引入四项针对性重构：<span class="pill">高性能场景划分</span> <span class="pill">资源重组</span> <span class="pill">场景可见性预计算</span> <span class="pill">SAGC 智能调频</span>
+</div>
+
+<h2 id="cpu">四、CPU 与内存 · 场景侧优化</h2>
+
+<h3>4.1 高性能场景管线：子关卡分层切分</h3>
+
+<p>关键不在运行时，而在<b>资产制作阶段就做细粒度分类</b>：这样运行时系统就能根据物件的体量与重要度，采用不同的加载（Streaming）策略，实现按需加载。若对整个关卡全量加载，RAM 与 VRAM 会迅速触发 OOM；若仅按简单距离阈值「一刀切」式流送，则会导致远景几何体严重穿帮（POP-in），或近景高频小物件盲目驻留内存。</p>
+
+<p>项目组将地图资产划分为独立的功能层级与尺寸分组，每个分组在构建管线中均配置了明确的流送距离与子关卡切分尺寸：</p>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 410" width="960" height="410" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <rect width="960" height="410" rx="10" fill="#141b22"/>
+  <text x="40" y="34" font-size="16.5" fill="#e6edf3">子关卡切分尺寸与流送距离规范（三档分层）</text>
+  <text x="300" y="56" font-size="11" fill="#93a1b0">上排 = 切分尺寸（钢蓝）　下排 = 流送距离（按档着色）</text>
+
+  <text x="30" y="110" font-size="13.5" font-weight="600" fill="#66bb6a">精细小物件</text>
+  <text x="30" y="130" font-size="11" fill="#93a1b0">装饰 / 草地</text>
+  <rect x="349.6" y="88" width="49.6" height="20" rx="3" fill="#46586b"/>
+  <text x="352.6" y="84" font-size="11" fill="#9aa5b1">32–64m</text>
+  <rect x="349.6" y="126" width="99.2" height="20" rx="3" fill="#66bb6a" fill-opacity="0.6"/>
+  <text x="352.6" y="122" font-size="11" fill="#66bb6a">32–96m</text>
+
+  <text x="30" y="200" font-size="13.5" font-weight="600" fill="#ffb020">中型结构与掩体</text>
+  <text x="30" y="220" font-size="11" fill="#93a1b0">小组 / 中组</text>
+  <rect x="399.2" y="178" width="99.2" height="20" rx="3" fill="#46586b"/>
+  <text x="402.2" y="174" font-size="11" fill="#9aa5b1">64–128m</text>
+  <rect x="399.2" y="216" width="204.6" height="20" rx="3" fill="#ffb020" fill-opacity="0.6"/>
+  <text x="402.2" y="212" font-size="11" fill="#ffb020">64–196m</text>
+
+  <text x="30" y="290" font-size="13.5" font-weight="600" fill="#4fc3f7">远景主结构</text>
+  <text x="30" y="310" font-size="11" fill="#93a1b0">大组 / 树木</text>
+  <rect x="498.4" y="268" width="421.6" height="20" rx="3" fill="#46586b"/>
+  <text x="501.4" y="264" font-size="11" fill="#9aa5b1">128m+</text>
+  <rect x="696.8" y="306" width="198.4" height="20" rx="3" fill="#4fc3f7" fill-opacity="0.6"/>
+  <text x="699.8" y="302" font-size="11" fill="#4fc3f7">256–384m+</text>
+
+  <line x1="300" y1="346" x2="920" y2="346" stroke="#46586b"/>
+  <text x="300" y="364" text-anchor="middle" font-size="10.5" fill="#6b7684">0</text>
+  <text x="399.2" y="364" text-anchor="middle" font-size="10.5" fill="#6b7684">64</text>
+  <text x="498.4" y="364" text-anchor="middle" font-size="10.5" fill="#6b7684">128</text>
+  <text x="597.6" y="364" text-anchor="middle" font-size="10.5" fill="#6b7684">192</text>
+  <text x="696.8" y="364" text-anchor="middle" font-size="10.5" fill="#6b7684">256</text>
+  <text x="796" y="364" text-anchor="middle" font-size="10.5" fill="#6b7684">320</text>
+  <text x="895.2" y="364" text-anchor="middle" font-size="10.5" fill="#6b7684">384</text>
+  <text x="920" y="382" text-anchor="middle" font-size="10.5" fill="#6b7684">m</text>
+
+  <text x="40" y="398" font-size="11.5" fill="#9aa5b1">架构思路：单一资产源 + 弹性流送 —— 高端机调大 Stream-In 距离还原画质，低端机收紧小物件流送半径以平滑 Component 遍历开销。</text>
+</svg>
+<div class="fig-cap"><b>图 3</b> · 子关卡切分尺寸与流送距离的三档分层规范。上排为切分尺寸，下排为流送距离，横轴单位为米。</div>
+</div>
+
+
+<p>规范化的三个核心环节：<b>子关卡切分与层级划分</b>、<b>组件级与网格体性能优化</b>，以及<b>基于 PVS 的可见性数据准备</b>。</p>
+
+<div class="callout">
+  <div class="callout-title">架构层面核心思路</div>
+  <b>单一资产源的弹性流送（Elastic Streaming）</b>：维持一套统一的场景资产源，运行时依据分层规则进行细粒度解耦与按需加载。<br>
+  <b>跨端硬件 Scalability 适配</b>：PC 端与高端移动设备可动态调高各层级的 Stream-In 距离以还原极致画质；低端设备则收紧小物件的流送半径，平滑 CPU Component 遍历开销，防止卡顿（Stuttering）。
+</div>
+
+<h3>4.2 资源重组合批（Batching）</h3>
+
+<p>以一个典型场景为例，仅静态场景每个单元就有 <b>320 次绘制调用（DrawCall）</b>；算上角色、武器和 UI 还会更高。DrawCall 越多，CPU 提交开销越大 —— 这是移动端发热降频的主要根源。</p>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 430" width="960" height="430" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <rect width="960" height="430" rx="10" fill="#141b22"/>
+  <text x="30" y="36" font-size="16.5" fill="#e6edf3">资源重组合批：三条并行路径</text>
+  <text x="30" y="58" font-size="12" fill="#9aa5b1">典型场景仅静态部分每个单元就有 320 次 DrawCall，合批是压减 CPU 提交开销的主要手段</text>
+
+  <rect x="30" y="76" width="290" height="250" rx="8" fill="#1e2731" stroke="#33414f"/>
+  <text x="48" y="104" font-size="14" font-weight="600" fill="#66bb6a">① 纹理图集</text>
+  <text x="48" y="134" font-size="12" fill="#c9d4de">· 收集静态网格散图并合并</text>
+  <text x="48" y="158" font-size="12" fill="#c9d4de">· 目标一：尽量减少图集数量</text>
+  <text x="48" y="182" font-size="12" fill="#c9d4de">· 目标二：避免纹理冗余</text>
+  <text x="48" y="206" font-size="12" fill="#c9d4de">· 三种合并：按 Map / POI / Layer</text>
+  <text x="48" y="230" font-size="12" fill="#c9d4de">· 低端机：降 Mipmap 层级适配</text>
+  <text x="48" y="254" font-size="11" fill="#6b7684">（区分共享地图纹理与 POI 专属纹理）</text>
+
+  <rect x="335" y="76" width="290" height="250" rx="8" fill="#1e2731" stroke="#33414f"/>
+  <text x="353" y="104" font-size="14" font-weight="600" fill="#4fc3f7">② 材质合批</text>
+  <text x="353" y="134" font-size="12" fill="#c9d4de">· 前提：纹理完全一致</text>
+  <text x="353" y="158" font-size="12" fill="#c9d4de">· 前提：材质参数匹配</text>
+  <text x="353" y="182" font-size="12" fill="#c9d4de">· 合并共享父材质的 MIC</text>
+  <text x="353" y="206" font-size="12" fill="#c9d4de">· 图集 UV + 参数打包进合批材质</text>
+  <text x="353" y="230" font-size="12" fill="#c9d4de">· 顶点色 Alpha 索引区分</text>
+  <text x="353" y="254" font-size="12" fill="#c9d4de">· 严控父材质变体数量</text>
+
+  <rect x="640" y="76" width="290" height="250" rx="8" fill="#1e2731" stroke="#33414f"/>
+  <text x="658" y="104" font-size="14" font-weight="600" fill="#ffb020">③ 模型合批</text>
+  <text x="658" y="130" font-size="12" fill="#c9d4de">· 单 Mesh 内：合并 Sub-mesh</text>
+  <text x="658" y="150" font-size="12" fill="#c9d4de">　→ 每个静态网格固定 1 次 DC</text>
+  <text x="658" y="174" font-size="12" fill="#c9d4de">· 跨 Mesh：按距离分级</text>
+  <text x="658" y="194" font-size="11.5" fill="#93a1b0">　近：高精度，收益显著才合批</text>
+  <text x="658" y="214" font-size="11.5" fill="#93a1b0">　中：用 LOD-1 几何体合批</text>
+  <text x="658" y="234" font-size="11.5" fill="#93a1b0">　远：全量合并，同类远景仅 1 DC</text>
+  <text x="658" y="258" font-size="11.5" fill="#93a1b0">· 低端机：生成 Low 层级，近处也用 LOD-1</text>
+
+  <rect x="30" y="342" width="900" height="68" rx="8" fill="#2a2416" stroke="#ffb020" stroke-opacity="0.4"/>
+  <text x="50" y="368" font-size="12.5" font-weight="600" fill="#ffb020">代价与前提</text>
+  <text x="50" y="390" font-size="12.5" fill="#c9d4de">合批会带来顶点开销增加，并需警惕材质变体激增导致包体与内存占用反弹；美术资产必须标准化提交，否则合批效果大打折扣。</text>
+</svg>
+<div class="fig-cap"><b>图 4</b> · 资源重组合批的三条并行路径：纹理图集、材质合批、模型合批，以及各自的约束与代价。</div>
+</div>
+
+
+<div class="callout warn">
+  <div class="callout-title">代价与前提</div>
+  重组合批需要团队紧密配合 —— 如果美术提交的资源不标准，合批效果就会大打折扣。同时，合批虽然能有效减少 DrawCall，但会带来顶点开销的增加，还需警惕材质变体激增导致包体和内存占用反弹。
+</div>
+
+<h3>4.3 阶段性收益</h3>
+
+<table>
+  <thead><tr><th>指标</th><th>重组前</th><th>重组后</th></tr></thead>
+  <tbody>
+    <tr><td>DrawCall</td><td>320</td><td><b>210</b></td></tr>
+    <tr><td>Component</td><td>7,736</td><td><b>4,968</b></td></tr>
+    <tr><td>Mesh</td><td>1,950</td><td><b>1,318</b></td></tr>
+    <tr><td>纹理数量</td><td>1,128</td><td><b>455</b></td></tr>
+    <tr><td>已加载关卡</td><td>—</td><td><b>802</b></td></tr>
+  </tbody>
+</table>
+
+<p>DrawCall 从 320 降至 210，CPU 端的提交开销与遍历压力得到有效控制，为后续的场景可见性剔除打下了坚实基础。</p>
+
+<h3>4.4 场景可见性预计算：反向利用 PVS 推导子关卡可见性</h3>
+
+<p>完成资源重组与合批之后，场景仍面临两项核心瓶颈：其一，<b>组件（Component）总量依然偏高</b>，渲染管线每一帧仍需进行大量遍历与计算；其二，<b>静态网格与纹理资源体量庞大</b>，导致移动端 RAM 与 VRAM 居高不下。</p>
+
+<p>项目组的目标是<b>完全不削减美术资产细节、不损害视觉质量</b>的前提下进行优化。分析发现：虽然玩家身处关卡中能观测到较远景象，但视野之外存在大量处于遮挡或不可见的子关卡资源，这些资产盲目驻留内存造成极大开销。由于传统远距离剔除（Distance Culling）与感知区域加载机制在此类高密度大地图中难以落地，核心优化方向明确为：<b>从内存中主动卸载不可见的子关卡</b>。</p>
+
+<h4>为什么经典 Portal 方案（Room Loader）不适用</h4>
+
+<p>最初尝试的 Room Loader 以「房间」这一独立物理封闭空间为最小单位管理流送：将室内几何体、遮挡剔除边界及该空间专属资产包绑定至特定关卡，由美术在门窗、走廊或出入口摆放触发体积，玩家靠近时加载、离开时卸载。该范式在传统室内场景中非常经典，但在本项目的高密度大地图中失效：</p>
+<ul>
+  <li><b>适用性低且规范苛刻</b>：开放世界场景包含大量半开放建筑与复杂结构，对美术搭建规范要求极严苛，触发体积很难摆放在最优检测位置</li>
+  <li><b>OOM 风险高</b>：室内外资产依赖关系复杂，玩家频繁跨越触发区时资产难以平滑增量加载与卸载，即使数据经过高压缩，内存占用仍会剧烈膨胀</li>
+  <li><b>缺少增量更新机制</b>：缺乏对动态流送的 Incremental Streaming 能力，无法满足大地图实时平滑流送需求</li>
+</ul>
+<p>本质上，Room Loader 是图形学中经典的 Portal 渲染技术（Portal Rendering / Sector-Portal System）在资源流送上的延伸 —— 属于「上一代室内优化方案」。而基于 PVS 可见性关联的数据聚类，才是应对现代跨平台大地图的更好方案。</p>
+
+<h4>空间错配：按固定几何空间切分的三大缺陷</h4>
+
+<p>传统子关卡按物理几何空间尺寸（如 64m × 64m 固定 AABB）强制切割，忽视了资产在实际视角下的视线遮挡关联性。当 PVS 精准记录「从某一视点不可见的组件 ID 列表」时，项目组尝试将规则反转：<b>在任意给定位置，推导哪些子关卡内部的所有组件均处于不可见状态</b> —— 若某子关卡内全部组件均不可见，则判定该子关卡可被安全卸载。</p>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 360" width="960" height="360" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4fc3f7"/>
+    </marker>
+  </defs>
+  <rect width="960" height="360" rx="10" fill="#141b22"/>
+  <text x="40" y="34" font-size="16.5" fill="#e6edf3">空间错配：按固定几何空间切分子关卡的三大缺陷</text>
+  <text x="40" y="58" font-size="12" fill="#9aa5b1">同一块 64m × 64m 的 AABB 里，可能同时装着「一楼大厅」和「三楼机房」</text>
+
+  <rect x="30" y="78" width="290" height="222" rx="8" fill="#1e2731" stroke="#2a3441"/>
+  <text x="175" y="104" text-anchor="middle" font-size="13.5" font-weight="600" fill="#ffb020">缺陷一 · 室内外混杂</text>
+  <rect x="110" y="124" width="130" height="96" rx="4" fill="#17252f" stroke="#ffb020" stroke-dasharray="5 3"/>
+  <line x1="110" y1="172" x2="240" y2="172" stroke="#46586b"/>
+  <text x="175" y="152" text-anchor="middle" font-size="12" fill="#93a1b0">室外</text>
+  <text x="175" y="200" text-anchor="middle" font-size="12" fill="#93a1b0">室内</text>
+  <circle cx="72" cy="150" r="5" fill="#4fc3f7"/>
+  <path d="M78,150 H106" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#a5)"/>
+  <text x="52" y="134" font-size="10" fill="#4fc3f7">视线</text>
+  <text x="175" y="252" text-anchor="middle" font-size="11.5" fill="#c9d4de">同一子关卡横跨室内与户外</text>
+  <text x="175" y="272" text-anchor="middle" font-size="11.5" fill="#6b7684">室外看到一角 → 室内资产被强制常驻</text>
+
+  <rect x="335" y="78" width="290" height="222" rx="8" fill="#1e2731" stroke="#2a3441"/>
+  <text x="480" y="104" text-anchor="middle" font-size="13.5" font-weight="600" fill="#ffb020">缺陷二 · 垂直楼层不清</text>
+  <rect x="415" y="124" width="130" height="96" rx="4" fill="#17252f" stroke="#ffb020" stroke-dasharray="5 3"/>
+  <line x1="415" y1="156" x2="545" y2="156" stroke="#46586b"/>
+  <line x1="415" y1="188" x2="545" y2="188" stroke="#46586b"/>
+  <text x="480" y="146" text-anchor="middle" font-size="12" fill="#93a1b0">3F</text>
+  <text x="480" y="178" text-anchor="middle" font-size="12" fill="#93a1b0">2F</text>
+  <text x="480" y="210" text-anchor="middle" font-size="12" fill="#93a1b0">1F</text>
+  <circle cx="390" cy="210" r="5" fill="#4fc3f7"/>
+  <text x="480" y="252" text-anchor="middle" font-size="11.5" fill="#c9d4de">子关卡在 Z 轴贯穿多层</text>
+  <text x="480" y="272" text-anchor="middle" font-size="11.5" fill="#6b7684">身处一楼 → 三楼资产连带加载</text>
+
+  <rect x="640" y="78" width="290" height="222" rx="8" fill="#1e2731" stroke="#2a3441"/>
+  <text x="785" y="104" text-anchor="middle" font-size="13.5" font-weight="600" fill="#ffb020">缺陷三 · 运行时集成受阻</text>
+  <rect x="720" y="138" width="130" height="84" rx="4" fill="#2a1a1a" stroke="#ef5350" stroke-dasharray="5 3"/>
+  <text x="785" y="194" text-anchor="middle" font-size="30" font-weight="700" fill="#ef5350">?</text>
+  <text x="785" y="252" text-anchor="middle" font-size="11.5" fill="#c9d4de">几何切分与可见性无关</text>
+  <text x="785" y="272" text-anchor="middle" font-size="11.5" fill="#6b7684">运行时无法细粒度卸载判断</text>
+
+  <text x="40" y="332" font-size="11.5" fill="#9aa5b1">传统子关卡按固定几何空间（如 64m × 64m AABB）强制切割，忽视了资产在实际视角下的视线遮挡关联性。</text>
+</svg>
+<div class="fig-cap"><b>图 5</b> · 空间错配：按固定几何空间切分子关卡的三大缺陷 —— 室内外混杂、垂直楼层不清、运行时集成受阻。</div>
+</div>
+
+
+<h4>解法：基于 PVS 关联数据的子关卡聚类重构</h4>
+
+<p>回归 PVS 底层的数据本质 —— <b>组件之间的可见性关联</b>。位于同一物理空间（如同一房间）内的组件，对同一组视点的可见状态具有高度相似性。据此放弃按几何空间死板切分的方式，利用 PVS 数据按「可见性相似度」进行算法聚类，把真正处于同一视角遮挡区域内的组件自动合并为新的子关卡。</p>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 290" width="960" height="290" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7684"/>
+    </marker>
+  </defs>
+  <rect width="960" height="290" rx="10" fill="#141b22"/>
+  <text x="40" y="34" font-size="16.5" fill="#e6edf3">基于 PVS 可见性关联的子关卡聚类重构（四步）</text>
+  <text x="40" y="58" font-size="12" fill="#9aa5b1">位于同一物理空间（如同一房间）内的组件，对同一组视点的可见状态具有高度相似性</text>
+
+  <rect x="20" y="90" width="190" height="130" rx="8" fill="#1e2731" stroke="#ffb020" stroke-opacity="0.5"/>
+  <text x="34" y="118" font-size="13" font-weight="600" fill="#ffb020">① 数据降维与压缩</text>
+  <text x="34" y="146" font-size="11.5" fill="#93a1b0">PVS 原始数据庞大</text>
+  <text x="34" y="168" font-size="11.5" fill="#93a1b0">不可见 Cell 列表</text>
+  <text x="34" y="190" font-size="11.5" fill="#93a1b0">→ 压缩为 Block 列表</text>
+
+  <path d="M210,155 H259" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a6)"/>
+  <text x="236" y="146" text-anchor="middle" font-size="10.5" fill="#6b7684">Block 列表</text>
+
+  <rect x="263" y="90" width="190" height="130" rx="8" fill="#1e2731" stroke="#ffb020" stroke-opacity="0.5"/>
+  <text x="277" y="118" font-size="13" font-weight="600" fill="#ffb020">② 算法聚类</text>
+  <text x="277" y="146" font-size="11.5" fill="#93a1b0">贪心聚类 Ward 链</text>
+  <text x="277" y="168" font-size="11.5" fill="#93a1b0">同隐同现的组件</text>
+  <text x="277" y="190" font-size="11.5" fill="#93a1b0">聚合为聚类组</text>
+
+  <path d="M453,155 H502" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a6)"/>
+  <text x="479" y="146" text-anchor="middle" font-size="10.5" fill="#6b7684">聚类组</text>
+
+  <rect x="506" y="90" width="190" height="130" rx="8" fill="#1e2731" stroke="#ffb020" stroke-opacity="0.5"/>
+  <text x="520" y="118" font-size="13" font-weight="600" fill="#ffb020">③ 归并子关卡</text>
+  <text x="520" y="146" font-size="11.5" fill="#93a1b0">同组组件合并</text>
+  <text x="520" y="168" font-size="11.5" fill="#93a1b0">重建逻辑与视角</text>
+  <text x="520" y="190" font-size="11.5" fill="#93a1b0">一致的子关卡</text>
+
+  <path d="M696,155 H745" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a6)"/>
+  <text x="722" y="146" text-anchor="middle" font-size="10.5" fill="#6b7684">候选子关卡</text>
+
+  <rect x="749" y="90" width="190" height="130" rx="8" fill="#1e2731" stroke="#ffb020" stroke-opacity="0.5"/>
+  <text x="763" y="118" font-size="13" font-weight="600" fill="#ffb020">④ 评估迭代</text>
+  <text x="763" y="146" font-size="11.5" fill="#93a1b0">对子关卡评分</text>
+  <text x="763" y="168" font-size="11.5" fill="#93a1b0">离群地标单独拆出</text>
+  <text x="763" y="190" font-size="11.5" fill="#93a1b0">平衡总数与卸载收益</text>
+
+  <text x="40" y="262" font-size="12" fill="#9aa5b1">把组件按「可见性相似度」聚类，而非按几何空间切割 —— 从根源消除室内外混杂与楼层连带加载。</text>
+</svg>
+<div class="fig-cap"><b>图 6</b> · 基于 PVS 可见性关联的子关卡聚类重构四步流程，箭头标注各步之间传递的数据形态。</div>
+</div>
+
+
+<h4>与传统 PVS 的本质区别</h4>
+
+<table>
+  <thead><tr><th>维度</th><th>普通 / 传统 PVS</th><th>本方案 PVS</th></tr></thead>
+  <tbody>
+    <tr><td>核心目标</td><td>GPU 渲染端的剔除（Render Culling），决定「这一帧 GPU 要不要绘制这个 Component」</td><td>CPU / 内存端的架构重构（Level Restructuring &amp; Streaming），决定「如何重新切割和组合子关卡」</td></tr>
+    <tr><td>作用粒度</td><td>组件级（Component Level）—— 粒度细，但 Component 与 Level 依然常驻内存与显存</td><td>关卡级（Level / Package Level）—— 彻底释放被遮挡区域占用的 RAM 与 VRAM</td></tr>
+    <tr><td>使用逻辑</td><td><b>正向查询</b>：运行时按玩家所在 PVS Cell 实时查找哪些 Component 可见</td><td><b>反向关联与特征聚类</b>：离线挖掘海量组件间的不可见关联度，作为特征向量输入 Ward 链聚类</td></tr>
+    <tr><td>解决痛点</td><td>视线遮挡下的 GPU 算力与 DrawCall 浪费</td><td>室内外混杂、垂直楼层连带加载等「无法整块卸载」的内存与性能难题</td></tr>
+  </tbody>
+</table>
+
+<h4>优化效果</h4>
+
+<table>
+  <thead><tr><th>指标</th><th>优化前</th><th>优化后</th></tr></thead>
+  <tbody>
+    <tr><td>DrawCall</td><td>210</td><td>210</td></tr>
+    <tr><td>Component</td><td>4,968</td><td><b>3,179</b></td></tr>
+    <tr><td>Mesh</td><td>1,318</td><td><b>802</b></td></tr>
+    <tr><td>纹理数量</td><td>455</td><td><b>341</b></td></tr>
+    <tr><td>已加载关卡</td><td>802</td><td><b>489</b></td></tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <div class="callout-title">收益</div>
+  基于可见性聚类重构子关卡后，内存中驻留的<b>子关卡数量减少 39%</b>，<b>常驻组件数与 Mesh 数量降幅近 40%</b>，极大缓解了移动端的 CPU 遍历负担与内存 / 显存压力。
+</div>
+
+<h3>4.5 SAGC：用硬件主动调频消除卡顿</h3>
+
+<p>场景资产流式加载粒度变精细后，带来的新挑战是<b>资产卸载与加载的频率显著提升</b>。频繁的磁盘 / 内存 IO 操作、生成实体（SpawnActor）、UI 界面打开以及垃圾回收（GC），极易导致 CPU 出现瞬时负载过高，进而引发帧率下降与画面卡顿（Jank / Stuttering）。</p>
+
+<p>移动端出于功耗与散热控制，CPU 通常不会时刻运行在最高主频，而由操作系统的 DVFS（动态电压频率调整）策略根据负载平缓调节。当发生关卡流送、大量 Actor 动态生成或 GC 时，CPU 负载会在毫秒级内出现剧烈峰值 —— <b>由于操作系统响应调频存在滞后，CPU 无法及时提升主频消化突发开销</b>，该帧耗时大幅拉长，表现为卡顿。</p>
+
+<p>项目组引入高通的 SAGC（Smart Adaptive Game Control）架构，改变了以往「等待系统被动检测负载再升频」的模式，赋予游戏引擎<b>主动通知硬件提频</b>的能力：</p>
+<ul>
+  <li><b>重载任务感知</b>：引擎在执行卡顿高发操作（GC、关卡流送、打开复杂 UI、生成 Actor）之前，提前识别即将到来的 CPU 负载峰值</li>
+  <li><b>主动硬件干预</b>：在重载逻辑触发前，通过 QAPE API 调用 CPU 提频接口，并传入预设的提频比例与持续时间</li>
+  <li><b>消除瞬时瓶颈</b>：CPU 硬件提前升至高主频运行，顺畅消化突发计算任务，完成后恢复正常调度</li>
+</ul>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7684"/>
+    </marker>
+  </defs>
+  <rect width="960" height="400" rx="10" fill="#141b22"/>
+  <text x="30" y="34" font-size="16.5" fill="#e6edf3">SAGC（Smart Adaptive Game Control）主动调频链路与时序对比</text>
+
+  <rect x="25" y="64" width="130" height="56" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="90" y="88" text-anchor="middle" font-size="11.5" fill="#e6edf3">GameApp</text>
+  <text x="90" y="106" text-anchor="middle" font-size="9.5" fill="#6b7684">游戏进程</text>
+  <path d="M155,92 H177" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a7)"/>
+
+  <rect x="181" y="64" width="130" height="56" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="246" y="88" text-anchor="middle" font-size="11.5" fill="#e6edf3">QAPE</text>
+  <text x="246" y="106" text-anchor="middle" font-size="9.5" fill="#6b7684">Hints &amp; Configs</text>
+  <path d="M311,92 H333" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a7)"/>
+
+  <rect x="337" y="64" width="130" height="56" rx="6" fill="#17252f" stroke="#4fc3f7" stroke-opacity="0.6"/>
+  <text x="402" y="88" text-anchor="middle" font-size="11.5" fill="#4fc3f7">SAGC</text>
+  <text x="402" y="106" text-anchor="middle" font-size="9.5" fill="#6b7684">自适应游戏控制</text>
+  <path d="M467,92 H489" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a7)"/>
+
+  <rect x="493" y="64" width="130" height="56" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="558" y="88" text-anchor="middle" font-size="11.5" fill="#e6edf3">Device PerfHints</text>
+  <text x="558" y="106" text-anchor="middle" font-size="9.5" fill="#6b7684">设备性能提示</text>
+  <path d="M623,92 H645" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a7)"/>
+
+  <rect x="649" y="64" width="130" height="56" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="714" y="88" text-anchor="middle" font-size="11.5" fill="#e6edf3">Perf-HAL</text>
+  <text x="714" y="106" text-anchor="middle" font-size="9.5" fill="#6b7684">性能硬件抽象层</text>
+  <path d="M779,92 H801" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a7)"/>
+
+  <rect x="805" y="64" width="130" height="56" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="870" y="88" text-anchor="middle" font-size="11.5" fill="#e6edf3">QEGA-HAL</text>
+  <text x="870" y="106" text-anchor="middle" font-size="9.5" fill="#6b7684">游戏扩展 HAL</text>
+
+  <text x="30" y="142" font-size="11.5" fill="#9aa5b1">接入方式：启动时初始化 SAGC，监听重负载任务（GC 垃圾回收、运行时纹理图集生成等），再由 SAGC 调用 QAPE 提升 CPU 频率。</text>
+
+  <line x1="30" y1="166" x2="930" y2="166" stroke="#2a3441"/>
+
+  <text x="30" y="224" font-size="12" fill="#ef5350">传统被动调频</text>
+  <rect x="170" y="200" width="176" height="46" rx="5" fill="#2a1a1a" stroke="#ef5350" stroke-opacity="0.35"/>
+  <text x="258" y="228" text-anchor="middle" font-size="10.5" fill="#c9d4de">重载任务触发</text>
+  <path d="M346,223 H352" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a7)"/>
+  <rect x="356" y="200" width="176" height="46" rx="5" fill="#2a1a1a" stroke="#ef5350" stroke-opacity="0.35"/>
+  <text x="444" y="228" text-anchor="middle" font-size="10.5" fill="#c9d4de">CPU 负载瞬间 100%</text>
+  <path d="M532,223 H538" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a7)"/>
+  <rect x="542" y="200" width="176" height="46" rx="5" fill="#2a1a1a" stroke="#ef5350" stroke-opacity="0.35"/>
+  <text x="630" y="228" text-anchor="middle" font-size="10.5" fill="#c9d4de">滞后检测 → 延迟升频</text>
+  <path d="M718,223 H724" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a7)"/>
+  <rect x="728" y="200" width="176" height="46" rx="5" fill="#2a1a1a" stroke="#ef5350" stroke-opacity="0.5"/>
+  <text x="816" y="228" text-anchor="middle" font-size="10.5" fill="#ef5350">掉帧卡顿已发生</text>
+  <text x="170" y="266" font-size="11.5" fill="#6b7684">系统先看到负载、再升频 —— 这段时间差就是那几帧掉帧</text>
+
+  <text x="30" y="334" font-size="12" fill="#66bb6a">SAGC 主动调频</text>
+  <rect x="170" y="310" width="176" height="46" rx="5" fill="#17251a" stroke="#66bb6a" stroke-opacity="0.35"/>
+  <text x="258" y="338" text-anchor="middle" font-size="10.5" fill="#c9d4de">识别即将到来的峰值</text>
+  <path d="M346,333 H352" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a7)"/>
+  <rect x="356" y="310" width="176" height="46" rx="5" fill="#17251a" stroke="#66bb6a" stroke-opacity="0.35"/>
+  <text x="444" y="338" text-anchor="middle" font-size="10.5" fill="#c9d4de">提前通知 SAGC</text>
+  <path d="M532,333 H538" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a7)"/>
+  <rect x="542" y="310" width="176" height="46" rx="5" fill="#17251a" stroke="#66bb6a" stroke-opacity="0.35"/>
+  <text x="630" y="338" text-anchor="middle" font-size="10.5" fill="#c9d4de">QAPE 主动提升主频</text>
+  <path d="M718,333 H724" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a7)"/>
+  <rect x="728" y="310" width="176" height="46" rx="5" fill="#17251a" stroke="#66bb6a" stroke-opacity="0.5"/>
+  <text x="816" y="338" text-anchor="middle" font-size="10.5" fill="#66bb6a">高主频下快速完成</text>
+  <text x="170" y="376" font-size="11.5" fill="#6b7684">引擎把「即将到来的重载」提前告诉硬件 —— 负载到达前频率已到位</text>
+</svg>
+<div class="fig-cap"><b>图 7</b> · SAGC 主动调频链路（GameApp → QAPE → SAGC → Device PerfHints → Perf-HAL → QEGA-HAL）与被动 / 主动调频的时序对比。</div>
+</div>
+
+
+<div class="callout">
+  <div class="callout-title">收益</div>
+  通过将细粒度流送、GC 逻辑与 SAGC 主动调频深度结合，<b>在不增加整体设备功耗和发热的前提下</b>，有效压制了重载操作引发的帧率波动，保障了移动端高密度场景下的运行流畅度。
+</div>
+
+<h2 id="gpu">五、GPU 与渲染 · 渲染侧优化</h2>
+
+<h3>5.1 移动端渲染的挑战</h3>
+
+<p>PC 端的经典延迟渲染管线基于 DirectX 12 等高算力 API，依托显存带宽与 GPU 算力，将渲染过程划分为 6 个核心阶段：</p>
+
+<table>
+  <thead><tr><th>阶段</th><th>内容</th></tr></thead>
+  <tbody>
+    <tr><td>1. 场景设置</td><td>深度预通过（Depth Pre-Pass）与 HZB（Hierarchical Z-Buffer）构建，提前剔除不可见几何体；处理 Shadow Pass，生成多层级 Shadow Map。</td></tr>
+    <tr><td>2. 表面与 G-Buffer</td><td>渲染贴图与材质属性至 G-Buffer（含 D-Buffer 贴花、自定义深度与材质参数），为后续光照计算准备空间几何与材质数据。</td></tr>
+    <tr><td>3. 光照与复杂效果</td><td>屏空间反射与环境光遮蔽（SSR / SSAO）、屏幕空间弯曲法线（SSRN）、半透明渲染、重阴影（Re-Shadow）、体积光 / 体积雾、探针全局光照（PRTGI）及各类精确光源计算。</td></tr>
+    <tr><td>4. 反射与高级特效</td><td>SSR 高阶反射、环境与天空光照（Sky / Environment Lighting）、高精度半透明混合。</td></tr>
+    <tr><td>5. 后处理</td><td>TAA（时间序列抗锯齿）、色调映射（Tone Mapping）与屏幕空间特效。</td></tr>
+    <tr><td>6. UI 与呈现</td><td>绘制 UI 元素并提交至最终显示缓冲区。</td></tr>
+  </tbody>
+</table>
+
+<p>移动端受限于无主动散热风扇与电池供电的物理条件，GPU 渲染优化必须优先将<b>功耗控制（Thermal Budget）</b>置于首位。重负载下长时间运行易触发热降频，导致 GPU 被限制频率、帧率大幅波动。</p>
+
+<div class="callout warn">
+  <div class="callout-title">剪刀差趋势</div>
+  处理器算力（FLOPS）的增长速度<b>远超</b>系统内存带宽（Memory Bandwidth），二者差距持续扩大。因此，<b>昂贵的系统带宽与受限的 GPU 算力构成移动端渲染优化的两大核心瓶颈</b>：<br>
+  ① <b>TBDR 架构与带宽限制</b> —— 频繁读写 G-Buffer 和多路 Render Target 会产生海量 DRAM 与 Tile Memory 之间的读写交互，内存带宽压力激增，引发剧烈发热并触发降频；<br>
+  ② <b>算力与功耗预算受限</b> —— PC 端依赖高功耗 GPU 完成的体积光、SSR 与高频光照计算，在移动端严格限制下无法平稳运行。
+</div>
+
+<h3>5.2 LiteHDR 渲染管线</h3>
+
+<p>面对昂贵的带宽与有限的 GPU 算力，项目组从底层重构渲染管线：<b>最大化利用 Tile Memory（片元内存）、引入硬件级特性降低带宽、重构着色与帧预测逻辑</b>。LiteHDR 的核心理念是在极致节省带宽的前提下，完整保留 PC 级的 HDR 高动态范围视觉品质。</p>
+
+<p>核心改进是<b>场景渲染 Pass 深度合并</b>：传统 PC 延迟渲染把管线拆成多个独立 Render Pass（写 G-Buffer → 切 Pass 读显存做光照 → 半透明 → 后处理），每次切换都引发海量 DRAM 读写。而移动端（TBDR 架构）的 One-Pass Deferred 依托 Tile Memory 硬件特性（Vulkan Subpass / Subpass Load 或 GLES Framebuffer Fetch），把原本多个 Pass 的数据传递限制在 GPU 内部高速的 Tile Memory（On-Chip SRAM）中。</p>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="960" height="480" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="a8d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7684"/>
+    </marker>
+    <marker id="a8t" viewBox="0 0 10 10" refX="5" refY="1" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,10 L5,0 L10,10 z" fill="#6b7684"/>
+    </marker>
+    <marker id="a8b" viewBox="0 0 10 10" refX="5" refY="9" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L5,10 L10,0 z" fill="#6b7684"/>
+    </marker>
+  </defs>
+  <rect width="960" height="480" rx="10" fill="#141b22"/>
+
+  <text x="40" y="32" font-size="16.5" fill="#e6edf3">传统 PC 延迟渲染：多个独立 Pass，数据反复经 DRAM 往返</text>
+
+  <rect x="60" y="56" width="180" height="50" rx="6" fill="#2a1a1a" stroke="#ef5350" stroke-opacity="0.4"/>
+  <text x="150" y="86" text-anchor="middle" font-size="12" fill="#e6edf3">G-Buffer Pass</text>
+  <rect x="280" y="56" width="180" height="50" rx="6" fill="#2a1a1a" stroke="#ef5350" stroke-opacity="0.4"/>
+  <text x="370" y="86" text-anchor="middle" font-size="12" fill="#e6edf3">Lighting Pass</text>
+  <rect x="500" y="56" width="180" height="50" rx="6" fill="#2a1a1a" stroke="#ef5350" stroke-opacity="0.4"/>
+  <text x="590" y="86" text-anchor="middle" font-size="12" fill="#e6edf3">半透明 Pass</text>
+  <rect x="720" y="56" width="180" height="50" rx="6" fill="#2a1a1a" stroke="#ef5350" stroke-opacity="0.4"/>
+  <text x="810" y="86" text-anchor="middle" font-size="12" fill="#e6edf3">后处理 Pass</text>
+
+  <path d="M150,106 V158" stroke="#6b7684" stroke-width="1.5"/>
+  <path d="M150,158 V106" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a8t)"/>
+  <path d="M370,106 V158" stroke="#6b7684" stroke-width="1.5"/>
+  <path d="M370,158 V106" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a8t)"/>
+  <path d="M590,106 V158" stroke="#6b7684" stroke-width="1.5"/>
+  <path d="M590,158 V106" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a8t)"/>
+  <path d="M810,106 V158" stroke="#6b7684" stroke-width="1.5"/>
+  <path d="M810,158 V106" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a8t)"/>
+
+  <rect x="60" y="158" width="840" height="30" rx="4" fill="#2a3441"/>
+  <text x="480" y="178" text-anchor="middle" font-size="11.5" fill="#c9d4de">DRAM 主显存：中间结果写入 → 下一个 Pass 再读出</text>
+  <text x="60" y="212" font-size="11.5" fill="#ef5350">Render Pass 切换 8–12 次，每次切换都要把中间结果写回再读出显存</text>
+
+  <line x1="40" y1="232" x2="920" y2="232" stroke="#2a3441"/>
+
+  <text x="40" y="262" font-size="16.5" fill="#e6edf3">LiteHDR：场景渲染 → 后处理合并为单个物理 Render Pass</text>
+  <text x="64" y="286" font-size="11" fill="#4fc3f7">物理上的单一 Render Pass（Vulkan Subpass / GLES Framebuffer Fetch）</text>
+
+  <rect x="60" y="296" width="840" height="90" rx="8" fill="#17252f" stroke="#4fc3f7" stroke-dasharray="6 4"/>
+
+  <rect x="74" y="308" width="152" height="66" rx="5" fill="#1e2731" stroke="#33414f"/>
+  <text x="150" y="328" text-anchor="middle" font-size="11" fill="#4fc3f7">深度 / 贴花</text>
+  <text x="150" y="346" text-anchor="middle" font-size="9.5" fill="#93a1b0">Early-Z / LRZ</text>
+  <text x="150" y="362" text-anchor="middle" font-size="9.5" fill="#93a1b0">Subpass 绘制细节</text>
+
+  <rect x="234" y="308" width="152" height="66" rx="5" fill="#1e2731" stroke="#33414f"/>
+  <text x="310" y="328" text-anchor="middle" font-size="11" fill="#4fc3f7">光照 + 半透明</text>
+  <text x="310" y="346" text-anchor="middle" font-size="9.5" fill="#93a1b0">Lightmap / 烘焙 GI</text>
+  <text x="310" y="362" text-anchor="middle" font-size="9.5" fill="#93a1b0">实时光照 + 半透明统一解算</text>
+
+  <rect x="394" y="308" width="152" height="66" rx="5" fill="#1e2731" stroke="#33414f"/>
+  <text x="470" y="328" text-anchor="middle" font-size="11" fill="#4fc3f7">Screen Mesh</text>
+  <text x="470" y="346" text-anchor="middle" font-size="9.5" fill="#93a1b0">受击 / 受伤全屏特效</text>
+  <text x="470" y="362" text-anchor="middle" font-size="9.5" fill="#93a1b0">Tonemap 前同通道绘制</text>
+
+  <rect x="554" y="308" width="152" height="66" rx="5" fill="#1e2731" stroke="#33414f"/>
+  <text x="630" y="328" text-anchor="middle" font-size="11" fill="#4fc3f7">自动曝光</text>
+  <text x="630" y="346" text-anchor="middle" font-size="9.5" fill="#93a1b0">16×16 蒙特卡洛</text>
+  <text x="630" y="362" text-anchor="middle" font-size="9.5" fill="#93a1b0">随机降采样 1/256</text>
+
+  <rect x="714" y="308" width="152" height="66" rx="5" fill="#1e2731" stroke="#33414f"/>
+  <text x="790" y="328" text-anchor="middle" font-size="11" fill="#4fc3f7">Tonemap + UI</text>
+  <text x="790" y="346" text-anchor="middle" font-size="9.5" fill="#93a1b0">Subpass 读场景色</text>
+  <text x="790" y="362" text-anchor="middle" font-size="9.5" fill="#93a1b0">HDR→SDR 后写回</text>
+
+  <text x="60" y="408" font-size="11.5" fill="#9aa5b1">G-Buffer 在 Tile 内创建、被光照消费后即弃（DONT_CARE），不回写 DRAM —— 最终写出主显存的只有计算完毕的 Color。</text>
+
+  <rect x="60" y="422" width="840" height="46" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="90" y="440" font-size="10.5" fill="#9aa5b1">Render Pass 切换</text>
+  <text x="90" y="459" font-size="14" font-weight="600" fill="#ffb020">8–12 次 → 2–3 次</text>
+  <text x="380" y="440" font-size="10.5" fill="#9aa5b1">DRAM 显存读写带宽</text>
+  <text x="380" y="459" font-size="14" font-weight="600" fill="#ffb020">压减 60% 以上</text>
+  <text x="670" y="440" font-size="10.5" fill="#9aa5b1">写回 DRAM 的内容</text>
+  <text x="670" y="459" font-size="14" font-weight="600" fill="#ffb020">仅最终 Color</text>
+</svg>
+<div class="fig-cap"><b>图 8</b> · 传统 PC 延迟渲染的多 Pass 往返 vs LiteHDR 的单物理 Render Pass 结构对照。</div>
+</div>
+
+
+<p>具体而言，LiteHDR 将场景渲染至后处理的全部环节合并至单个 Render Pass：</p>
+<ul>
+  <li><b>Pass 1 · 深度与贴花优化</b>：移除独立的 Depth Pre-Pass，改用硬件级 Early-Z / LRZ（Low-Resolution Z）；墙面灰尘等静态细节在资源重组阶段提前处理，动态细节（弹痕、涂鸦）以 Subpass Load / Framebuffer Fetch 结合深度扩展直接在 Tile Memory 内部绘制</li>
+  <li><b>Pass 2 · 光照与半透明合并</b>：将 Lightmap、预烘焙 AO / GI、实时光照以及半透明几何体完全统一在同一个 Fragment Shader 中并行解算，无需额外通道切换</li>
+  <li><b>Pass 3 · 后处理 Screen Mesh 替代传统后期</b>：受击、受伤等全屏叠加特效采用紧随场景渲染的 Screen Mesh（全屏网格）在 Tone Mapping 前同通道绘制，避免全屏读写系统内存</li>
+  <li><b>Pass 4 · 蒙特卡洛随机采样的自动曝光</b>（见下）</li>
+  <li><b>Pass 5 · 色调映射 Tonemap 的渲染通道合并</b>：将 Tonemap、自动曝光与 UI 作为 BasePass 的后续 Subpass 组合，用 Subpass Load 读取场景色彩，在写回 DRAM 之前完成 HDR 到 SDR 的转换</li>
+</ul>
+
+<h4>G-Buffer 压缩与材质分类</h4>
+
+<p>为了在单个 Tile Memory 缓存区内容纳丰富的表面材质信息，LiteHDR 对 G-Buffer 的数据结构与存储策略进行了严苛压缩：</p>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 320" width="960" height="320" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <rect width="960" height="320" rx="10" fill="#141b22"/>
+  <text x="40" y="32" font-size="16.5" fill="#e6edf3">LiteHDR 紧凑型 G-Buffer：压缩至 64 Bits（8 Bytes）</text>
+  <text x="40" y="56" font-size="11.5" fill="#9aa5b1">下图为字节槽布局，按纹理通道顺序 R → G → B → A 绘制，每格 8 bit</text>
+
+  <line x1="200" y1="74" x2="882" y2="74" stroke="#46586b"/>
+  <line x1="200" y1="70" x2="200" y2="78" stroke="#46586b"/>
+  <line x1="882" y1="70" x2="882" y2="78" stroke="#46586b"/>
+  <text x="541" y="68" text-anchor="middle" font-size="10.5" fill="#6b7684">G-Buffer 总量 64 Bits（8 Bytes）</text>
+
+  <text x="30" y="118" font-size="15" font-weight="700" fill="#4fc3f7">RT0</text>
+  <text x="30" y="138" font-size="10.5" fill="#6b7684">32 Bits / RGBA8</text>
+
+  <rect x="200" y="88" width="166" height="64" rx="4" fill="#1e2731" stroke="#33414f"/>
+  <text x="210" y="108" font-size="11" fill="#6b7684">R</text>
+  <text x="283" y="136" text-anchor="middle" font-size="12" fill="#e6edf3">BaseColor.R</text>
+
+  <rect x="372" y="88" width="166" height="64" rx="4" fill="#1e2731" stroke="#33414f"/>
+  <text x="382" y="108" font-size="11" fill="#6b7684">G</text>
+  <text x="455" y="136" text-anchor="middle" font-size="12" fill="#e6edf3">BaseColor.G</text>
+
+  <rect x="544" y="88" width="166" height="64" rx="4" fill="#1e2731" stroke="#33414f"/>
+  <text x="554" y="108" font-size="11" fill="#6b7684">B</text>
+  <text x="627" y="136" text-anchor="middle" font-size="12" fill="#e6edf3">BaseColor.B</text>
+
+  <rect x="716" y="88" width="166" height="64" rx="4" fill="#2a2416" stroke="#ffb020"/>
+  <text x="726" y="108" font-size="11" fill="#ffb020">A</text>
+  <text x="799" y="136" text-anchor="middle" font-size="12" font-weight="600" fill="#ffb020">Material ID</text>
+
+  <text x="30" y="208" font-size="15" font-weight="700" fill="#4fc3f7">RT1</text>
+  <text x="30" y="228" font-size="10.5" fill="#6b7684">32 Bits / RGBA8</text>
+
+  <rect x="200" y="178" width="166" height="64" rx="4" fill="#1e2731" stroke="#33414f"/>
+  <text x="210" y="198" font-size="11" fill="#6b7684">R</text>
+  <text x="283" y="226" text-anchor="middle" font-size="12" fill="#e6edf3">Octahedral Normal.x</text>
+
+  <rect x="372" y="178" width="166" height="64" rx="4" fill="#1e2731" stroke="#33414f"/>
+  <text x="382" y="198" font-size="11" fill="#6b7684">G</text>
+  <text x="455" y="226" text-anchor="middle" font-size="12" fill="#e6edf3">Octahedral Normal.y</text>
+
+  <rect x="544" y="178" width="166" height="64" rx="4" fill="#1e2731" stroke="#33414f"/>
+  <text x="554" y="198" font-size="11" fill="#6b7684">B</text>
+  <text x="627" y="226" text-anchor="middle" font-size="12" fill="#e6edf3">Roughness</text>
+
+  <rect x="716" y="178" width="166" height="64" rx="4" fill="#1e2731" stroke="#33414f"/>
+  <text x="726" y="198" font-size="11" fill="#6b7684">A</text>
+  <text x="799" y="226" text-anchor="middle" font-size="12" fill="#e6edf3">Metallic / Spec</text>
+
+  <text x="40" y="272" font-size="11.5" fill="#c9d4de">RT0 的 Material ID（8 bit）用于 Tile 内部材质分类着色：让同一 Tile 内的像素尽量执行相同分支，避免控制流分歧导致 GPU 掉帧。</text>
+  <text x="40" y="296" font-size="11.5" fill="#9aa5b1">法线用 Octahedral 编码压进 2 个通道，Roughness / Metallic 塞进另外 2 个通道 —— 完整表面信息装进 8 Bytes。</text>
+</svg>
+<div class="fig-cap"><b>图 9</b> · LiteHDR 紧凑型 G-Buffer 的 64 Bits 字节槽布局：RT0 存 BaseColor 与 Material ID，RT1 存八面体法线与 Roughness / Metallic。</div>
+</div>
+
+
+<h4>HDR / SDR 动态曲线编码</h4>
+
+<p><b>精度冲突</b>：游戏场景在高动态范围（HDR）下渲染，太阳光或金属高光反射的亮度非常高（数值可能达到 4.0 到 9.0 甚至更大）；但为节省移动端显存带宽，画面被直接画在标准动态范围（SDR）的缓冲区里，最高只能存 1.0。若把大于 1.0 的 HDR 数值强行写入，超过部分会被全部截断为 1.0 —— 太阳、火焰和高光处丢失所有层次细节，白茫茫一片。行业常用的 RGBM 或对数编码方案，要么计算太耗 GPU，要么容易出现色彩断层（色带）。</p>
+
+<p>项目组采用了一套极轻量的压缩曲线公式：</p>
+
+<pre>C_encoded = C_linear × K / (1 + C_linear × K)</pre>
+
+<ul>
+  <li><b>压缩存储（先编码）</b>：场景渲染时用该公式把任意大的 HDR 亮度值（如 4.0 或 9.0）平滑压缩映射到 0 ~ 1 区间，安全存入 SDR 缓冲区</li>
+  <li><b>还原绘制（后解码）</b>：在色调映射（Tonemap）之前用反向公式还原真实亮度信息，完全避免高光被裁切破坏</li>
+</ul>
+
+<p><b>动态 K 值调控</b>：K 是系统根据「屏幕平均亮度」动态计算出的缩放杠杆 ——</p>
+<ul>
+  <li>亮场景 → 平均亮度高 → <b>K 变大</b> → 压紧高光，抬高并保住暗部</li>
+  <li>暗场景 → 平均亮度低 → <b>K 变小</b> → 放平曲线，保住高光层次</li>
+</ul>
+
+<div class="callout warn">
+  <div class="callout-title">已知瑕疵与未给出项</div>
+  用极简单的加乘指令代替了复杂的对数 / 指数运算，既不增加显存带宽负担，又保住了高光与暗部细节。<b>但由于数值在存储前经过非线性曲线压缩，此期间若进行 Alpha 半透明混合，计算出的混合颜色会有轻微偏差。</b><br>
+  另需说明：<b>原文未给出 K 的具体取值范围与计算细节</b>，此处不予推测。
+</div>
+
+<h4>自动曝光：从全屏逐像素采样到蒙特卡洛随机降采样</h4>
+
+<p>人眼从暗处走到亮处有一个适应过程，游戏中需要「自动曝光」模拟该效果。传统做法是每帧对全屏像素做全量读取（以 1080p 为例超过 200 万像素）计算平均亮度 —— 巨大的显存读写开销与带宽负担。</p>
+
+<p>项目组的解法是<b>抽样调查</b>：其实不需要算得绝对精准，只要知道「大概有多亮」就够了。</p>
+<ul>
+  <li>把画面切成一个个 <b>16×16 的小格子</b>，每个格子里<b>随机只选 1 个像素</b></li>
+  <li>采样数据量瞬间缩减到原来的 <b>1/256</b>，直接写入一个极小的缓冲区</li>
+  <li>算平均亮度时，<b>直接借用上一帧算好的平均值进行平滑过渡</b> —— 人眼本身适应光线就需要时间，这种微小延时在视觉上不仅毫无违和感，反而非常自然</li>
+</ul>
+
+<h4>Tonemap：单通道（One-Pass）解算</h4>
+
+<p>传统流程是将场景渲染结果写回显存（DRAM），后处理阶段再从显存读取图像数据做 Tonemap 并重新写回，导致显存被多次重复读写。LiteHDR 借由 API 提供的 SubpassLoad（Vulkan）或 Framebuffer Fetch（OpenGL ES），在 Tile Memory 内部完成场景着色后紧接着作为后续 Subpass 执行 Tonemap，并把 UI Pass 同样合并为该渲染通道的最后一个 Subpass。</p>
+
+<p>整条链路从「场景渲染 → 显存写入 → 显存读取 → Tonemap → UI 绘制 → 输出」的多通道流程，重构为「<b>Tile 内场景计算 → Tile 内 Tonemap → 叠加 UI → 写出至屏幕</b>」的单通道流程。</p>
+
+<h4>LiteHDR 性能与带宽收益</h4>
+
+<table>
+  <thead><tr><th>指标</th><th>传统多 Pass</th><th>LiteHDR</th></tr></thead>
+  <tbody>
+    <tr><td>Render Pass 切换次数</td><td>8 – 12 次</td><td><b>2 – 3 次（降幅超过 70%）</b></td></tr>
+    <tr><td>DRAM 显存读写带宽</td><td>中间结果反复读写</td><td><b>压减 60% 以上</b></td></tr>
+    <tr><td>写回 DRAM 的内容</td><td>G-Buffer + 各阶段中间结果</td><td><b>仅计算完毕的最终 Color</b></td></tr>
+  </tbody>
+</table>
+
+<h3>5.3 Tile Memory Heap：异构分辨率下的片上复用</h3>
+
+<p>最理想的技术路线是将场景渲染、Tonemap 和 UI 绘制合并在单个 Render Pass 中。但在旗舰机等大屏设备上，经常出现<b>后台缓冲区（Back Buffer）分辨率与场景渲染分辨率不一致</b>的情况 —— 例如场景按 0.8 动态分辨率渲染以节省 GPU 算力，而 UI 必须以 1080p 或 2K 原生分辨率渲染以保持文字清晰度。</p>
+
+<p>这种分辨率差异打破了单通道合并的物理前提：UI Pass 无法再作为 BasePass 的 Subpass 直接并入，系统必须先将 Tonemap 处理后的场景颜色写出到 DRAM，再由 UI 通道重新读取该画面进行叠加 ——「Tonemap 写出 → UI 通道读取」带来的二次显存读写成为新的带宽消耗瓶颈。</p>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" width="960" height="420" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="a10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7684"/>
+    </marker>
+  </defs>
+  <rect width="960" height="420" rx="10" fill="#141b22"/>
+  <text x="40" y="32" font-size="16.5" fill="#e6edf3">Tile Memory Heap：异构分辨率下的 Pass 间片上内存复用</text>
+
+  <text x="40" y="62" font-size="12.5" fill="#ef5350">传统 TBDR —— UI 与场景分辨率不一致，被迫拆成两个 Pass</text>
+
+  <rect x="60" y="78" width="210" height="56" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="165" y="100" text-anchor="middle" font-size="12" fill="#e6edf3">场景 Pass + Tonemap</text>
+  <text x="165" y="120" text-anchor="middle" font-size="10" fill="#6b7684">1536 × 864（0.8× 分辨率）</text>
+
+  <path d="M270,106 H332" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a10)"/>
+  <text x="301" y="98" text-anchor="middle" font-size="10" fill="#ef5350">写回</text>
+
+  <rect x="336" y="78" width="180" height="56" rx="6" fill="#2a1a1a" stroke="#ef5350" stroke-opacity="0.5"/>
+  <text x="426" y="100" text-anchor="middle" font-size="12.5" fill="#ef5350">DRAM</text>
+  <text x="426" y="120" text-anchor="middle" font-size="10" fill="#c9d4de">中间 Color Buffer</text>
+
+  <path d="M516,106 H578" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a10)"/>
+  <text x="547" y="98" text-anchor="middle" font-size="10" fill="#ef5350">读出</text>
+
+  <rect x="582" y="78" width="210" height="56" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="687" y="100" text-anchor="middle" font-size="12" fill="#e6edf3">UI Pass</text>
+  <text x="687" y="120" text-anchor="middle" font-size="10" fill="#6b7684">1080p 原生分辨率</text>
+
+  <path d="M792,106 H844" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a10)"/>
+  <rect x="848" y="78" width="82" height="56" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="889" y="110" text-anchor="middle" font-size="11.5" fill="#e6edf3">Present</text>
+
+  <text x="60" y="158" font-size="11.5" fill="#9aa5b1">单通道合并的物理前提被打破：「Tonemap 写出 → UI 通道读取」的二次显存读写成为新的带宽瓶颈。</text>
+
+  <line x1="40" y1="178" x2="920" y2="178" stroke="#2a3441"/>
+
+  <text x="40" y="206" font-size="12.5" fill="#4fc3f7">Tile Memory Heap —— 场景结果留在片上，UI Pass 重映射同一块 SRAM</text>
+
+  <rect x="60" y="222" width="200" height="64" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="160" y="244" text-anchor="middle" font-size="12" fill="#e6edf3">场景 Pass</text>
+  <text x="160" y="263" text-anchor="middle" font-size="10" fill="#6b7684">1536 × 864（0.8×）</text>
+  <text x="160" y="281" text-anchor="middle" font-size="9.5" fill="#66bb6a">STORE_OP_DONT_CARE</text>
+
+  <path d="M260,254 H286" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a10)"/>
+  <text x="273" y="246" text-anchor="middle" font-size="9.5" fill="#66bb6a">不写回</text>
+
+  <rect x="290" y="222" width="220" height="64" rx="6" fill="#17252f" stroke="#4fc3f7"/>
+  <text x="400" y="246" text-anchor="middle" font-size="12.5" fill="#4fc3f7">On-Chip Tile Memory Heap</text>
+  <text x="400" y="264" text-anchor="middle" font-size="10" fill="#93a1b0">GPU 片上 SRAM / GMEM</text>
+  <text x="400" y="281" text-anchor="middle" font-size="10" fill="#93a1b0">场景结果原地保留</text>
+
+  <path d="M510,254 H536" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a10)"/>
+  <text x="523" y="246" text-anchor="middle" font-size="9.5" fill="#4fc3f7">重映射</text>
+
+  <rect x="540" y="222" width="200" height="64" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="640" y="244" text-anchor="middle" font-size="12" fill="#e6edf3">UI Pass</text>
+  <text x="640" y="263" text-anchor="middle" font-size="10" fill="#6b7684">1080p 原生分辨率</text>
+  <text x="640" y="281" text-anchor="middle" font-size="9.5" fill="#4fc3f7">绑定同一块 SRAM</text>
+
+  <path d="M740,254 H766" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a10)"/>
+
+  <rect x="770" y="222" width="160" height="64" rx="6" fill="#17251a" stroke="#66bb6a" stroke-opacity="0.6"/>
+  <text x="850" y="246" text-anchor="middle" font-size="12" fill="#66bb6a">Present Buffer</text>
+  <text x="850" y="266" text-anchor="middle" font-size="10" fill="#93a1b0">画面 + UI 单次写出</text>
+
+  <text x="60" y="310" font-size="11.5" fill="#c9d4de">绑定方式：vkBindImageMemory2 / vkCmdBindTileMemoryQCOM 把 UI 的 Texture 重映射到场景用过的同一片片上 SRAM。</text>
+  <text x="60" y="332" font-size="11.5" fill="#c9d4de">跨分辨率对齐：改用 UV 归一化 + 硬件双线性插值 —— ScenePixel = (u × 1536, v × 864)。</text>
+
+  <rect x="60" y="352" width="870" height="52" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="80" y="372" font-size="10.5" fill="#9aa5b1">带宽削减（读 + 写）</text>
+  <text x="80" y="392" font-size="13.5" font-weight="600" fill="#ffb020">1186 MB/s</text>
+  <text x="360" y="372" font-size="10.5" fill="#9aa5b1">整机功耗</text>
+  <text x="360" y="392" font-size="13.5" font-weight="600" fill="#ffb020">4068 mW → 3838 mW</text>
+  <text x="680" y="372" font-size="10.5" fill="#9aa5b1">画质 / 分辨率代价</text>
+  <text x="680" y="392" font-size="13.5" font-weight="600" fill="#ffb020">不降低、不牺牲</text>
+</svg>
+<div class="fig-cap"><b>图 10</b> · 异构分辨率下的两种路径对照：传统写回 DRAM 再读出 vs Tile Memory Heap 片上重映射。</div>
+</div>
+
+
+<h4>从「固定 Framebuffer 绑定」到「片上虚拟内存堆」</h4>
+<ul>
+  <li><b>传统 GMEM 模式</b>：Tile Memory 被当成一个固定的、与 Render Pass / Framebuffer 强绑定的临时 Buffer。只要 Pass 分辨率改变，GPU 就必须清空并重新初始化 GMEM 布局，因此中间数据必须写回 DRAM</li>
+  <li><b>Tile Memory Heap 模式</b>：高通在驱动与硬件层面将 Tile Memory 抽象成一块物理驻留在 GPU 芯片内部（On-Chip）的通用内存堆（Memory Heap）。场景 Pass（0.8 分辨率）渲染完成后，其 Render Target 并不执行写回 DRAM（设置 <code>STORE_OP_DONT_CARE</code>），而是将这段物理 SRAM 空间直接保留在 Tile Memory Heap 中；随后启动的 UI Pass（1080p）不需要重新分配 DRAM，而是通过 API 直接将自己的 Texture 绑定（Aliasing 重映射）到刚才场景使用的同一块片上 SRAM 内存地址上</li>
+</ul>
+
+<h4>坐标与采样：分辨率不同如何「对应上」</h4>
+<p>分辨率不一致时，不再依赖硬件默认的 1:1 像素对应（如 Subpass Load），而是改用<b>片上纹理采样器</b>进行 UV 坐标插值：</p>
+<ul>
+  <li><b>片上纹理化（On-Chip Texture Access）</b>：通过 <code>VK_QCOM_tile_memory</code> 扩展，留在 Tile Memory Heap 里的场景画面（0.8 分辨率）在 UI Pass 看来变成了一张可以直接被 Texture Unit 采样的纹理（VkImage）</li>
+  <li><b>UV 坐标映射与缩放（Bilinear Scaling）</b>：UI Pass 在 1080p 屏幕空间绘制全屏四边形时，Pixel Shader 传入归一化 UV <code>(u, v) ∈ [0, 1]</code>；硬件采样器自动根据场景实际分辨率（如 1536 × 864）映射回正确位置 <code>ScenePixel = (u × 1536, v × 864)</code>，并配合硬件双线性过滤实时计算出插值后的颜色</li>
+</ul>
+
+<pre><span class="cm">// 获取 Tile 内存需求</span>
+VkTileMemoryRequirementsQCOM tileMemReqs = {};
+memoryReqs.pNext = &amp;tileMemReqs;
+VkMemoryRequirements2 memoryReqs = {};
+vkGetImageMemoryRequirements2(..., &amp;memoryReqs);
+if (tileMemReqs.size &gt; 0) <span class="cm">// 支持</span>
+<span class="cm">// 从 Tile Memory Heap 分配内存</span>
+vkAllocateMemory(..., &amp;memoryAllocInfo, &amp;tileMemory);
+<span class="cm">// 绑定 Tile 内存到 VkImage</span>
+vkBindImageMemory(..., vkImage, tileMemory);
+vkCmdBindTileMemoryQCOM(vkCommandBufferA, &amp;tileMemoryBindInfo);
+<span class="cm">// 在这里提交绘制调用</span>
+vkCmdBindTileMemoryQCOM(vkCommandBufferA, VK_NULL_HANDLE);</pre>
+
+<h4>运行机制与优化收益</h4>
+<ul>
+  <li><b>零显存写回（Zero DRAM Store）</b>：场景渲染与 Tonemap 完成后，结果直接留在 Adreno 的片上 Heap 内存里，指令显式标记为不写回</li>
+  <li><b>片上极速采样（On-Chip Sample / Fetch）</b>：UI Pass 启动时直接从同一块 Tile Memory Heap 中零延时读取 Tonemap 后的场景像素，与原生分辨率的 UI 顶点进行混合绘制</li>
+  <li><b>最终单次写出</b>：只有在 UI 混合完毕后，最终包含画面与 UI 的完整帧才会被一次性写回主显存的 Present Buffer</li>
+</ul>
+
+<table>
+  <thead><tr><th>项目</th><th>实测（HD + 120fps，场景 1080p）</th></tr></thead>
+  <tbody>
+    <tr><td>带宽削减（读 + 写）</td><td><b>1186 MB/s</b></td></tr>
+    <tr><td>功耗</td><td><b>4068 mW → 3838 mW</b></td></tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <div class="callout-title">落地成本</div>
+  在项目实际落地中，<b>将场景数据迁移至 Tile Memory Heap 后，其代码改动量极小</b>。在完全不降低画面分辨率、不牺牲视觉品质的前提下，大幅削减了显存读写带宽与整机功耗。项目组后续计划将更多渲染数据迁移至该 Heap 区域。
+</div>
+
+<div class="callout">
+  <div class="callout-title">移动端渲染管线带宽优化三要素</div>
+  ① <b>特效渲染去后处理化</b> —— 通过 Screen Mesh 等方案替代传统后处理，避免全屏场景图像在主显存中的二次读写；<br>
+  ② <b>渲染通道深度合并</b> —— 将场景着色、自动曝光、色调映射与 UI 绘制最大限度合并至单个物理 Render Pass 内解算；<br>
+  ③ <b>异构 Pass 间片上复用</b> —— 针对因分辨率差异等物理限制导致无法合并的 Pass 切换，利用 Tile Memory Heap 实现片上 SRAM 内存区域重映射，消除显存传输开销。
+</div>
+
+<h3>5.4 VRS：动态自适应的可变着色率</h3>
+
+<p>除了系统内存带宽，GPU 本身的高频着色计算（Pixel Shading）也是设备发热和功耗上升的主要来源。在许多场景中（例如角色置身于室外环境时），金属容器表面、天空、远处的大坝等区域，小范围内的像素颜色非常接近甚至完全相同。VRS（Variable Rate Shading）允许 GPU 对多个相邻像素仅执行一次片元着色计算，并将结果直接复用到整个像素块中。</p>
+
+<table>
+  <thead><tr><th>着色率档位</th><th>含义</th></tr></thead>
+  <tbody>
+    <tr><td><code>1×1</code></td><td>标准着色，每个像素单独计算 1 次</td></tr>
+    <tr><td><code>1×2 / 2×1</code></td><td>每 2 个像素执行 1 次着色</td></tr>
+    <tr><td><code>2×2</code></td><td>每 4 个像素执行 1 次着色（着色算力压减 75%）</td></tr>
+    <tr><td><code>2×4 / 4×2 / 4×4</code></td><td>低精度粗粒度着色，如 4×4 表示 16 个像素共享 1 次着色计算</td></tr>
+  </tbody>
+</table>
+
+<p>实施 VRS 的核心技术难点在于：<b>如何精准、快速地识别出画面中视觉相似的区域</b>，避免在图像边缘、高频纹理或复杂光影处误用低着色率而导致画质失真。</p>
+
+<p>方案的核心思路是利用<b>上一帧的历史亮度数据</b>与<b>当前帧的空间颜色方差</b>，以极低的计算开销（毫秒级）动态生成 VRS 控制图：屏幕划分为基础小块并归并为更大的宏处理单元（如 2×2 组合），实时缓存各 Tile 上一帧的平均亮度，当前帧逐块计算片元间的局部颜色方差（Color Variance）。方差低于阈值的平坦区应用 2×2 甚至 4×4 粗粒度着色率；方差大的细节区（几何边缘、细线条、高频纹理）维持 1×1。对于远距离渲染对象，按其 LOD 层级强制追加更激进的 VRS 降级。</p>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 490" width="960" height="490" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="a11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7684"/>
+    </marker>
+  </defs>
+  <rect width="960" height="490" rx="10" fill="#141b22"/>
+  <text x="40" y="32" font-size="16.5" fill="#e6edf3">VRS 动态自适应可变着色率：基于亮度方差的平坦区识别</text>
+  <text x="40" y="56" font-size="11.5" fill="#9aa5b1">左：方差 Debug 视图（亮红 = 低方差；黑 = 高方差）　右：着色率映射策略</text>
+
+  <rect x="60" y="90" width="380" height="72" rx="4" fill="#8a2424"/>
+  <text x="76" y="132" font-size="11.5" fill="#ffd9d9">天空 · 方差极低</text>
+
+  <rect x="60" y="162" width="380" height="124" fill="#0f1215"/>
+  <text x="76" y="192" font-size="11.5" fill="#c9d4de">远景树木 · 方差高</text>
+  <rect x="76" y="232" width="130" height="40" rx="4" fill="#8a2424"/>
+  <text x="86" y="257" font-size="10" fill="#ffd9d9">金属武器表面 · 方差低</text>
+
+  <rect x="60" y="286" width="380" height="34" rx="4" fill="#b03434"/>
+  <text x="76" y="308" font-size="11.5" fill="#ffe0e0">平整地表 · 方差极低</text>
+
+  <text x="490" y="112" font-size="12.5" fill="#ffb020">动态着色率映射</text>
+
+  <rect x="490" y="130" width="40" height="26" rx="4" fill="#8a2424"/>
+  <text x="544" y="148" font-size="11.5" fill="#c9d4de">低方差 · 平坦区（天空 / 地表 / 金属）</text>
+  <path d="M744,143 H774" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a11)"/>
+  <text x="784" y="148" font-size="11.5" fill="#66bb6a">2×2 / 4×4</text>
+
+  <rect x="490" y="170" width="40" height="26" rx="4" fill="#0f1215" stroke="#33414f"/>
+  <text x="544" y="188" font-size="11.5" fill="#c9d4de">高方差 · 细节区（几何边缘 / 高频纹理）</text>
+  <path d="M744,183 H774" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a11)"/>
+  <text x="784" y="188" font-size="11.5" fill="#4fc3f7">1×1 标准着色</text>
+
+  <text x="490" y="228" font-size="11.5" fill="#93a1b0">远景树木：方差高，但人眼对高动态画面下的条纹钝感</text>
+  <text x="490" y="248" font-size="11.5" fill="#93a1b0">→ 按 LOD 层级强制追加更激进的 VRS 降级</text>
+
+  <text x="490" y="284" font-size="11.5" fill="#ef5350">相机剧烈移动 / 旋转时触发 Fallback，退回保守着色策略</text>
+
+  <text x="60" y="348" font-size="12" fill="#ffb020">执行流程</text>
+  <text x="60" y="376" font-size="11.5" fill="#c9d4de">① 屏幕分块，相邻小块归并为宏处理单元</text>
+  <text x="60" y="402" font-size="11.5" fill="#c9d4de">③ 降采样到极小 Buffer，下帧生成 VRS 图</text>
+  <text x="500" y="376" font-size="11.5" fill="#c9d4de">② 缓存上帧亮度，本帧逐块算局部颜色方差</text>
+  <text x="500" y="402" font-size="11.5" fill="#c9d4de">④ Shader 用 ddx / ddy 提取亮度的局部梯度</text>
+
+  <rect x="60" y="424" width="870" height="50" rx="6" fill="#1e2731" stroke="#33414f"/>
+  <text x="80" y="444" font-size="10.5" fill="#9aa5b1">实测（HD 120fps / 1080p）</text>
+  <text x="80" y="464" font-size="13" font-weight="600" fill="#ffb020">FPS 114 → 117</text>
+  <text x="330" y="464" font-size="13" font-weight="600" fill="#ffb020">GPU 频率/秒 324 → 291</text>
+  <text x="630" y="464" font-size="13" font-weight="600" fill="#ffb020">平坦区着色算力 -50% ~ 75%</text>
+</svg>
+<div class="fig-cap"><b>图 11</b> · VRS 基于亮度方差的平坦区识别：左侧方差 Debug 视图，右侧着色率映射策略与执行流程。</div>
+</div>
+
+
+<h4>Shader 实现核心逻辑</h4>
+<p>主要利用 Quad 内的偏导数（ddx / ddy）与跨线程通信提取局部梯度，并仅在 Quad 左上角线程将数据打包输出：</p>
+
+<pre><span class="cm">// 获取 FP16 精度的亮度</span>
+float L = GetLuminanceFP16();
+
+<span class="cm">// 计算当前片元在 2x2 Quad 中的局部坐标向量 (-1.0 或 1.0)</span>
+float2 QuadVector = float2(float(ScreenPos.x &amp; 1) * 2.0 - 1.0,
+                           float(ScreenPos.y &amp; 1) * 2.0 - 1.0);
+
+<span class="cm">// 利用屏幕空间偏导计算亮度的水平和垂直梯度</span>
+float dx = ddx(L), dY = ddy(L);
+float H, V, D;
+
+<span class="cm">// 跨线程通信，获取整个 Quad 的亮度与梯度特征</span>
+GetPixelQuadMessage(L, H, V, D);
+
+<span class="cm">// 将屏幕坐标映射到目标分辨率 (0.5 倍)</span>
+uint2 TargetScreenPos = SvPosition.xy * 0.5;
+
+<span class="cm">// 仅通过 Quad 左上角的线程（坐标为 2 的倍数）将编码后的方差数据写入 UAV</span>
+if (((ScreenPos.x &amp; 1) == 0) &amp;&amp; ((ScreenPos.y &amp; 1) == 0))
+{
+    MobileVRSLuminanceUAV[TargetScreenPos] = GetEncodedUint(L, H, V, D);
+}</pre>
+
+<h4>优化收益与画质平衡</h4>
+
+<table>
+  <thead><tr><th>指标</th><th>无 VRS</th><th>开 VRS</th></tr></thead>
+  <tbody>
+    <tr><td>FPS</td><td>114</td><td><b>117</b></td></tr>
+    <tr><td>平均 GPU 频率 / 秒</td><td>324</td><td><b>291</b></td></tr>
+    <tr><td>平均 GPU 频率 / 帧</td><td>2.84</td><td><b>2.48</b></td></tr>
+  </tbody>
+</table>
+
+<p>在天空、平整墙面、远景建筑等大面积平坦区域，像素着色计算量降低 <b>50% ~ 75%</b>。画面差异几乎察觉不到，多获得 3 帧，<b>GPU 频率降低 12.6%</b>，有效延缓了高帧率运行下的设备热降频。</p>
+
+<div class="callout warn">
+  <div class="callout-title">边界情况处理</div>
+  该算法强依赖上一帧的历史亮度，当摄像机发生剧烈移动或旋转（Camera Cut / Fast Panning）时历史投影将产生严重误差。此时系统会触发 <b>Fallback</b>，退回更保守的着色策略以避免画面出现大面积伪影。
+</div>
+
+<h3>5.5 DFP：动态帧预测</h3>
+
+<p>把视角从「单帧渲染」切换到「连续的游戏过程」：玩家面前的建筑、道路和地形每一帧都在重新渲染，但这些场景元素本身并没有发生物理移动，改变的仅仅是玩家视角的移动与平移。这意味着帧与帧之间的画面存在极高的<b>时间相关性（Temporal Coherence）</b>。</p>
+
+<h4>为什么不用传统的「补帧 / 插帧」</h4>
+<ul>
+  <li><b>插值（Interpolation）</b>：需要等待后续帧渲染完成后再插入中间帧，会带来明显的操作延迟（Input Latency）</li>
+  <li><b>外推（Extrapolation）</b>：在视角快速转动或剧烈运动时，极易产生严重的画面伪影与撕裂（Artifacts）</li>
+</ul>
+<p>对于追求毫秒级响应、极致高刷与精准枪感的竞技射击游戏（FPS），任何额外的输入延迟与画面伪影都是不可接受的。</p>
+
+<p>为了在「零额外延迟」的前提下实现像素复用，项目组引入硬件级动态帧预测（DFP），将优化下沉至 GPU 渲染管线的计算阶段：</p>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 450" width="960" height="450" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="a12" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7684"/>
+    </marker>
+  </defs>
+  <rect width="960" height="450" rx="10" fill="#141b22"/>
+  <text x="40" y="32" font-size="16.5" fill="#e6edf3">DFP 动态帧预测：以运动矢量复用上一帧的着色结果</text>
+  <text x="40" y="56" font-size="11.5" fill="#9aa5b1">不做插帧 / 补帧 —— 插值带来输入延迟、外推在快速转视角时产生伪影，对毫秒级枪感不可接受</text>
+
+  <text x="80" y="72" font-size="11" fill="#9aa5b1">第 N 帧</text>
+  <rect x="80" y="80" width="220" height="150" rx="5" fill="#101316" stroke="#33414f"/>
+  <rect x="80" y="80" width="220" height="48" fill="#26313d"/>
+  <rect x="80" y="198" width="220" height="32" fill="#2f2418"/>
+  <rect x="150" y="122" width="60" height="76" fill="#3a4759"/>
+  <circle cx="250" cy="176" r="9" fill="#ef5350"/>
+
+  <path d="M306,155 H430" stroke="#6b7684" stroke-width="1.5" marker-end="url(#a12)"/>
+  <text x="368" y="145" text-anchor="middle" font-size="10.5" fill="#6b7684">Motion Vector 重投影</text>
+
+  <text x="440" y="72" font-size="11" fill="#9aa5b1">第 N+1 帧</text>
+  <rect x="440" y="80" width="220" height="150" rx="5" fill="#101316" stroke="#33414f"/>
+  <rect x="440" y="80" width="220" height="48" fill="#26313d"/>
+  <rect x="440" y="198" width="220" height="32" fill="#2f2418"/>
+  <rect x="510" y="122" width="60" height="76" fill="#3a4759"/>
+  <circle cx="588" cy="172" r="9" fill="#ef5350"/>
+  <rect x="612" y="80" width="48" height="150" fill="#2a1a1a" stroke="#ef5350" stroke-dasharray="5 3"/>
+
+  <text x="680" y="100" font-size="12.5" fill="#ffb020">像素分类</text>
+  <rect x="680" y="114" width="14" height="12" rx="2" fill="#3a4759"/>
+  <text x="702" y="124" font-size="11" fill="#c9d4de">静态：建筑 / 道路 / 地形</text>
+  <rect x="680" y="138" width="14" height="12" rx="2" fill="#ef5350"/>
+  <text x="702" y="148" font-size="11" fill="#c9d4de">动态：敌人 / 武器 / 枪口火光</text>
+  <rect x="680" y="162" width="14" height="12" rx="2" fill="#2a1a1a" stroke="#ef5350"/>
+  <text x="702" y="172" font-size="11" fill="#c9d4de">Unocclusion：上帧未拍到的边缘</text>
+
+  <text x="680" y="206" font-size="11" fill="#66bb6a">静态像素直接继承上一帧着色</text>
+  <text x="680" y="226" font-size="11" fill="#ef5350">动态像素仍走正常管线逐像素重算</text>
+  <text x="680" y="246" font-size="11" fill="#93a1b0">边缘缺失区域全量补画，避免黑边拉伸</text>
+
+  <line x1="40" y1="262" x2="920" y2="262" stroke="#2a3441"/>
+
+  <text x="80" y="292" font-size="13" fill="#ffb020">VRS × DFP：时空双维协同</text>
+
+  <rect x="80" y="310" width="380" height="64" rx="6" fill="#1e2731" stroke="#4fc3f7" stroke-opacity="0.5"/>
+  <text x="100" y="334" font-size="12" fill="#4fc3f7">空间维 · VRS</text>
+  <text x="100" y="356" font-size="10.5" fill="#93a1b0">单帧内缩小平坦区域的片元着色开销</text>
+
+  <text x="480" y="350" text-anchor="middle" font-size="20" fill="#6b7684">+</text>
+
+  <rect x="500" y="310" width="380" height="64" rx="6" fill="#1e2731" stroke="#66bb6a" stroke-opacity="0.5"/>
+  <text x="520" y="334" font-size="12" fill="#66bb6a">时间维 · DFP</text>
+  <text x="520" y="356" font-size="10.5" fill="#93a1b0">跨帧直接复用历史上已着色过的像素</text>
+
+  <text x="80" y="410" font-size="12.5" fill="#ffb020">两者叠加：以「像素复用」换 GPU 算力与 Tile 带宽 —— 把 Shader 算力留给真正在变的像素</text>
+
+  <text x="80" y="436" font-size="11.5" fill="#9aa5b1">移动端开发本质是在硬件 Limit 下做动态资源分配：按玩法需求把算力喂给视觉焦点，在人眼钝感区做隐蔽优化。</text>
+</svg>
+<div class="fig-cap"><b>图 12</b> · DFP 动态帧预测的动静分离与 Unocclusion 补缝机制，以及 VRS × DFP 的时空双维协同。</div>
+</div>
+
+
+<ul>
+  <li><b>第一步：追踪像素运动轨迹</b> —— 利用 GPU 的深度缓冲区与运动矢量（Motion Vectors），精准计算出当前帧（第 N+1 帧）屏幕上的某个点在上一帧（第 N 帧）的位置</li>
+  <li><b>第二步：动静分离与选择性片元着色</b> —— 房子、道路、远景等仅因相机移动而位置改变、几何与光影未变的大块静态像素，直接继承上一帧的着色结果，彻底免除昂贵的片元着色器（ALU）计算；敌人、队友、手持武器、枪口火光、UI 元素以及发生剧烈光影变化的区域完全不复用，仍按正常管线逐像素重新着色</li>
+  <li><b>第三步：边缘缺失自动补缝（Unocclusion）</b> —— 玩家快速甩头或剧烈旋转视角时，屏幕边缘会露出一块上一帧镜头没拍到的「全新未知区域」，管线自动识别这些没有历史数据的空白像素，仅对其触发全量片元着色进行补画，避免画面边缘出现黑边、拉伸或断层</li>
+</ul>
+
+<div class="callout">
+  <div class="callout-title">收益与画质平衡</div>
+  相比传统插帧补帧，DFP 纯粹是在渲染端做算力「瘦身」，<b>完全不破坏原生的操作响应速度</b>，保持了 FPS 游戏所需的极低输入延迟；大幅降低片元着色器 ALU 计算量与显存带宽占用，有效缓解 1080p / 120fps 等高画质高帧率模式下的发热降频问题。<br>
+  补充：这套动静分离的帧预测在《暗区突围》中也有类似应用。
+</div>
+
+<h2 id="takeaway">六、关键启示与未来方向</h2>
+
+<div class="callout">
+  <div class="callout-title">底层逻辑</div>
+  概括来说，《三角洲行动》移动端 GPU 优化的底层逻辑是：<b>利用 Frame 间的 Temporal &amp; Spatial 连贯性，以像素复用换取 GPU 算力与 Tile 带宽</b>。<br>
+  GPU 优化不只是简单的 Cut Down 算力，更来自于对已 Shader 像素的复用。移动端开发本质上是在硬件 Limit 下做动态资源分配（Resource Budget Allocation）—— 按玩法需求把 Shader 算力喂给视觉焦点，在人眼钝感区做隐蔽优化，这是渲染架构设计的核心。
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h4>对移动端渲染团队</h4>
+    <ol>
+      <li><b>优化要从资产生产管线入手</b>：子关卡切分规范与合批规范定不下来，运行时怎么调都是补丁。300m × 300m 装 300 个子关卡、80,430 个 Actor 的原始关卡，靠运行时剔除救不回来</li>
+      <li><b>PVS 数据可以反向用</b>：它不只服务绘制剔除，也能作为「内存侧整块卸载」的聚类特征 —— 从组件级粒度提升到关卡级粒度</li>
+      <li><b>卡顿要用硬件前置解决</b>：与其让系统被动检测负载再升频，不如让引擎把即将到来的峰值提前告诉硬件（SAGC）</li>
+      <li><b>借力硬件特性</b>：Tile Memory Heap / VRS / DFP 都是片上能力，先把带宽与算力瓶颈吃透，再谈画质提升</li>
+    </ol>
+  </div>
+  <div class="card">
+    <h4>未来方向（120fps 成为竞技刚需的当下）</h4>
+    <ol>
+      <li><b>渲染品质进化</b>：实现更真实的光影 Transport、更具沉浸感的 Reflection 效果与更精细的 Mesh / Geometry 细节</li>
+      <li><b>场景动态交互</b>：引入更多 Physics-based 场景破坏与环境互动</li>
+      <li><b>硬件深度挖掘</b>：立足「Know Your Hardware」，通过更聪明的 Scalability 策略，让不同平台与层级的移动 GPU 都能稳帧输出竞技级画质</li>
+    </ol>
+    <p style="color:var(--text-dim);font-size:13.5px;margin-top:14px">核心课题是：如何在有限的帧率预算内做技术演进。</p>
+  </div>
+</div>
+
+<h2 id="refs">七、参考资料</h2>
+<ul>
+  <li>冯委.《三角洲行动》移动端开发最佳实践 —— 高通 × 腾讯天美 GDC 2026 技术分享。<br><span style="color:var(--text-mute);font-size:13px">https://zhuanlan.zhihu.com/p/2091147832040413069</span></li>
+  <li>GDC Vault: The Evolution of Real-Time …<br><span style="color:var(--text-mute);font-size:13px">https://gdcvault.com/play/1035619/The-Evolution-of-Real-Time</span></li>
+  <li>相关延伸：GDC 分享《在移动端实现 144 帧渲染：〈暗区突围〉手游中的帧预测》（动静分离的帧预测思路）</li>
+</ul>
+
+<footer>《三角洲行动》移动端开发最佳实践 · GDC 2026 分享整理 · 内部研究文档 · 数值均取自公开分享原文</footer>
+
+</div>
+</body>
+</html>

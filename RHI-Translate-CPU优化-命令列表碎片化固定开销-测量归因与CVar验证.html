@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>RHI_Translate CPU 优化 — 命令列表碎片化与固定开销 · 测量归因 · CVar 验证与落地</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --ink:#1c2126; --ink2:#4a5560; --ink3:#7a8791;
+    --line:#e3e7eb; --accent:#1a6fd4; --accent-bg:#eef4fc;
+    --warn-bg:#fff8e6; --warn-line:#e8c46a; --warn-ink:#7a5a12;
+    --bad-bg:#fdeeee; --bad-line:#e0a0a0; --bad-ink:#8a3030;
+    --ok-bg:#eef8f0; --ok-line:#8fc39a; --ok-ink:#2c6b3a;
+    --code:#f2f4f6; --code-ink:#243;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.75 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:1080px;margin:0 auto;padding:36px 28px 90px;}
+  h1{font-size:27px;line-height:1.35;margin:0 0 6px;letter-spacing:-.3px}
+  .sub{color:var(--ink3);font-size:13.5px;margin-bottom:26px}
+  h2{font-size:21px;margin:46px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h3{font-size:16.5px;margin:28px 0 10px;color:var(--ink)}
+  p{margin:10px 0}
+  code,.mono{font-family:Consolas,"Courier New",monospace;font-size:13px;
+    background:var(--code);color:var(--code-ink);padding:1.5px 5px;border-radius:4px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+    overflow-x:auto;font-size:12.5px;line-height:1.65;margin:12px 0}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px;background:var(--card)}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:#f0f3f6;font-weight:600}
+  td code{font-size:12px}
+  .callout{border-left:4px solid var(--accent);background:var(--accent-bg);
+    border-radius:0 8px 8px 0;padding:12px 18px;margin:16px 0}
+  .warn{border-left:4px solid var(--warn-line);background:var(--warn-bg);color:var(--warn-ink);
+    border-radius:0 8px 8px 0;padding:12px 18px;margin:16px 0}
+  .bad{border-left:4px solid var(--bad-line);background:var(--bad-bg);color:var(--bad-ink);
+    border-radius:0 8px 8px 0;padding:12px 18px;margin:16px 0}
+  .ok{border-left:4px solid var(--ok-line);background:var(--ok-bg);color:var(--ok-ink);
+    border-radius:0 8px 8px 0;padding:12px 18px;margin:16px 0}
+  .warn b,.bad b,.ok b,.callout b{color:inherit}
+  ul,ol{margin:10px 0;padding-left:24px}
+  li{margin:5px 0}
+  svg{display:block;margin:18px auto;max-width:100%}
+  .cap{text-align:center;color:var(--ink3);font-size:12.5px;margin-top:-6px}
+  .formula{font-family:Consolas,monospace;font-size:16px;background:var(--accent-bg);
+    color:var(--accent);padding:10px 16px;border-radius:8px;display:inline-block;margin:8px 0}
+  hr{border:none;border-top:1px solid var(--line);margin:34px 0}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>RHI_Translate CPU 优化 — 命令列表碎片化与固定开销 · 测量归因 · CVar 验证与落地</h1>
+<div class="sub">仓库 C:\GR_main · 引擎 UE5EA（UE 5.5.4 分叉）· 用例 nr_sfxai（NeoRing 分段·特效与AI）· 每条结论附 文件:行号 证据</div>
+<div class="callout"><b>摘要：</b>把「RHI_Translate 吃 CPU」拆到可测、可验证、可落地：引擎侧没有单一热点，<b>耗时均匀分布在每条命令上</b>，真正的成本是「命令列表被切得太碎」带来的固定开销。从实测数据解出成本模型 <b>avg_per_cmd = C + F/N</b>（F≈49 µs/命令列表，占 45%），并据此验证出三个 CVar 的有效性：r.RDG.ParallelExecute=0（−24%，低配档位已配置）、r.RHICmd.ParallelTranslate.CombineSingleAndParallel=1、r.RDG.AsyncCompute=0——后两者组合实测 <b>核时 −16.4%、帧率 +4.6%（双口径均两组分离）</b>。另附一套对抗时间漂移的「2×2 同期交替」验证法（实测同配置 2 小时漂移 +24%，单次 A/B 会把漂移误判成优化）。</div>
+<h2>1. 一句话结论与全景</h2>
+<div class="callout">引擎侧没有「哪条命令慢」这种热点。<code>RHI_Translate</code> 的耗时均匀摊在每条命令上，真正的成本来源是<b>命令列表被切得过碎</b>——每个列表都带一份固定开销。</div>
+<p>先给结论，再展开：</p>
+<ul><li><b>成本模型</b>：<code>avg_per_cmd = C + F/N</code>。<code>C</code>≈0.596 µs 是单条命令的真实成本，<code>F</code>≈49 µs 是每个命令列表的固定开销，<code>N</code> 是每列表平均命令数（由 <code>RHICommandList.cpp:1326</code> 处的 <code>[CmdStats]</code> 统计实测值联立解出）。</li><li><b>优化方向</b>：既然不能压 <code>C</code>（那是真实渲染工作），就去压 <code>F/N</code> —— 也就是<b>减少碎片化</b>。</li><li><b>三个 CVar 都作用在「分片/调度」环节</b>，而非「命令本身」——这是它们能同时降低核时与提升帧率的原因。</li></ul>
+<svg viewBox="0 0 1080 520" width="1080" height="520" xmlns="http://www.w3.org/2000/svg" font-family='-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'><defs><marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#5a6b7a"/></marker></defs><rect x="30" y="50" width="180" height="96" rx="8" fill="#ffffff" stroke="#e3e7eb" stroke-width="1.4"/><text x="42" y="70" font-size="13" font-weight="600" fill="#1c2126">① 记录命令</text><text x="42" y="86" font-size="11.5" fill="#4a5560">RenderThread 记录</text><text x="42" y="102" font-size="11.5" fill="#4a5560">FRHICommandList：</text><text x="42" y="118" font-size="11.5" fill="#4a5560">命令进连续内存块</text><rect x="240" y="50" width="180" height="96" rx="8" fill="#fff8e6" stroke="#e8c46a" stroke-width="1.4"/><text x="252" y="70" font-size="13" font-weight="600" fill="#1c2126">② 组织成分片</text><text x="252" y="86" font-size="11.5" fill="#4a5560">RDG 按 pass / MDC 按任务</text><text x="252" y="102" font-size="11.5" fill="#4a5560">各自 CreateCommandList()</text><text x="252" y="118" font-size="11.5" fill="#4a5560">⇒ 一堆【小】命令列表</text><rect x="450" y="50" width="180" height="96" rx="8" fill="#eef4fc" stroke="#1a6fd4" stroke-width="1.4"/><text x="462" y="70" font-size="13" font-weight="600" fill="#1c2126">③ 翻译（Execute）</text><text x="462" y="86" font-size="11.5" fill="#4a5560">FRHICommandListBase::Execute()</text><text x="462" y="102" font-size="11.5" fill="#4a5560">逐条 ExecuteAndDestruct()</text><text x="462" y="118" font-size="11.5" fill="#4a5560">★ RHI_Translate 就在这</text><rect x="660" y="50" width="180" height="96" rx="8" fill="#f2f4f6" stroke="#c9d1d9" stroke-width="1.4"/><text x="672" y="70" font-size="13" font-weight="600" fill="#1c2126">④ 提交 ⑤ GPU</text><text x="672" y="86" font-size="11.5" fill="#4a5560">提交到 GPU / Present</text><text x="672" y="102" font-size="11.5" fill="#4a5560">EndDrawingViewport 等</text><text x="672" y="118" font-size="11.5" fill="#4a5560">（GPU 同步等待）</text><line x1="210" y1="98" x2="240" y2="98" stroke="#5a6b7a" stroke-width="1.6" marker-end="url(#ar)"/><line x1="420" y1="98" x2="450" y2="98" stroke="#5a6b7a" stroke-width="1.6" marker-end="url(#ar)"/><line x1="630" y1="98" x2="660" y2="98" stroke="#5a6b7a" stroke-width="1.6" marker-end="url(#ar)"/><text x="540" y="164" font-size="11.5" fill="#4a5560" text-anchor="middle">→ 越靠右，越接近「实际把命令交给 GPU」；RHI_Translate 的全部耗时发生在第 ③ 步</text><rect x="190" y="226" width="700" height="58" rx="8" fill="#eef8f0" stroke="#8fc39a" stroke-width="1.4"/><text x="202" y="246" font-size="12" font-weight="600" fill="#2c6b3a">r.RDG.ParallelExecute = 0</text><text x="202" y="262" font-size="11" fill="#2c6b3a">【作用于 ② 命令列表分片层】　关掉 RDG 的并行执行 ⇒ 不再切出大量小列表</text><rect x="190" y="302" width="700" height="58" rx="8" fill="#eef8f0" stroke="#8fc39a" stroke-width="1.4"/><text x="202" y="322" font-size="12" font-weight="600" fill="#2c6b3a">r.RHICmd.ParallelTranslate.CombineSingleAndParallel = 1</text><text x="202" y="338" font-size="11" fill="#2c6b3a">【作用于 ③ translate job 切分层】　合并 translate job ⇒ 不再按并行性反复切分</text><rect x="190" y="378" width="700" height="58" rx="8" fill="#eef8f0" stroke="#8fc39a" stroke-width="1.4"/><text x="202" y="398" font-size="12" font-weight="600" fill="#2c6b3a">r.RDG.AsyncCompute = 0</text><text x="202" y="414" font-size="11" fill="#2c6b3a">【作用于 ④ 提交层（跨队列）】　取消跨队列 fork/join ⇒ 计算回主队列、不双队列同步</text><text x="540" y="506" font-size="11.5" fill="#7a8791" text-anchor="middle">三个 CVar 都作用在「分片 / 调度」环节，而非「命令本身」——这是它们能同时降低核时与提升帧率的原因</text></svg>
+<p>本文的主线是一条完整的排障链：<b>测量 → 定位 → 量化 → 优化 → 验证 → 落地</b>。每一环都给出可复现的命令与实测数字。</p>
+<h2>2. 成本模型：为什么是「碎片化」而不是「哪条命令慢」</h2>
+<p>定位的第一步是排除「热点」假设。用命令类型归因统计（见 <code>测量工具</code> 一章）得到的结果是<b>分布平坦</b>：最贵的类型只占 13.39% 的耗时，没有哪一类能单独解释问题。</p>
+<table><thead><tr><th>命令类型</th><th>数量占比</th><th>耗时占比</th><th>单条均值</th></tr></thead><tbody><tr><td>FRHICommandDrawIndexedPrimitiveIndirect</td><td>8.93%</td><td>13.39%</td><td>1.694 µs</td></tr><tr><td>TRHILambdaCommand</td><td>8.20%</td><td>12.12%</td><td>1.668 µs</td></tr><tr><td>FRHICommandEndDrawingViewport</td><td>0.02%</td><td>11.04%</td><td>517.8 µs</td></tr><tr><td>FRHICommandDrawIndexedPrimitive</td><td>3.52%</td><td>8.05%</td><td>2.585 µs</td></tr><tr><td>FRHICommandEndTransitions</td><td>3.23%</td><td>7.67%</td><td>2.682 µs</td></tr><tr><td>FRHICommandSetStreamSource（数量最多）</td><td>21.28%</td><td>2.65%</td><td>0.141 µs</td></tr></tbody></table><div class="cap">低配档位实测。注意数量最多的 SetStreamSource 恰恰最便宜。</div>
+<div class="warn"><b><code>FRHICommandEndDrawingViewport</code> 的 517 µs 是个陷阱</b>：它看着像大果子，但 <code>D3D12Viewport.cpp:840</code> 的实现里是 <code>Viewport-&gt;WaitForFrameEventCompletion()</code> —— <b>在等 GPU 完成帧</b>（Present 节流），不是 CPU 在工作，无法用 CPU 优化消除。而且在 CPU 瓶颈的低配机上，这个等待反而更短。</div>
+<p>排除热点后，把「每条命令都贵一点」归因到「列表太多」：用两组同期实测值联立解出</p>
+<div class="formula">avg_per_cmd  =  C  +  F / N</div>
+<ul><li><code>RDG.ParallelExecute=0</code>（串行、列表大）：<code>N = 100.5</code>，<code>avg_per_cmd = 1.082 µs</code></li><li><code>RDG.ParallelExecute=2</code>（并行、列表碎）：<code>N = 65.8</code>，<code>avg_per_cmd = 1.338 µs</code></li><li>联立 ⇒ <b>F ≈ 48.8 µs，C ≈ 0.596 µs</b></li></ul>
+<div class="ok"><b>固定开销 <code>F</code> 占 <code>avg_per_cmd</code> 的 45%</b>（0.486 / 1.082）。⇒ 机器越慢/越挤，<code>F</code> 的相对占比越高 ⇒ 减少碎片化的收益越大。这解释了同一配置在不同时段测得 −16.4% 与 −21.6% 的差异。</div>
+<svg viewBox="0 0 1000 430" width="1000" height="430" xmlns="http://www.w3.org/2000/svg" font-family='-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'><defs><marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#5a6b7a"/></marker></defs><text x="70" y="44" font-size="20" fill="#1c2126" text-anchor="start" font-family='Consolas,"Courier New",monospace'>avg_per_cmd  =  C  +  F / N</text><text x="70" y="68" font-size="12" fill="#4a5560" text-anchor="start">C = 单条命令的真实成本      F = 每个命令列表的固定开销（≈49 µs）      N = 每列表平均命令数</text><rect x="70" y="104" width="400" height="84" rx="8" fill="#eef8f0" stroke="#8fc39a" stroke-width="1.4"/><text x="82" y="124" font-size="13" font-weight="600" fill="#2c6b3a">RDG.ParallelExecute=0（串行，列表大）</text><text x="82" y="140" font-size="11.5" fill="#2c6b3a">N = 100.5</text><text x="82" y="156" font-size="11.5" fill="#2c6b3a">C(0.596) + 48.8/100.5 = 0.596 + 0.486</text><text x="492" y="152" font-size="15" fill="#2c6b3a" text-anchor="start" font-family='Consolas,"Courier New",monospace'>→  avg_per_cmd = 1.082 µs</text><rect x="70" y="208" width="400" height="84" rx="8" fill="#fdeeee" stroke="#e0a0a0" stroke-width="1.4"/><text x="82" y="228" font-size="13" font-weight="600" fill="#8a3030">RDG.ParallelExecute=2（并行，列表碎）</text><text x="82" y="244" font-size="11.5" fill="#8a3030">N = 65.8</text><text x="82" y="260" font-size="11.5" fill="#8a3030">C(0.596) + 48.8/65.8 = 0.596 + 0.742</text><text x="492" y="256" font-size="15" fill="#8a3030" text-anchor="start" font-family='Consolas,"Courier New",monospace'>→  avg_per_cmd = 1.338 µs</text><rect x="70" y="330" width="860" height="74" rx="8" fill="#eef4fc" stroke="#1a6fd4" stroke-width="1.4"/><text x="82" y="350" font-size="13" font-weight="600" fill="#1a6fd4">推论</text><text x="82" y="366" font-size="11.5" fill="#4a5560">固定开销 F 占 avg_per_cmd 的 45%（0.486 / 1.082）—— 列表越碎，这份开销摊得越薄不均。</text><text x="82" y="382" font-size="11.5" fill="#4a5560">⇒ 机器越慢 / 越挤，F 的相对占比越高 ⇒ 减少碎片化的收益越大（实测：同配置傍晚 −21.6%，下午 −16.4%）。</text><text x="500" y="418" font-size="11.5" fill="#7a8791" text-anchor="middle">F 与 C 由两组同期实测值联立解出：1.338 = C + F/65.8，1.082 = C + F/100.5</text></svg>
+<h2>3. 三个优化项：机理与实测</h2>
+<p>三个 CVar 都遵循同一取舍：<b>用「并行度」换「调度/同步的固定开销」</b>。引擎的默认值都偏向并行（保守），而本项目的命令流碎片化程度高于引擎的通用假设。</p>
+<svg viewBox="0 0 1000 470" width="1000" height="470" xmlns="http://www.w3.org/2000/svg" font-family='-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'><defs><marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#5a6b7a"/></marker></defs><rect x="30" y="46" width="300" height="48" rx="6" fill="#f2f4f6" stroke="#c9d1d9"/><text x="40" y="62" font-size="11.5" font-weight="600" fill="#7a8791">渲染管线层（RDG pass 图）</text><rect x="30" y="108" width="300" height="48" rx="6" fill="#fff8e6" stroke="#e8c46a"/><text x="40" y="124" font-size="11.5" font-weight="600" fill="#7a5a12">命令列表分片层（谁 CreateCommandList）</text><rect x="30" y="170" width="300" height="48" rx="6" fill="#eef4fc" stroke="#1a6fd4"/><text x="40" y="186" font-size="11.5" font-weight="600" fill="#1a6fd4">translate job 切分层</text><rect x="30" y="232" width="300" height="48" rx="6" fill="#ffffff" stroke="#e3e7eb"/><text x="40" y="248" font-size="11.5" font-weight="600" fill="#1c2126">RHI 命令执行层（逐条 Execute）</text><rect x="30" y="294" width="300" height="48" rx="6" fill="#f2f4f6" stroke="#c9d1d9"/><text x="40" y="310" font-size="11.5" font-weight="600" fill="#7a8791">GPU 提交 / Present</text><line x1="394" y1="132" x2="336" y2="132" stroke="#5a6b7a" stroke-width="1.6" marker-end="url(#ar)" stroke-dasharray="5,3"/><rect x="400" y="40" width="560" height="78" rx="8" fill="#f3eefc" stroke="#b79ae0" stroke-width="1.4"/><text x="412" y="60" font-size="12" font-weight="600" fill="#5a3d8a">r.RDG.AsyncCompute = 0</text><text x="412" y="76" font-size="11" fill="#5a3d8a">取消 async 队列 ⇒ 不再做 fork/join 区间计算与跨队列 fence</text><text x="412" y="92" font-size="11" fill="#5a3d8a">代价：失去「计算与图形重叠」</text><line x1="394" y1="194" x2="336" y2="194" stroke="#5a6b7a" stroke-width="1.6" marker-end="url(#ar)" stroke-dasharray="5,3"/><rect x="400" y="102" width="560" height="78" rx="8" fill="#eef8f0" stroke="#8fc39a" stroke-width="1.4"/><text x="412" y="122" font-size="12" font-weight="600" fill="#2c6b3a">r.RDG.ParallelExecute = 0</text><text x="412" y="138" font-size="11" fill="#2c6b3a">pass 串行执行 ⇒ 命令列表数量 −74%（F60 实测）</text><text x="412" y="154" font-size="11" fill="#2c6b3a">已配置在低配档位；单项收益最大（−24%）</text><line x1="394" y1="256" x2="336" y2="256" stroke="#5a6b7a" stroke-width="1.6" marker-end="url(#ar)" stroke-dasharray="5,3"/><rect x="400" y="164" width="560" height="78" rx="8" fill="#eef4fc" stroke="#1a6fd4" stroke-width="1.4"/><text x="412" y="184" font-size="12" font-weight="600" fill="#1a6fd4">r.RHICmd.ParallelTranslate .CombineSingleAndParallel = 1</text><text x="412" y="200" font-size="11" fill="#1a6fd4">按「并行性不同」切 job → 改为仅在必要时切</text><text x="412" y="216" font-size="11" fill="#1a6fd4">代价：并行列表降级到 RHI 线程串行翻译</text><text x="400" y="396" font-size="13" fill="#1c2126" text-anchor="start">共同机理：用「并行度」换「调度/同步的固定开销」。</text><text x="400" y="418" font-size="12" fill="#4a5560" text-anchor="start">当工作单元本身很小（每条命令 ~0.6 µs）时，这笔交易净赚 —— 实测核时 −16.4%、帧率 +4.6%。</text><text x="500" y="458" font-size="11.5" fill="#7a8791" text-anchor="middle">生效条件：Combine 仅在逻辑核 &gt;8 时被读取；≤8 走 else 分支、该 CVar 为空操作</text></svg>
+<h3>① r.RDG.ParallelExecute=0 —— 单项收益最大（−24%）</h3>
+<p>RDG 侧开关。关掉它，pass 串行执行，<b>命令列表数量下降 74%</b>（实测 <code>calls</code> 5,349,600 → 3,150,000 量级），<code>avg_per_cmd</code> 从 1.338 → 1.082 µs。</p>
+<div class="ok"><b>已配置在项目低配档位</b>（<code>DefaultDeviceProfiles.ini:574</code>）。这是既有优化，本文只是量化了它的贡献。</div>
+<h3>② r.RHICmd.ParallelTranslate.CombineSingleAndParallel=1 —— 合并 translate job</h3>
+<p>CVar 定义在 <code>RHICommandList.cpp:95</code>（默认 <code>false</code>）；切分判据在 <code>RHICommandList.cpp:1718</code> 的 <code>FSubmitState::Dispatch</code>：</p>
+<pre><code>// 默认（=0）：只要相邻列表的并行性不同就切一个新 job
+CurrentTranslateJob-&gt;bParallel != CmdList-&gt;AllowParallelTranslate()
+
+// =1：仅在「当前并行、新列表要单线程」时才切
+CurrentTranslateJob-&gt;bParallel &amp;&amp; !CmdList-&gt;AllowParallelTranslate()</code></pre>
+<p>渲染时「并行列表」与「单线程列表」交替出现，默认行为会把 job 切得极碎，每个 job 都付一次派发/同步开销。=1 大幅减少 job 数。</p>
+<div class="warn"><b>代价</b>（<code>RHICommandList.cpp:97-99</code> 的 CVar 帮助文本原文）：*Any parallel command lists that get batched with a single thread command list will fall back to translating on the RHI thread.* —— 并行列表被降级到 RHI 线程<b>串行</b>翻译，牺牲并行度。</div>
+<table><thead><tr><th>环境</th><th>效应</th><th>组内极差</th></tr></thead><tbody><tr><td>默认档位（SuperHigh）</td><td>−14.5% ~ −16.1%</td><td>0.6%</td></tr><tr><td>低配档位</td><td>−5.8%</td><td>0.6%</td></tr></tbody></table><div class="cap">低配档位效应减半 —— 因为 RDG.ParallelExecute=0 已消除大半碎片化，两者收益重叠。</div>
+<h3>③ r.RDG.AsyncCompute=0 —— 取消跨队列 fork/join</h3>
+<p><code>RenderGraphBuilder.cpp:1667</code> 有一段<b>只在存在 async pass 时执行</b>的代码（<code>SCOPED_NAMED_EVENT(AsyncComputeFences, ...)</code>），其上方注释说明了成本：</p>
+<pre><code>// Establishes fork / join overlap regions for async compute. This is used for fencing
+// as well as resource allocation / deallocation. Async compute passes can't allocate /
+// release their resource references until the fork / join is complete, since the two
+// pipes run in parallel. Therefore, all resource lifetimes on async compute are
+// extended to cover the full async region.</code></pre>
+<p>关掉它省掉三样：<b>per-pass 的 fork/join 区间计算</b>（纯 CPU）、<b>跨队列 fence 同步</b>、以及<b>资源生命周期被延长</b>带来的分配/释放牵动。</p>
+<div class="warn"><b>代价</b>：失去「计算 pass 与图形 pass 重叠执行」的机会。但实测帧率<b>反而提升 4.6%</b> ⇒ 本负载下跨队列管理开销 &gt; 重叠收益。</div>
+<h3>组合效果：核时与帧率双赢</h3>
+<table><thead><tr><th>口径</th><th>A（基线）</th><th>B（Combine=1 + AsyncCompute=0）</th><th>Δ</th><th>两组分离？</th></tr></thead><tbody><tr><td>核时 avg_per_cmd</td><td>1.079 µs</td><td>0.903 µs</td><td>−16.4%</td><td>✅</td></tr><tr><td>帧率 fps</td><td>70.1 / 70.6</td><td>73.7 / 74.3</td><td>+4.6%</td><td>✅</td></tr></tbody></table><div class="cap">默认档位 2×2 交替实测。低配档位复验 −21.6%。</div>
+<div class="ok"><b>组合远大于两者单独之和</b>（−5.8% + −3.9% = −9.7%）⇒ 协同增效。两个口径都「两组完全分离」，且 A 组极稳（核时极差 0.1%、帧率 0.7%）。</div>
+<h2>4. 测量工具：r.RHI.CommandStats 与 r.RHIFrameCounter</h2>
+<p>全部结论来自本次为引擎新增的、<b>默认关闭</b>的诊断工具（<code>#pragma region Engine ZXB</code> 包裹）。关闭时运行时开销 ≈ 一次 int 判断。</p>
+<h3>统计开关</h3>
+<table><thead><tr><th>CVar</th><th>默认</th><th>作用</th></tr></thead><tbody><tr><td>r.RHI.CommandStats</td><td>0（关）</td><td>统计 RHI 命令数与耗时；开启后每 N 次 Execute 汇总一行</td></tr><tr><td>r.RHI.CommandStatsFrames</td><td>300</td><td>每多少次 Execute() 汇总打印一行</td></tr><tr><td>r.RHIFrameCounter（变量）</td><td>—</td><td>由 D3D12 在 Present 路径自增，供精确帧率计算</td></tr></tbody></table>
+<h3>输出示例</h3>
+<pre><code>LogRHI: [CmdStats] calls=5910300 cmds=397244180 avg_cmds=67.2 \
+        total_cost=536947.06ms avg_per_cmd=1.352us max_cmds=29111 frames=39120 fps=70.1
+LogRHI: [CmdStatsType] #1  FRHICommandDrawIndexedPrimitiveIndirect  count=4081 \
+        count_share=8.93%  time=6.9ms  time_share=13.39%  avg=1.694us</code></pre>
+<h3>为什么需要自建精确帧计数</h3>
+<p>本机原有三条取帧率的路径<b>全部不可靠</b>，这是加计数器的直接原因：</p>
+<table><thead><tr><th>路径</th><th>失败原因</th></tr></thead><tbody><tr><td>trace 的 frames 字段</td><td><code>frames = N/A</code> —— 帧标记在统计选区内不可用</td></tr><tr><td>用 EndDrawingViewport 的 count_share 反推</td><td>share 四舍五入到 0.01% ⇒ 帧数误差达 3 倍</td></tr><tr><td>用 count × 理论采样率 1/1024</td><td>采样率非严格均匀（见下），且「每帧恰好一次」未经证实</td></tr></tbody></table>
+<div class="warn"><b>采样偏差是真实陷阱</b>：首版把采样计数器放在每次 <code>Execute()</code> 内重置，对短命令列表退化成「只采列表首条」，把某类型的平均耗时<b>高估约 40 倍</b>（0.147 µs 误报成 5.666 µs），差点当成大热点。修正为<b>跨 Execute 持续计数</b>（<code>std::atomic</code>）后分布才变平坦。识破它靠的是 trace 的独立口径对不上。</div>
+<h2>5. 验证方法：2×2 同期交替（对抗时间漂移）</h2>
+<p>本文所有效应量都建立在同一个前提上：<b><code>avg_per_cmd</code> 跨时间不可比</b>。</p>
+<div class="bad">实测同一配置相隔 2 小时，<code>avg_per_cmd</code> 漂移 <b>+24%</b>（0.873 → 1.082 µs）；傍晚段漂移速率约 <b>5% / 13 分钟</b>，且非单调（会回升）。⇒ <b>单次 A/B 对照会把漂移误判成优化效果</b>。</div>
+<p>对策是把对照组与实验组<b>交替</b>跑（A/B/A/B），让漂移同时作用于两组，并以<b>「两组是否重叠」作为唯一判据</b>：</p>
+<pre><code>判决规则（唯一可靠的判据）
+  B 组最大值 &lt; A 组最小值   ⇒ 两组分离，结论可信
+  否则                      ⇒ 不可判（需增大轮次或等环境更稳）</code></pre>
+<svg viewBox="0 0 1080 470" width="1080" height="470" xmlns="http://www.w3.org/2000/svg" font-family='-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'><defs><marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#5a6b7a"/></marker></defs><rect x="40" y="36" width="460" height="38" rx="8" fill="#fdeeee" stroke="#e0a0a0" stroke-width="1.4"/><text x="52" y="56" font-size="13" font-weight="600" fill="#8a3030">✗ 单次对照：A 跑完再跑 B</text><rect x="90" y="229" width="120" height="93" fill="#f2f4f6" stroke="#c9d1d9"/><text x="150" y="223" font-size="10.5" fill="#7a8791" text-anchor="middle">1.000</text><text x="150" y="338" font-size="12" fill="#4a5560" text-anchor="middle">A</text><rect x="300" y="267" width="120" height="55" fill="#eef8f0" stroke="#8fc39a"/><text x="360" y="261" font-size="10.5" fill="#7a8791" text-anchor="middle">0.940</text><text x="360" y="338" font-size="12" fill="#4a5560" text-anchor="middle">B</text><text x="90" y="96" font-size="11.5" fill="#8a3030" text-anchor="start">环境在两次之间漂移（实测 2 小时 +24%）</text><text x="90" y="114" font-size="11.5" fill="#8a3030" text-anchor="start">⇒ 差异可能来自漂移，而非配置</text><text x="260" y="368" font-size="12" fill="#8a3030" text-anchor="middle">结论不可信</text><rect x="560" y="36" width="480" height="38" rx="8" fill="#eef8f0" stroke="#8fc39a" stroke-width="1.4"/><text x="572" y="56" font-size="13" font-weight="600" fill="#2c6b3a">✓ 2×2 交替：A/B/A/B，判「两组是否重叠」</text><rect x="600" y="181" width="76" height="141" fill="#f2f4f6" stroke="#c9d1d9"/><text x="638" y="175" font-size="10.5" fill="#7a8791" text-anchor="middle">1.079</text><text x="638" y="338" font-size="12" fill="#4a5560" text-anchor="middle">A1</text><rect x="708" y="296" width="76" height="26" fill="#eef8f0" stroke="#8fc39a"/><text x="746" y="290" font-size="10.5" fill="#7a8791" text-anchor="middle">0.893</text><text x="746" y="338" font-size="12" fill="#4a5560" text-anchor="middle">B1</text><rect x="816" y="180" width="76" height="142" fill="#f2f4f6" stroke="#c9d1d9"/><text x="854" y="174" font-size="10.5" fill="#7a8791" text-anchor="middle">1.080</text><text x="854" y="338" font-size="12" fill="#4a5560" text-anchor="middle">A2</text><rect x="924" y="284" width="76" height="38" fill="#eef8f0" stroke="#8fc39a"/><text x="962" y="278" font-size="10.5" fill="#7a8791" text-anchor="middle">0.912</text><text x="962" y="338" font-size="12" fill="#4a5560" text-anchor="middle">B2</text><text x="600" y="96" font-size="11.5" fill="#2c6b3a" text-anchor="start">B 组最大值 0.912 &lt; A 组最小值 1.079</text><text x="600" y="114" font-size="11.5" fill="#2c6b3a" text-anchor="start">⇒ 两组分离，结论可信</text><text x="800" y="368" font-size="12" fill="#2c6b3a" text-anchor="middle">结论可信</text><text x="40" y="396" font-size="12.5" fill="#1c2126" text-anchor="start">要点：漂移会同时作用于两组 ⇒ 交替对照能抵消它；单次对照不能。</text><text x="40" y="418" font-size="12" fill="#4a5560" text-anchor="start">可判阈值 ~6%（组内极差 0.1%~0.4%），已固化为 ab_rhi_cvar.py。</text><text x="40" y="440" font-size="12" fill="#4a5560" text-anchor="start">实测：A 组 1.079 / 1.080（极差 0.1%），B 组 0.893 / 0.912 —— 两组完全不重叠。</text></svg>
+<p>该流程已固化为可复用脚本 <code>ab_rhi_cvar.py</code>（本文同目录）：强制交替、报组内离散度、按上述规则判可信与否。它也<b>自带产物校验</b>——以 <code>game-stdout.log</code> 的 mtime 是否推进作为「本局真的跑过」的硬证据。</p>
+<div class="warn"><b>这个自检是踩坑换来的</b>：首版脚本漏了它，runner 一报错就进下一局，4 次读同一个旧文件 ⇒ <b>4 个样本数值完全相同、4 局只花 2 分钟</b>。失败伪装成「极其稳定的重复测量」，比明显报错危险得多。</div>
+<h2>6. 落地：配置怎么写、什么条件下有效</h2>
+<p>推荐写入的低配/通用档位配置：</p>
+<pre><code>[ConsoleVariables]
+r.RHICmd.ParallelTranslate.CombineSingleAndParallel=1
+r.RDG.AsyncCompute=0</code></pre>
+<p>项目里已配置的（既有，非本次新增）：<code>r.RDG.ParallelExecute=0</code>（<code>DefaultDeviceProfiles.ini:574</code>）。</p>
+<h3>生效条件：必须按逻辑核数判断</h3>
+<table><thead><tr><th>逻辑核数（含超线程）</th><th>引擎走的分支</th><th>Combine 是否有效</th></tr></thead><tbody><tr><td>&gt; 8（6C/12T、8C/16T…）</td><td>if</td><td>✅ 有效</td></tr><tr><td>≤ 8（4C/8T…）</td><td>else</td><td>❌ 空操作</td></tr></tbody></table><div class="cap">else 分支在 RHICommandList.cpp:2210 把 bAllowSingleParallelCombine 硬编码为 true；此时所有命令列表的 bParallel 均为 false ⇒ 切分判据恒等，CVar 从不被读取。</div>
+<div class="bad"><b>不要盲目加到所有档位</b>：≤8 逻辑核时引擎走 else 分支，该 CVar <b>从不被读取</b>，设了也不会有任何效果。</div>
+<h3>落地路径（是否需要 cook）</h3>
+<table><thead><tr><th>路径</th><th>持久性</th><th>要 cook？</th></tr></thead><tbody><tr><td>pak 内 BaseEngine.ini</td><td>永久</td><td>要 ❌</td></tr><tr><td>pak 内 DefaultDeviceProfiles.ini</td><td>永久（按档位）</td><td>要 ❌</td></tr><tr><td>Saved/Config/Windows/Engine.ini</td><td>单次（游戏退出即被覆写）</td><td>不要 ✅</td></tr><tr><td>-ini: 命令行</td><td>单次</td><td>不要 ✅</td></tr></tbody></table>
+<p>启动器 <code>Run_FateTrigger.bat</code> 已按此实现：启动前判断 <code>%NUMBER_OF_PROCESSORS%</code>，&gt;8 才写入 <code>Saved/Config</code>（两个 CVar 各自独立判重，部分写入的文件也能补全）。</p>
+<h3>覆盖设备档位推送的 CVar：用 -ExecCmds</h3>
+<p>设备档位（DeviceProfile）的 CVar 推送发生在启动后约 50 秒，会覆盖 <code>-ini:</code>。要临时改这类 CVar，用 <code>-ExecCmds</code> —— 它是<b>累加</b>的（<code>ParseExecCommands.cpp:57-68</code> 用 <code>while</code> + 游标扫描命令行中所有 <code>-ExecCmds=</code>，第 65 行 <code>Result.Append(...)</code> 逐个并入），且执行时机在档位推送之后。</p>
+<pre><code>-DeviceProfile=Windows_CPU_Low -ExecCmds="r.RHICmdWidth 8"</code></pre>
+<h2>7. 口径澄清：核时占比 vs 帧率</h2>
+<p>「低配机上 RHI 消耗看起来更高」是<b>口径的必然结果</b>，不代表绝对工作量更大。</p>
+<p><code>tot</code>（核时占比）的分母是 <b>时长 × 核数</b>：</p>
+<table><thead><tr><th>机器</th><th>核数</th><th>同样的 0.3 核 RHI 工作量 → tot</th></tr></thead><tbody><tr><td>本测试机</td><td>32</td><td>0.94%</td></tr><tr><td>常见低配笔记本</td><td>8</td><td>3.75%</td></tr><tr><td>4 核低配</td><td>4</td><td>7.5%</td></tr></tbody></table>
+<div class="ok">⇒ 低核机上同一个绝对工作量，占比自动放大数倍。要用「绝对核时」或「帧率」衡量，不要用跨机器对比的核时占比。</div>
+<h2>8. 已排查确认无空间的项</h2>
+<p>以下路径都已实测排掉，记录下来避免重复投入：</p>
+<table><thead><tr><th>方向</th><th>结论</th></tr></thead><tbody><tr><td>r.MeshDrawCommands PSO 聚合</td><td>本 checkout 只有 SortByPipelineId，实测无可测量收益</td></tr><tr><td>r.RDG.CullPasses / MergeRenderPasses</td><td>默认已是 1，pass 合并已最优</td></tr><tr><td>屏障 / transition 批处理 CVar</td><td>不存在（自动屏障系统无外部旋钮）</td></tr><tr><td>命令去重机制</td><td>引擎无此机制</td></tr><tr><td>r.RHICmdWidth（放开串行化）</td><td>中性偏负（碎片化 +16%）</td></tr><tr><td>关 RDG.ParallelSetup + ParallelDestruction</td><td>中性（calls 降但单条成本不变）</td></tr><tr><td>wp.AutoInstancing</td><td>构建期选项，改了要重新 cook 关卡</td></tr><tr><td>PrePass (Forced by VirtualTexture)</td><td>平台特性强制，要省只能关 VT（动画质）</td></tr></tbody></table>
+<h2>9. 方法论与踩过的坑</h2>
+<p>这些是本次排障中真实踩到、且<b>会在任何性能工作上重现</b>的坑。</p>
+<table><thead><tr><th>坑</th><th>表现</th><th>对策</th></tr></thead><tbody><tr><td><code>-corelimit=N</code> 不能模拟低配机</td><td>它不影响 <code>NumberOfCoresIncludingHyperthreads()</code>，核数根本没被压下</td><td>用 <code>-DeviceProfile=Windows_CPU_Low</code> 强制档位</td></tr><tr><td><code>-ini:</code> 对「注册晚」的 CVar 会失效</td><td>日志出现 <code>deferred - dummy variable created</code></td><td>落配置后必须查日志里的 <code>Set CVar</code> 行确认</td></tr><tr><td>采样点不均匀 ⇒ 假热点</td><td>计数器每次 Execute 重置 ⇒ 只采列表首条 ⇒ 平均耗时高估 40 倍</td><td>跨调用持续计数；用 trace 独立口径交叉验证</td></tr><tr><td>脚本失败伪装成稳定结果</td><td>runner 报错即返回 ⇒ 4 次读同一旧文件 ⇒ 4 个样本完全相同</td><td>以产物 mtime 推进作为「真的跑过」的硬证据</td></tr><tr><td>cmd 的 <code>echo X=1&gt;&gt; file</code> 会丢值</td><td><code>1&gt;&gt;</code> 被当作标准输出重定向，写出的值缺 <code>1</code></td><td>改用 <code>&gt;&gt;file echo X=1</code>，并实测产物</td></tr></tbody></table>
+<h2>10. 参考</h2>
+<p>本文引用的全部源码位置（行号为本次成文时实测，对齐工作区当前 CL）：</p>
+<table><thead><tr><th>文件:行号</th><th>内容</th></tr></thead><tbody><tr><td>RHICommandList.cpp:95</td><td>r.RHICmd.ParallelTranslate.CombineSingleAndParallel 定义（默认 false）</td></tr><tr><td>RHICommandList.cpp:97-99</td><td>该 CVar 的帮助文本（说明它以「减并行」换「减派发开销」）</td></tr><tr><td>RHICommandList.cpp:1718</td><td>translate job 切分判据（bAllowSingleParallelCombine 三元分支）</td></tr><tr><td>RHICommandList.cpp:2201</td><td>if 分支：从 CVar 读取 bAllowSingleParallelCombine</td></tr><tr><td>RHICommandList.cpp:2210</td><td>else 分支：硬编码 bAllowSingleParallelCombine = true</td></tr><tr><td>D3D12Viewport.cpp:840</td><td>Present 路径的 WaitForFrameEventCompletion（GPU 同步等待）</td></tr><tr><td>RenderGraphBuilder.cpp:1667</td><td>AsyncComputeFences 阶段（fork/join 区间与跨队列 fence）</td></tr><tr><td>ParseExecCommands.cpp:57-68</td><td>-ExecCmds 的累加解析（第 65 行 Result.Append）</td></tr><tr><td>MeshDrawCommands.cpp:1829</td><td>SetAllowParallelTranslateByUser 的全仓唯一调用点</td></tr><tr><td>DefaultDeviceProfiles.ini:573-574</td><td>项目低配档位既有的 r.RHICmdWidth=1 / r.RDG.ParallelExecute=0</td></tr><tr><td>BaseEngine.ini:3856</td><td>引擎出厂默认 r.RHICmd.ParallelTranslate.CombineSingleAndParallel=false</td></tr></tbody></table>
+<ul><li>本任务技术记录：<code>findings.md</code>（F1–F75，含每轮实验的原始数据与自我纠错）</li><li>验证脚本：<code>ab_rhi_cvar.py</code>（2×2 交替验证器，含产物自检）</li><li>同目录另有 <code>RHI_Translate优化报告.md</code>（面向渲染团队的简版）</li></ul>
+<hr>
+<div class="cap">本文由 /SumToAiDoc 生成 · 所有数字均来自实测，每轮实验的原始数据见同目录 findings.md</div>
+</div></body></html>

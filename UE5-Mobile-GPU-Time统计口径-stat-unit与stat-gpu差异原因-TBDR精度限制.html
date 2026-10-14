@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5 Mobile 端 GPU Time 统计口径 · stat unit 与 stat gpu 为什么对不上</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --ink:#1a1d21; --ink2:#4a5158; --ink3:#7a828a;
+    --line:#e2e6ea; --accent:#2f6feb; --accent-soft:#eaf1fe;
+    --pc:#2f6feb; --mobile:#d9741a; --fork:#8e44ad;
+    --ok:#1f9254; --warn:#c0392b; --note:#8a6d1f;
+    --code-bg:#f2f4f7;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.75; font-size:15px;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:40px 28px 100px}
+  header.top{
+    background:linear-gradient(135deg,#1f3a63 0%,#2f6feb 100%);
+    color:#fff; border-radius:14px; padding:34px 36px; margin-bottom:28px;
+  }
+  header.top h1{margin:0 0 10px; font-size:27px; letter-spacing:.3px}
+  header.top p{margin:0; opacity:.9; font-size:14px}
+  header.top .meta{margin-top:16px; font-size:12.5px; opacity:.82; border-top:1px solid rgba(255,255,255,.22); padding-top:12px}
+  header.top code{background:rgba(255,255,255,.18); color:#fff; padding:1.5px 6px}
+  h2{font-size:21px; margin:44px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--line)}
+  h2 .num{color:var(--accent); font-weight:700; margin-right:8px}
+  h3{font-size:17px; margin:28px 0 10px; color:var(--ink)}
+  h4{font-size:15px; margin:20px 0 8px; color:var(--ink2)}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0; padding-left:24px}
+  li{margin:5px 0}
+  code{
+    background:var(--code-bg); padding:1.5px 5px; border-radius:4px;
+    font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace; font-size:12.8px;
+  }
+  pre{
+    background:#1e232b; color:#dfe6ee; padding:14px 16px; border-radius:8px;
+    overflow-x:auto; font-size:12.5px; line-height:1.6;
+    font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  }
+  /* [fix] <pre> 内嵌 <code> 时不能让 code 自带的浅色底生效，否则浅字压浅底看不见 */
+  pre code{background:none; padding:0; border-radius:0; color:inherit; font-size:inherit; font-family:inherit}
+  pre .c{color:#94a7ba}
+  pre .k{color:#7cc4ff}
+  pre .s{color:#c3e88d}
+  .ref{
+    font-family:"Cascadia Mono",Consolas,monospace; font-size:11.5px;
+    color:var(--ink3); background:#eef1f4; border-radius:3px; padding:0 4px;
+    white-space:nowrap;
+  }
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 22px; margin:16px 0}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:13.4px; background:var(--panel)}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top}
+  th{background:#eef2f7; font-weight:600; font-size:13px}
+  tbody tr:nth-child(even){background:#fafbfc}
+  .tag{display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; font-weight:600; white-space:nowrap}
+  .t-pc{background:#e8f0fe; color:var(--pc)}
+  .t-mob{background:#fdf0e4; color:var(--mobile)}
+  .t-fork{background:#f5ebfa; color:var(--fork)}
+  .t-ok{background:#e6f6ec; color:var(--ok)}
+  .t-bad{background:#fdeaea; color:var(--warn)}
+  .callout{border-left:4px solid var(--accent); background:var(--accent-soft); padding:12px 16px; border-radius:0 8px 8px 0; margin:14px 0}
+  .callout.warn{border-color:var(--warn); background:#fdf0ef}
+  .callout.note{border-color:var(--note); background:#fdf8e8}
+  .callout.ok{border-color:var(--ok); background:#e9f7ef}
+  .callout .h{font-weight:700; margin-bottom:4px; font-size:13.5px}
+  .fig{margin:22px 0; text-align:center}
+  .fig svg{max-width:100%; height:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px}
+  .fig .cap{font-size:12.5px; color:var(--ink3); margin-top:8px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  .toc{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 22px; margin-bottom:26px}
+  .toc ol{margin:6px 0; padding-left:22px; columns:2; column-gap:30px}
+  @media(max-width:700px){.toc ol{columns:1}}
+  .toc a{color:var(--ink2); text-decoration:none}
+  .toc a:hover{color:var(--accent)}
+  .kv{font-size:13px}
+  .kv td:first-child{white-space:nowrap; font-weight:600; width:1%}
+  footer{margin-top:60px; padding-top:20px; border-top:1px solid var(--line); font-size:12.5px; color:var(--ink3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>UE5 Mobile 端 GPU Time 统计口径<br>——<code>stat unit</code> 的 GPU Time 与 <code>stat gpu</code> 的 [TOTAL] 为什么对不上</h1>
+  <p>同一个静止场景里，<code>stat unit</code> 显示 GPU Time ≈ 23.8 ms，<code>stat gpu</code> 的 [TOTAL] 只有 12.7 ms。本文说明这两个数各自量的是什么、差异从哪来、以及移动端特有的精度限制。</p>
+  <div class="meta">
+    关键词：<code>UE5</code> <code>Mobile</code> <code>GPU Time</code> <code>stat unit</code> <code>stat gpu</code> <code>TBDR</code> <code>r.Android.SupportsTimestampQueries</code><br>
+    源码基线：<code>D:\GR_DevTest\UE5EA</code>（UE 5.5.4 fork，CL 1011149）<br>
+    实测设备：小米 12S（Adreno 730 / Vulkan / Android 13）+ OPPO PMA110（Android 16）<br>
+    更新：2026-09-29
+  </div>
+</header>
+
+<div class="toc">
+  <strong>目录</strong>
+  <ol>
+    <li><a href="#s0">一页结论</a></li>
+    <li><a href="#s1">全景：两条独立的数据通路</a></li>
+    <li><a href="#s2">通路 A：<code>stat unit</code> 的 GPU Time</a></li>
+    <li><a href="#s3">通路 B：<code>stat gpu</code> 的 [TOTAL]</a></li>
+    <li><a href="#s4">对照：两者为什么不相等</a></li>
+    <li><a href="#s5">Android 特有：开关门控与拼错名的坑</a></li>
+    <li><a href="#s6">移动端特有的精度限制：TB(D)R</a></li>
+    <li><a href="#s7">实测证据</a></li>
+    <li><a href="#s8">工具选型 Checklist</a></li>
+    <li><a href="#s9">参考</a></li>
+  </ol>
+</div>
+
+<!-- ==================================================================== -->
+<h2 id="s0"><span class="num">0</span>一页结论</h2>
+
+<p><strong>这两个数不是同一个量的两种算法，而是两个不同的量。</strong><code>stat unit</code> 报的是 <strong>GPU 帧跨度</strong>，<code>stat gpu</code> 报的是 <strong>被插桩 pass 的净工作量</strong>。差值 ≈ GPU 空转时间 + 未被插桩的 GPU 工作。</p>
+
+<table>
+  <thead>
+    <tr><th>项目</th><th><code>stat unit</code> → GPU Time</th><th><code>stat gpu</code> → [TOTAL]</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>量的口径</td><td>帧跨度（wall-clock span）</td><td>插桩 pass 的独占耗时之和</td></tr>
+    <tr><td>含 GPU 空转</td><td><span class="tag t-bad">含</span></td><td><span class="tag t-ok">不含</span></td></tr>
+    <tr><td>含未插桩的 GPU 工作</td><td><span class="tag t-bad">含</span></td><td><span class="tag t-ok">不含</span></td></tr>
+    <tr><td>时间戳落点</td><td>整帧两个点（帧首 / 帧末）</td><td>每个 GPU scope 一对点</td></tr>
+    <tr><td>平滑</td><td><code>0.9×上次 + 0.1×本次</code>（EMA）</td><td>stat 系统自身窗口平均</td></tr>
+    <tr><td>典型偏差方向</td><td>偏大（被空转撑高）</td><td>偏小（漏掉未插桩工作）</td></tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  <div class="h">三个必须知道的前提</div>
+  <ol style="margin:6px 0">
+    <li><strong>这套 fork 编的是旧 profiler</strong>（<code>RHI.Build.cs:16</code> → <code>RHI_NEW_GPU_PROFILER=0</code>）。新版 profiler 里两者<strong>同源、本该相等</strong>；旧版里走两条独立通路，必然分家。</li>
+    <li><strong>Android 上这套默认关闭</strong>（<code>r.Android.SupportsTimestampQueries</code> 默认 0）；且本项目包体的 DeviceProfile 把名字<strong>拼错成 <code>r.Vulkan.</code></strong>，等于从来没生效过。</li>
+    <li><strong>TB(D)R 让 render pass 内部的 timestamp 不可靠</strong> —— 这是移动端独有的，会让 <code>stat gpu</code> 的 per-pass 数字抖动、甚至出现负值。</li>
+  </ol>
+</div>
+
+<!-- ==================================================================== -->
+<h2 id="s1"><span class="num">1</span>全景：两条独立的数据通路</h2>
+
+<p><strong>一句话结论：</strong>同一个硬件时间戳来源，在引擎里分成两条互不相干的加工通路，最后变成屏幕上的两个数字。</p>
+
+<div class="fig">
+<svg viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#5b6875"/>
+    </marker>
+  </defs>
+
+  <!-- 源头 -->
+  <rect x="300" y="16" width="300" height="46" rx="8" fill="#eef2f7" stroke="#c8d2dc"/>
+  <text x="450" y="37" text-anchor="middle" font-size="13" font-weight="600" fill="#1a1d21">GPU 硬件时间戳</text>
+  <text x="450" y="53" text-anchor="middle" font-size="11" fill="#7a828a">vkCmdWriteTimestamp · VK_PIPELINE_STAGE_BOTTOM_OF_PIPE</text>
+
+  <!-- 分叉线 -->
+  <path d="M450,62 L450,86" stroke="#5b6875" stroke-width="1.4" fill="none" marker-end="url(#ar)"/>
+  <path d="M450,86 L230,86 L230,120" stroke="#2f6feb" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  <path d="M450,86 L670,86 L670,120" stroke="#d9741a" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+
+  <!-- 通路 A -->
+  <rect x="60" y="122" width="340" height="200" rx="10" fill="#f5f9ff" stroke="#2f6feb" stroke-width="1.4"/>
+  <text x="230" y="143" text-anchor="middle" font-size="13" font-weight="700" fill="#2f6feb">通路 A · 帧级（每帧两个点）</text>
+
+  <rect x="86" y="156" width="288" height="34" rx="6" fill="#ffffff" stroke="#c8d2dc"/>
+  <text x="230" y="178" text-anchor="middle" font-size="12" fill="#1a1d21">FrameTiming：帧首戳 → 帧末戳</text>
+
+  <path d="M230,190 L230,206" stroke="#5b6875" stroke-width="1.4" fill="none" marker-end="url(#ar)"/>
+  <text x="240" y="202" font-size="10.5" fill="#7a828a">End − Begin（含空转）</text>
+
+  <rect x="86" y="208" width="288" height="32" rx="6" fill="#ffffff" stroke="#c8d2dc"/>
+  <text x="230" y="229" text-anchor="middle" font-size="12" fill="#1a1d21">GGPUFrameTime（CPU cycles）</text>
+
+  <path d="M230,240 L230,256" stroke="#5b6875" stroke-width="1.4" fill="none" marker-end="url(#ar)"/>
+  <text x="240" y="252" font-size="10.5" fill="#7a828a">RHIGetGPUFrameCycles()</text>
+
+  <rect x="86" y="258" width="288" height="32" rx="6" fill="#e8f0fe" stroke="#2f6feb"/>
+  <text x="230" y="279" text-anchor="middle" font-size="12" font-weight="600" fill="#1a1d21">stat unit → “GPU Time: 23.8 ms”</text>
+
+  <!-- 通路 B -->
+  <rect x="500" y="122" width="340" height="200" rx="10" fill="#fff9f3" stroke="#d9741a" stroke-width="1.4"/>
+  <text x="670" y="143" text-anchor="middle" font-size="13" font-weight="700" fill="#d9741a">通路 B · 事件级（每个 scope 一对点）</text>
+
+  <rect x="526" y="156" width="288" height="34" rx="6" fill="#ffffff" stroke="#c8d2dc"/>
+  <text x="670" y="178" text-anchor="middle" font-size="12" fill="#1a1d21">每个 GPU scope 一对 query</text>
+
+  <path d="M670,190 L670,206" stroke="#5b6875" stroke-width="1.4" fill="none" marker-end="url(#ar)"/>
+  <text x="680" y="202" font-size="10.5" fill="#7a828a">End − Start → Inclusive</text>
+
+  <rect x="526" y="208" width="288" height="32" rx="6" fill="#ffffff" stroke="#c8d2dc"/>
+  <text x="670" y="229" text-anchor="middle" font-size="12" fill="#1a1d21">Exclusive = Inclusive − Σ 子节点</text>
+
+  <path d="M670,240 L670,256" stroke="#5b6875" stroke-width="1.4" fill="none" marker-end="url(#ar)"/>
+  <text x="680" y="252" font-size="10.5" fill="#7a828a">Σ 各事件 exclusive</text>
+
+  <rect x="526" y="258" width="288" height="32" rx="6" fill="#fdf0e4" stroke="#d9741a"/>
+  <text x="670" y="279" text-anchor="middle" font-size="12" font-weight="600" fill="#1a1d21">stat gpu → “[TOTAL]: 12.7 ms”</text>
+
+  <!-- 底部提示 -->
+  <rect x="60" y="338" width="780" height="30" rx="6" fill="#fdf0ef" stroke="#e6b0ac"/>
+  <text x="450" y="358" text-anchor="middle" font-size="12" fill="#c0392b">两条通路在分叉之后没有任何汇合点 —— 差异是结构性的，不是计算误差</text>
+</svg>
+<div class="cap">图 1 · 从同一个硬件时间戳分叉出的两条独立通路</div>
+</div>
+
+<!-- ==================================================================== -->
+<h2 id="s2"><span class="num">2</span>通路 A：<code>stat unit</code> 的 GPU Time</h2>
+
+<p><strong>一句话结论：</strong><code>stat unit</code> 的 GPU Time 是「这一帧 GPU 从开始到结束跨了多久」——一条时间轴上的两个点之差，中间的 GPU 空转照样计入。</p>
+
+<h3>2.1 数据链路</h3>
+
+<pre><code><span class="c">// 1) stat unit 取值：读全局量，不做任何 pass 级聚合</span>
+<span class="k">const uint32</span> GPUCycles = RHIGetGPUFrameCycles(GPUIndex);            <span class="c">// UnrealClient.cpp:392</span>
+RawGPUFrameTime[GPUIndex] = FPlatformTime::ToMilliseconds(GPUCycles); <span class="c">// UnrealClient.cpp:393</span>
+GPUFrameTime[GPUIndex]   = 0.9 * GPUFrameTime[GPUIndex]
+                         + 0.1 * RawGPUFrameTime[GPUIndex];           <span class="c">// UnrealClient.cpp:394  EMA 平滑</span>
+
+<span class="c">// 2) RHIGetGPUFrameCycles 就是返回全局量</span>
+<span class="k">return</span> GGPUFrameTime;                                               <span class="c">// VulkanCommands.cpp:1369</span>
+
+<span class="c">// 3) 全局量怎么来的：一次「帧首 → 帧末」的时间戳之差</span>
+<span class="k">if</span> (GSupportsTimestampRenderQueries &amp;&amp; FrameTiming)               <span class="c">// VulkanQuery.cpp:394</span>
+    Delta = FrameTiming-&gt;GetTiming(<span class="k">false</span>);                           <span class="c">// VulkanQuery.cpp:405</span>
+GGPUFrameTime = TruncToInt(Delta / Frequency / SecondsPerCycle);      <span class="c">// VulkanQuery.cpp:410</span>
+</code></pre>
+
+<h3>2.2 这条时间轴包住了什么</h3>
+
+<p>帧首 / 帧末两个时间戳的落点（都在 <code>VulkanRHI.cpp</code> 里）：</p>
+
+<pre><code>471:  WriteBeginTimestamp(CommandBufferManager-&gt;GetActiveCmdBuffer());   <span class="c">// 帧首戳</span>
+...
+1263: WriteEndTimestamp(CmdBuffer);                                      <span class="c">// 帧末戳（present 之前）</span>
+1265: Viewport-&gt;Present(...);
+1273: WriteBeginTimestamp(CommandBufferManager-&gt;GetActiveCmdBuffer());   <span class="c">// 下一帧帧首</span>
+</code></pre>
+
+<div class="fig">
+<svg viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <!-- 时间轴 -->
+  <line x1="70" y1="120" x2="850" y2="120" stroke="#c8d2dc" stroke-width="1.2"/>
+
+  <!-- 帧首戳 -->
+  <line x1="90" y1="60" x2="90" y2="170" stroke="#2f6feb" stroke-width="2"/>
+  <text x="90" y="50" text-anchor="middle" font-size="11.5" font-weight="600" fill="#2f6feb">帧首戳</text>
+
+  <!-- 帧末戳 -->
+  <line x1="700" y1="60" x2="700" y2="170" stroke="#2f6feb" stroke-width="2"/>
+  <text x="700" y="50" text-anchor="middle" font-size="11.5" font-weight="600" fill="#2f6feb">帧末戳</text>
+
+  <!-- GPU 忙碌段 -->
+  <rect x="90"  y="104" width="52" height="32" rx="3" fill="#8fb8f5"/>
+  <rect x="160" y="104" width="72" height="32" rx="3" fill="#8fb8f5"/>
+  <rect x="260" y="104" width="44" height="32" rx="3" fill="#8fb8f5"/>
+  <rect x="340" y="104" width="66" height="32" rx="3" fill="#8fb8f5"/>
+  <rect x="460" y="104" width="50" height="32" rx="3" fill="#8fb8f5"/>
+  <rect x="560" y="104" width="60" height="32" rx="3" fill="#8fb8f5"/>
+
+  <!-- 空隙 -->
+  <rect x="142" y="104" width="18" height="32" fill="#f6d5d0" stroke="#e6b0ac" stroke-dasharray="2,2"/>
+  <rect x="232" y="104" width="28" height="32" fill="#f6d5d0" stroke="#e6b0ac" stroke-dasharray="2,2"/>
+  <rect x="304" y="104" width="36" height="32" fill="#f6d5d0" stroke="#e6b0ac" stroke-dasharray="2,2"/>
+  <rect x="406" y="104" width="54" height="32" fill="#f6d5d0" stroke="#e6b0ac" stroke-dasharray="2,2"/>
+  <rect x="510" y="104" width="50" height="32" fill="#f6d5d0" stroke="#e6b0ac" stroke-dasharray="2,2"/>
+  <rect x="620" y="104" width="80" height="32" fill="#f6d5d0" stroke="#e6b0ac" stroke-dasharray="2,2"/>
+
+  <!-- 跨度标注 -->
+  <line x1="90" y1="86" x2="700" y2="86" stroke="#d9741a" stroke-width="1.6"/>
+  <path d="M90,82 L90,90 M700,82 L700,90" stroke="#d9741a" stroke-width="1.6"/>
+  <text x="395" y="78" text-anchor="middle" font-size="12" font-weight="600" fill="#d9741a">GPU Time（stat unit）= 这一整段跨度</text>
+
+  <!-- 图例 -->
+  <rect x="90"  y="186" width="14" height="14" rx="2" fill="#8fb8f5"/>
+  <text x="112" y="198" font-size="11.5" fill="#4a5158">GPU 实际忙碌</text>
+  <rect x="250" y="186" width="14" height="14" rx="2" fill="#f6d5d0" stroke="#e6b0ac" stroke-dasharray="2,2"/>
+  <text x="272" y="198" font-size="11.5" fill="#4a5158">GPU 空转（等 CPU 喂命令 / pass 间空隙）</text>
+  <text x="620" y="198" font-size="11.5" fill="#c0392b">空转照样计入跨度 → 偏大</text>
+</svg>
+<div class="cap">图 2 · <code>stat unit</code> 的 GPU Time 是一条时间轴上的跨度，中间的空转不扣除</div>
+</div>
+
+<div class="callout note">
+  <div class="h">为什么它「看起来总等于帧时间」</div>
+  因为帧首戳<strong>每帧都重新打一次</strong>，所以这个跨度天然被帧周期框住了上限；而 CPU 瓶颈时 GPU 大部分时间在等，跨度又被撑到接近上限。<strong>「贴着 Frame time」是这个机制的结果，不是它拿 Frame time 算出来的。</strong>
+</div>
+
+<h3>2.3 一个容易忽略的门控</h3>
+
+<pre><code><span class="c">// UnrealClient.cpp:502 — 没有有效数据时，这一行直接不打数字</span>
+bHaveGPUData[GPUIndex] = RawGPUFrameTime[GPUIndex] &gt; 0;
+
+<span class="c">// UnrealClient.cpp:678 — 屏幕上那一行的行标题</span>
+DrawRowTitle(GPURowId++, GPUColumnCount, TEXT("GPU Time"), ...);
+</code></pre>
+
+<p>所以 <code>r.Android.SupportsTimestampQueries=0</code> 时，屏幕上是 <code>GPU Time:</code> 后面<strong>空白</strong>，而不是 0。这一点在实测中被用作「开关是否真的生效」的判据（见 §7）。</p>
+
+<!-- ==================================================================== -->
+<h2 id="s3"><span class="num">3</span>通路 B：<code>stat gpu</code> 的 [TOTAL]</h2>
+
+<p><strong>一句话结论：</strong><code>stat gpu</code> 的 [TOTAL] 是「所有被插桩 GPU 事件的独占耗时之和」——它只统计引擎打了 scope 的地方，pass 之间的空隙和没插桩的工作一概不算。</p>
+
+<h3>3.1 [TOTAL] 是谁</h3>
+
+<pre><code><span class="c">// GPUProfiler.cpp:22 — [TOTAL] 就是一个普通 stat</span>
+DECLARE_FLOAT_COUNTER_STAT(TEXT("[TOTAL]"), Stat_GPU_Total, STATGROUP_GPU);
+
+<span class="c">// GPUProfiler.cpp:33 — 它的唯一写入口</span>
+FThreadStats::AddMessage(GET_STATFNAME(Stat_GPU_Total), EStatOperation::Set, TotalMs);
+</code></pre>
+
+<h3>3.2 这个数怎么算出来</h3>
+
+<pre><code><span class="c">// RealtimeGPUProfiler.cpp:473-515 — 遍历本帧所有 GPU 事件</span>
+uint64 TotalUs = 0llu;
+<span class="k">for</span> (int32 Idx = 1; Idx &lt; NextEventIdx; ++Idx)
+{
+    TotalUs += IncExcTime.ExclusiveTimeUs;        <span class="c">// RealtimeGPUProfiler.cpp:488  无条件累加「独占」时间</span>
+}
+RHISetGPUStatTotals(bCsvStatsEnabled, TotalUs / 1000.0);   <span class="c">// RealtimeGPUProfiler.cpp:515</span>
+</code></pre>
+
+<p>而「独占」是减法算出来的：</p>
+
+<pre><code><span class="c">// RealtimeGPUProfiler.cpp:451-461 — 先取 inclusive，再减掉所有子节点的 inclusive</span>
+Aggregate.InclusiveTimeUs = Event.GetResultUs(0);                                  <span class="c">// RealtimeGPUProfiler.cpp:451</span>
+Aggregate.ExclusiveTimeUs = Aggregate.InclusiveTimeUs;                             <span class="c">// RealtimeGPUProfiler.cpp:452</span>
+...
+EventAggregates[ParentIdx].ExclusiveTimeUs -= EventAggregates[EventIdx].InclusiveTimeUs;  <span class="c">// RealtimeGPUProfiler.cpp:461</span>
+
+<span class="c">// RealtimeGPUProfiler.cpp:133-143 — 单事件耗时就是两点之差</span>
+<span class="k">if</span> (StartResultMicroseconds[GPUIndex] &gt; EndResultMicroseconds[GPUIndex])
+    <span class="k">return</span> 0llu;                                        <span class="c">// RealtimeGPUProfiler.cpp:137-140  时间戳失序 → 直接返 0</span>
+<span class="k">return</span> EndResultMicroseconds[GPUIndex] - StartResultMicroseconds[GPUIndex];  <span class="c">// RealtimeGPUProfiler.cpp:142</span>
+</code></pre>
+
+<h3>3.3 事件树与 exclusive 减法</h3>
+
+<div class="fig">
+<svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <!-- 父节点 -->
+  <rect x="60" y="30" width="330" height="40" rx="6" fill="#fdf0e4" stroke="#d9741a" stroke-width="1.4"/>
+  <text x="225" y="46" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1a1d21">Mobile Scene Render（父）</text>
+  <text x="225" y="62" text-anchor="middle" font-size="11" fill="#7a828a">Inclusive = 10.04 ms</text>
+
+  <!-- 连线到子节点 -->
+  <path d="M120,70 L120,96" stroke="#5b6875" stroke-width="1.3" fill="none"/>
+  <path d="M225,70 L225,96" stroke="#5b6875" stroke-width="1.3" fill="none"/>
+  <path d="M330,70 L330,96" stroke="#5b6875" stroke-width="1.3" fill="none"/>
+  <path d="M120,88 L330,88" stroke="#5b6875" stroke-width="1.3" fill="none"/>
+
+  <!-- 子节点 -->
+  <rect x="66"  y="98" width="108" height="46" rx="6" fill="#ffffff" stroke="#c8d2dc"/>
+  <text x="120" y="118" text-anchor="middle" font-size="11.5" fill="#1a1d21">Basepass</text>
+  <text x="120" y="134" text-anchor="middle" font-size="10.5" fill="#7a828a">1.72 ms</text>
+
+  <rect x="184" y="98" width="108" height="46" rx="6" fill="#ffffff" stroke="#c8d2dc"/>
+  <text x="238" y="118" text-anchor="middle" font-size="11.5" fill="#1a1d21">VHM_CS</text>
+  <text x="238" y="134" text-anchor="middle" font-size="10.5" fill="#7a828a">0.20 ms</text>
+
+  <rect x="302" y="98" width="108" height="46" rx="6" fill="#ffffff" stroke="#c8d2dc"/>
+  <text x="356" y="118" text-anchor="middle" font-size="11.5" fill="#1a1d21">Custom Depth</text>
+  <text x="356" y="134" text-anchor="middle" font-size="10.5" fill="#7a828a">0.17 ms</text>
+
+  <!-- 减法公式 -->
+  <path d="M395,49 L470,49" stroke="#5b6875" stroke-width="1.5" fill="none" marker-end="url(#ar2)"/>
+  <defs>
+    <marker id="ar2" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#5b6875"/>
+    </marker>
+  </defs>
+
+  <rect x="478" y="24" width="380" height="52" rx="8" fill="#f5f9ff" stroke="#2f6feb" stroke-width="1.4"/>
+  <text x="668" y="44" text-anchor="middle" font-size="12" font-weight="600" fill="#2f6feb">父节点 Exclusive = 自身 Inclusive − Σ 子节点 Inclusive</text>
+  <text x="668" y="64" text-anchor="middle" font-size="11.5" fill="#4a5158">10.04 − (1.72 + 0.20 + 0.17 + …) = 7.9x ms</text>
+
+  <!-- 汇总 -->
+  <rect x="478" y="98" width="380" height="46" rx="6" fill="#eef2f7" stroke="#c8d2dc"/>
+  <text x="668" y="118" text-anchor="middle" font-size="12" fill="#1a1d21">[TOTAL] = Σ 所有事件的 Exclusive</text>
+  <text x="668" y="135" text-anchor="middle" font-size="11" fill="#7a828a">只包含被 SCOPED_DRAW_EVENT / GPU_SCOPE 覆盖的区域</text>
+
+  <!-- 底部说明 -->
+  <rect x="60" y="176" width="798" height="54" rx="6" fill="#fdf8e8" stroke="#e2d199"/>
+  <text x="76" y="197" font-size="12" fill="#8a6d1f">这个减法只在「事件严格树形嵌套、互不重叠」时成立。</text>
+  <text x="76" y="217" font-size="12" fill="#8a6d1f">一旦底层时间戳因为分块渲染（§6）而失序，子项之和就可能超过父项 → Exclusive 变成负数。</text>
+
+  <!-- 负值示例 -->
+  <rect x="60" y="246" width="798" height="40" rx="6" fill="#fdf0ef" stroke="#e6b0ac"/>
+  <text x="76" y="266" font-size="12" fill="#c0392b">实测：Mobile Scene Render 的 Min 列三次采样都是负数（−3.39 / −3.23 / −3.22 ms）——GPU 耗时不可能为负。</text>
+  <text x="76" y="281" font-size="11.5" fill="#c0392b">这说明该父节点的聚合已经失效，它和 [TOTAL] 里被它贡献的那部分都不可信。</text>
+</svg>
+<div class="cap">图 3 · <code>stat gpu</code> 的事件树、exclusive 减法，以及减法失效的实测表现</div>
+</div>
+
+<div class="callout">
+  <div class="h">顺带澄清一个常见误解</div>
+  <code>r.GPUStatsChildTimesIncluded</code> 只改<strong>每一行 pass 显示 inclusive 还是 exclusive</strong>（<code>RealtimeGPUProfiler.cpp:487</code>）；<strong>它不改 [TOTAL]</strong>——<code>:488</code> 那句累加 exclusive 是无条件的。
+</div>
+
+<!-- ==================================================================== -->
+<h2 id="s4"><span class="num">4</span>对照：两者为什么不相等</h2>
+
+<p><strong>一句话结论：</strong>差异由三个独立成因叠加，其中前两个是结构性的（换场景也在），第三个是移动端特有的（只在 TB(D)R 上出现）。</p>
+
+<table>
+  <thead>
+    <tr><th>#</th><th>成因</th><th>作用方向</th><th>证据等级</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><strong>口径差</strong>：<code>stat unit</code> 是帧跨度（含空转），<code>stat gpu</code> 是插桩工作量</td>
+      <td>把 stat unit <span class="tag t-bad">推高</span></td>
+      <td><span class="tag t-ok">源码逐行验证</span></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><strong>覆盖差</strong>：未插桩的 GPU 工作在 stat gpu 里完全不存在</td>
+      <td>把 TOTAL <span class="tag t-ok">压低</span></td>
+      <td><span class="tag t-ok">源码逐行验证</span></td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><strong>TB(D)R 时间戳失序</strong>：render pass 内部的时间戳不可靠，破坏 exclusive 减法</td>
+      <td>让 stat gpu <span class="tag t-bad">抖动 / 出负值</span></td>
+      <td><span class="tag t-mob">社区共识 + 实测吻合，未做对照实验</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>4.1 为什么这个 fork 上「本该相等」也做不到</h3>
+
+<p>新版 GPU profiler 里，两个数取自<strong>同一个中间量</strong>：</p>
+
+<pre><code><span class="c">// GPUProfiler.cpp:1359-1370 —— 但这段代码在 RHI_NEW_GPU_PROFILER != 0 的分支里</span>
+uint64 WholeFrameUnion = FTimestampStream::ComputeUnion(StreamPointers);              <span class="c">// GPUProfiler.cpp:1365</span>
+GGPUFrameTime = TruncToInt(ToSeconds64(WholeFrameUnion) / GetSecondsPerCycle());      <span class="c">// GPUProfiler.cpp:1368  给 stat unit</span>
+RHISetGPUStatTotals(bCsvStatsEnabled, ToMilliseconds64(WholeFrameUnion));             <span class="c">// GPUProfiler.cpp:1370  给 stat gpu</span>
+</code></pre>
+
+<p>而本 fork 编的是旧 profiler，<strong>Vulkan 侧的新路径根本没有实现</strong>：</p>
+
+<pre><code><span class="c">// RHI.Build.cs:16</span>
+PublicDefinitions.Add("RHI_NEW_GPU_PROFILER=0");
+
+<span class="c">// VulkanContext.h:303-309 —— 开成 1 时的分支是没写完的 stub</span>
+<span class="k">#if</span> RHI_NEW_GPU_PROFILER
+    <span class="k">void</span> RegisterGPUWork(uint32 NumPrimitives = 0, uint32 NumVertices = 0) { checkNoEntry(); }  <span class="c">// VulkanContext.h:304</span>
+    <span class="k">void</span> RegisterGPUDispatch(FIntVector GroupCount)                        { checkNoEntry(); }  <span class="c">// VulkanContext.h:305</span>
+<span class="k">#else</span>
+    FVulkanGPUProfiler  GpuProfiler;
+    FVulkanGPUTiming*   FrameTiming;
+<span class="k">#endif</span>
+</code></pre>
+
+<div class="callout warn">
+  <div class="h">所以「切新 profiler 让两个数同源」这条路在 Android Vulkan 上走不通</div>
+  <code>RegisterGPUWork</code> / <code>RegisterGPUDispatch</code> 是渲染器<strong>每帧、每次 draw/dispatch 都调</strong>的，开成 1 会直接 <code>checkNoEntry()</code> 崩。旁证：VulkanRHI 目录里 <code>FRHIBreadcrumbAllocator</code> / <code>FTimestampStream</code> <strong>零命中</strong>——新 profiler 赖以工作的 breadcrumb 时间戳管线在 Vulkan 上不存在。
+  <br>要做成，得自己给 Vulkan 实现整条管线，属引擎级开发。
+</div>
+
+<!-- ==================================================================== -->
+<h2 id="s5"><span class="num">5</span>Android 特有：开关门控与拼错名的坑</h2>
+
+<p><strong>一句话结论：</strong>Android 上这两条通路<strong>默认都是关的</strong>；而且本项目包体的 DeviceProfile 把开关名字拼错了，等于配置一直以为开着、实际从没生效。</p>
+
+<h3>5.1 开关在哪</h3>
+
+<pre><code><span class="c">// AndroidApplication.cpp:19 —— 默认 0 = 关</span>
+TAutoConsoleVariable&lt;<span class="k">bool</span>&gt; CVarAndroidSupportsTimestampQueries(
+    TEXT("r.Android.SupportsTimestampQueries"), 0, ...);
+
+<span class="c">// VulkanAndroidPlatform.cpp —— Vulkan 平台读它决定要不要开</span>
+<span class="k">return</span> CVarAndroidSupportsTimestampQueries != nullptr &amp;&amp;
+       CVarAndroidSupportsTimestampQueries-&gt;GetBool();
+
+<span class="c">// VulkanUtil.cpp:44 —— 还要硬件真的支持</span>
+<span class="k">bool</span> bSupportsTimestamps = (Limits.timestampComputeAndGraphics == VK_TRUE);   <span class="c">// VulkanUtil.cpp:44</span>
+SetTimingFrequency((uint64)((1000.0 * 1000.0 * 1000.0) / Limits.timestampPeriod));  <span class="c">// VulkanUtil.cpp:50</span>
+GIsSupported = <span class="k">true</span>;                                                        <span class="c">// VulkanUtil.cpp:53</span>
+</code></pre>
+
+<div class="callout warn">
+  <div class="h">必须走启动期 <code>-dpcvars=</code>，运行期下发无效</div>
+  <code>GSupportsTimestampRenderQueries</code> 只在 <strong>RHI 初始化时赋值一次</strong>。运行期用 <code>send_cvar</code> 把 CVar 改成 1，<strong>CVar 的值会变，但全局量不会重算</strong>，<code>stat gpu</code> 依然没数。<br>
+  参数形式：<code>-dpcvars=r.Android.SupportsTimestampQueries=1</code>（由 DeviceProfileManager 在引擎早期预应用，早于 RHI 初始化）。
+</div>
+
+<h3>5.2 拼错名会静默变成 dummy 变量</h3>
+
+<pre><code><span class="c">// ConfigUtilities.cpp:375-378 —— 对不存在的 CVar 名，引擎不报错，只造一个替身</span>
+IConsoleManager::Get().RegisterConsoleVariable(Key, Value, TEXT("IAmNoRealVariable"),
+    (uint32)ECVF_Unregistered | ...);                                            <span class="c">// ConfigUtilities.cpp:375</span>
+UE_LOG(LogConfig, Log, TEXT("CVar [[%s:%s]] deferred - dummy variable created"), Key, Value);  <span class="c">// ConfigUtilities.cpp:378</span>
+</code></pre>
+
+<p>日志里两种形态必须分清：</p>
+
+<table class="kv">
+  <thead><tr><th>日志</th><th>含义</th></tr></thead>
+  <tbody>
+    <tr><td><code>Setting CommandLine Device Profile CVar: [[X:1]]</code></td><td><span class="tag t-ok">✅ 变量存在，值已写入</span></td></tr>
+    <tr><td><code>Creating unregistered Device Profile CVar: [[X:1]]</code></td><td><span class="tag t-bad">❌ 变量不存在，只造了替身</span></td></tr>
+    <tr><td><code>CVar [[X:1]] deferred - dummy variable created</code></td><td><span class="tag t-bad">❌ 同上（另一处日志）</span></td></tr>
+  </tbody>
+</table>
+
+<p><strong>实测（S1Game / 2026-09-29，小米 12S）：</strong>设备包体的 DeviceProfile 写的是 <code>r.Vulkan.SupportsTimestampQueries</code>（应为 <code>r.Android.</code>）：</p>
+
+<pre><code>LogDeviceProfileManager: Creating unregistered Device Profile CVar: [[r.Vulkan.SupportsTimestampQueries:1]]
+LogConfig: CVar [[r.Vulkan.SupportsTimestampQueries:1]] deferred - dummy variable created
+r.Android.SupportsTimestampQueries = "false"     LastSetBy: DeviceProfile   <span class="c">← 真名一直是 false</span>
+</code></pre>
+
+<p>该次启动共 <strong>7 处</strong> dummy（另有 <code>r.Vulkan.DescriptorSetLayoutMode</code>、<code>r.Mobile.FSR.Enabled</code>、<code>r.Landscape.LODDistanceScale</code>、<code>r.HZB.TestUseComputerShader</code> 等）——<strong>每一处都是「设了等于没设」</strong>。</p>
+
+<!-- ==================================================================== -->
+<h2 id="s6"><span class="num">6</span>移动端特有的精度限制：TB(D)R</h2>
+
+<p><strong>一句话结论：</strong>Android GPU 是分块延迟渲染（TB(D)R），draw call 不是一段连续执行；把时间戳打在 render pass <strong>内部</strong>时读数不可靠。<strong>最小可信的测量粒度是「一个 RenderPass」</strong>，不是单个 pass / draw。</p>
+
+<div class="fig">
+<svg viewBox="0 0 900 330" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+  <!-- IMR 侧 -->
+  <text x="30" y="30" font-size="13" font-weight="700" fill="#2f6feb">桌面 IMR（立即模式）</text>
+  <rect x="30" y="42" width="400" height="112" rx="8" fill="#f5f9ff" stroke="#2f6feb" stroke-width="1.3"/>
+  <text x="46" y="62" font-size="11.5" fill="#4a5158">draw 按提交顺序连续执行</text>
+
+  <rect x="46" y="76" width="86" height="26" rx="4" fill="#8fb8f5"/>
+  <text x="89" y="94" text-anchor="middle" font-size="10.5" fill="#123">Draw A</text>
+  <rect x="140" y="76" width="86" height="26" rx="4" fill="#8fb8f5"/>
+  <text x="183" y="94" text-anchor="middle" font-size="10.5" fill="#123">Draw B</text>
+  <rect x="234" y="76" width="86" height="26" rx="4" fill="#8fb8f5"/>
+  <text x="277" y="94" text-anchor="middle" font-size="10.5" fill="#123">Draw C</text>
+  <rect x="328" y="76" width="86" height="26" rx="4" fill="#8fb8f5"/>
+  <text x="371" y="94" text-anchor="middle" font-size="10.5" fill="#123">Draw D</text>
+
+  <text x="46" y="126" font-size="11.5" fill="#1f9254">✔ A 的起止戳之间只有 A 的工作 → per-draw 耗时可信</text>
+  <text x="46" y="144" font-size="11.5" fill="#1f9254">✔ 各 draw 时间相加 ≈ 总时间</text>
+
+  <!-- TBDR 侧 -->
+  <text x="470" y="30" font-size="13" font-weight="700" fill="#d9741a">移动 TB(D)R（分块延迟）</text>
+  <rect x="470" y="42" width="400" height="112" rx="8" fill="#fff9f3" stroke="#d9741a" stroke-width="1.3"/>
+  <text x="486" y="62" font-size="11.5" fill="#4a5158">draw 被拆开、按 tile 铺开执行</text>
+
+  <rect x="486" y="76" width="88" height="26" rx="4" fill="#f5c48a"/>
+  <text x="530" y="94" text-anchor="middle" font-size="10.5" fill="#123">Tile 0</text>
+  <rect x="582" y="76" width="88" height="26" rx="4" fill="#f5c48a"/>
+  <text x="626" y="94" text-anchor="middle" font-size="10.5" fill="#123">Tile 1</text>
+  <rect x="678" y="76" width="88" height="26" rx="4" fill="#f5c48a"/>
+  <text x="722" y="94" text-anchor="middle" font-size="10.5" fill="#123">Tile 2</text>
+  <rect x="774" y="76" width="80" height="26" rx="4" fill="#f5c48a"/>
+  <text x="814" y="94" text-anchor="middle" font-size="10.5" fill="#123">Tile 3</text>
+
+  <text x="486" y="126" font-size="11.5" fill="#c0392b">✘ render pass 内的戳逐 tile 执行 → 只留最后一个 tile</text>
+  <text x="486" y="144" font-size="11.5" fill="#c0392b">✘ per-draw / per-scope 耗时失真，相加减可能对不上</text>
+
+  <!-- 结论条 -->
+  <rect x="30" y="176" width="840" height="62" rx="8" fill="#fdf8e8" stroke="#e2d199"/>
+  <text x="46" y="198" font-size="12.5" font-weight="600" fill="#8a6d1f">可信粒度：一个 RenderPass（≈ 一个渲染目标）</text>
+  <text x="46" y="219" font-size="11.5" fill="#8a6d1f">在 vkCmdBeginRenderPass 之前、vkCmdEndRenderPass 之后各打一个时间戳 —— 落在 pass 边界上的测量才稳。</text>
+
+  <!-- 证据等级声明 -->
+  <rect x="30" y="252" width="840" height="62" rx="8" fill="#fdf0ef" stroke="#e6b0ac"/>
+  <text x="46" y="274" font-size="12.5" font-weight="600" fill="#c0392b">证据等级声明（不要把这条当规范条文）</text>
+  <text x="46" y="295" font-size="11.5" fill="#c0392b">Vulkan 规范里只明确禁止在 QCOM per-tile execution mode 下写时间戳；「所有 TB(D)R 设备 render pass 内戳都会被覆盖」是社区 / 驱动工程师说法，不是规范保证。</text>
+</svg>
+<div class="cap">图 4 · IMR 与 TB(D)R 上时间戳行为的差异（右图的机制为社区共识，非规范条文）</div>
+</div>
+
+<p>对本项目而言，这一条<strong>正好对上观测到的现象</strong>：<code>Mobile Scene Render</code> 是包住整个 Mobile 渲染的父 scope，其下的 pass 嵌套在 render pass 里；一旦父子时间戳失序，<code>Exclusive = Inclusive − Σ子项</code> 就会减出负数（见图 3 底部）。</p>
+
+<!-- ==================================================================== -->
+<h2 id="s7"><span class="num">7</span>实测证据</h2>
+
+<p><strong>一句话结论：</strong>开关的因果关系用启动 A/B 测出来了；<code>stat gpu</code> 的稳定性用同场景三次连采测出来了——<strong>小项可信、大项和 [TOTAL] 不可信</strong>。</p>
+
+<h3>7.1 开关 A/B（S1Game / OPPO PMA110 / Android 16）</h3>
+
+<p>做法：摘掉 <code>-dpcvars=r.Android.SupportsTimestampQueries=1</code> 重启，再装回去重启，各截一张 <code>stat gpu</code> + <code>stat unit</code> 同屏图。</p>
+
+<table>
+  <thead><tr><th>组</th><th>该 boot 的 CVar 日志</th><th><code>stat gpu</code> 表格</th><th><code>stat unit</code> 的 GPU Time</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>A（摘掉参数）</td>
+      <td>只有 <code>Creating unregistered … [[r.Vulkan.…]]</code>，无 <code>Setting</code> 行</td>
+      <td><span class="tag t-bad">完全空白</span>（只有表头 GPU [STATGROUP_GPU]）</td>
+      <td><span class="tag t-bad">有标题无数字</span>（空白）</td>
+    </tr>
+    <tr>
+      <td>B（装回参数）</td>
+      <td><code>Setting CommandLine Device Profile CVar: [[r.Android.SupportsTimestampQueries:1]]</code></td>
+      <td><span class="tag t-ok">完整表格</span>，[TOTAL] 11.00 ms</td>
+      <td>有数值</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>截图存档：<code>stat_gpu_A_noparam.png</code> / <code>stat_gpu_B_withparam.png</code>（<code>D:\GR_DevTest\S1Game\Saved\Screenshots\</code>）。</p>
+
+<div class="callout note">
+  <div class="h">顺带证伪了一条我自己的错误判据</div>
+  验证过程中我曾把启动日志里的 <code>LogVulkanRHI: Display: - Max Descriptor Sets Bound 7, Timestamps 1</code> 当成「timestamp 已打开」的铁证。翻改动前的 backup 日志比对后发现<strong>那行改动前也是 1</strong>——它是 Vulkan device limits 的字段，与这个 CVar 无关。<strong>判据被 A/B 推翻了。</strong>
+</div>
+
+<h3>7.2 稳定性（S1Game / 小米 12S / Adreno 730，同一静止画面连采三次）</h3>
+
+<table>
+  <thead><tr><th>行</th><th>采样 1</th><th>采样 2</th><th>采样 3</th><th>波动</th></tr></thead>
+  <tbody>
+    <tr><td><strong>[TOTAL]</strong> Average</td><td>12.74</td><td>14.90</td><td>19.87</td><td><span class="tag t-bad">+56%</span></td></tr>
+    <tr><td><strong>Mobile Scene Render</strong> Average</td><td>10.04</td><td>12.22</td><td>17.19</td><td><span class="tag t-bad">+71%</span></td></tr>
+    <tr><td><strong>Mobile Scene Render</strong> <strong>Min</strong></td><td>−3.39</td><td>−3.23</td><td>−3.22</td><td><span class="tag t-bad">恒为负</span></td></tr>
+    <tr><td>Basepass</td><td>1.72</td><td>1.70</td><td>1.62</td><td><span class="tag t-ok">±0.05</span></td></tr>
+    <tr><td>VHM_CS</td><td>0.20</td><td>0.20</td><td>0.21</td><td><span class="tag t-ok">±0.01</span></td></tr>
+    <tr><td>Custom Depth</td><td>0.17</td><td>0.17</td><td>0.19</td><td><span class="tag t-ok">±0.01</span></td></tr>
+    <tr><td>Slate UI</td><td>0.15</td><td>0.13</td><td>0.13</td><td><span class="tag t-ok">±0.01</span></td></tr>
+    <tr><td>Prepass</td><td>0.01</td><td>0.01</td><td>0.01</td><td><span class="tag t-ok">±0.00</span></td></tr>
+  </tbody>
+</table>
+
+<p><strong>规律：越小的项越稳，越大的 / 父级的项越不可信。</strong>叶子 pass 是「两点之差」直接测得；父级是「减法算出来的」，一旦子项之和超过父项就出负数。</p>
+
+<h3>7.3 内部自洽性（说明「汇总」环节没错）</h3>
+
+<p>同一张表里各 pass 行的 Average 之和 = 10.99 ms，<code>[TOTAL]</code> = 11.00 ms，差 0.01 ms（四舍五入）。<strong>说明 <code>[TOTAL] = Σ exclusive</code> 是如实求和的（含那个负值贡献）——错不在汇总，在上游的父项测量本身。</strong></p>
+
+<!-- ==================================================================== -->
+<h2 id="s8"><span class="num">8</span>工具选型 Checklist</h2>
+
+<table>
+  <thead><tr><th>想知道什么</th><th>用什么</th><th>别用什么</th></tr></thead>
+  <tbody>
+    <tr><td>单个 pass 的开销（Basepass / 阴影 / VHM…）</td><td><code>stat gpu</code> 里<strong>叶子行</strong>的 Average</td><td>父级行、<code>[TOTAL]</code></td></tr>
+    <tr><td>GPU 总体量（可信口径）</td><td>把叶子行 Average 自己加一遍</td><td><code>[TOTAL]</code>（含负值贡献）</td></tr>
+    <tr><td>GPU 帧占用 / 是不是瓶颈</td><td><code>stat unit</code> 的 GPU Time，<strong>配合</strong> Game / Draw / RHIT 一起读</td><td>单独看 GPU Time 下结论</td></tr>
+    <tr><td>按 render pass 分组的明细</td><td><code>ProfileGPU</code> / GPU Visualizer（按 pass / RT 分组，正好踩在可信粒度上）</td><td>per-draw 耗时</td></tr>
+    <tr><td>时间线级分析</td><td><strong>Unreal Insights</strong> 打开 <code>.utrace</code> 的 GPU 轨道</td><td>屏幕上的聚合数字</td></tr>
+    <tr><td>100% 准的硬件计数</td><td><strong>平台原生工具</strong>：高通 <strong>Snapdragon Profiler</strong> / Arm <strong>Streamline · Frame Advisor</strong></td><td>RenderDoc 的 per-event Duration（TB(D)R 上无效）</td></tr>
+  </tbody>
+</table>
+
+<h3>8.1 开 GPU 时间戳的完整参数</h3>
+
+<pre><code><span class="c"># 追加到设备上的 UECommandLine.txt（uecmd.py add），改完必须重启 app</span>
+-dpcvars=r.Android.SupportsTimestampQueries=1
+
+<span class="c"># 想同时录 trace（可选，与本开关独立）</span>
+-trace=gpu,cpu,loadtime,frame,log,bookmark,task,RHICommands -statnamedevents
+
+<span class="c"># trace 想增量落盘、不依赖优雅退出（防进程被强杀丢数据）</span>
+-tracefile 或 -tracefile=&lt;路径&gt;          <span class="c">// TraceAuxiliary.cpp:1400 / 1413</span>
+-tracefiletrunc                          <span class="c">// TraceAuxiliary.cpp:1378</span>
+</code></pre>
+
+<p><code>-trace=</code> 的参数是<strong>逗号分隔的通道名 / 预设名列表</strong>（<code>TraceAuxiliary.cpp:1359</code>）。可用预设：</p>
+
+<table class="kv">
+  <thead><tr><th>预设名</th><th>等价通道</th></tr></thead>
+  <tbody>
+    <tr><td><code>Default</code></td><td><code>cpu,gpu,frame,log,bookmark,screenshot,region,renderresources</code>（<code>TraceAuxiliary.cpp:39</code>）</td></tr>
+    <tr><td><code>Memory</code></td><td><code>memtag,memalloc,callstack,module</code>（<code>:40</code>）</td></tr>
+    <tr><td><code>Memory_Light</code></td><td><code>memtag,memalloc</code>（<code>:41</code>）</td></tr>
+    <tr><td><code>Precise</code></td><td><code>contextswitch,stacksampling,contextswitchesprecise,module,diagnostics</code></td></tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  <div class="h">排查启动期 CVar 的固定动作</div>
+  改完重启后<strong>必查日志关键字是 <code>Setting</code> 还是 <code>Creating unregistered</code></strong>。只看「ini / cmdline 里写了这条」不算数（§5.2）。
+</div>
+
+<!-- ==================================================================== -->
+<h2 id="s9"><span class="num">9</span>参考</h2>
+
+<h4>源码（基线 <code>D:\GR_DevTest\UE5EA</code>，UE 5.5.4 fork）</h4>
+<ul>
+  <li><code>Engine/Source/Runtime/Engine/Private/UnrealClient.cpp</code> — <code>stat unit</code> 取值、EMA 平滑、<code>GPU Time</code> 行渲染</li>
+  <li><code>Engine/Source/Runtime/Engine/Public/UnrealClient.h</code> — <code>FStatUnitData</code> 结构</li>
+  <li><code>Engine/Source/Runtime/VulkanRHI/Private/VulkanQuery.cpp</code> — <code>ReadAndCalculateGPUFrameTime</code></li>
+  <li><code>Engine/Source/Runtime/VulkanRHI/Private/VulkanUtil.cpp</code> — <code>vkCmdWriteTimestamp</code>、频率与能力检查</li>
+  <li><code>Engine/Source/Runtime/VulkanRHI/Private/VulkanRHI.cpp</code> — 帧首 / 帧末时间戳落点</li>
+  <li><code>Engine/Source/Runtime/RHI/Private/GPUProfiler.cpp</code> — <code>[TOTAL]</code> 定义与新旧 profiler 分支</li>
+  <li><code>Engine/Source/Runtime/RenderCore/Private/ProfilingDebugging/RealtimeGPUProfiler.cpp</code> — 事件聚合与 exclusive 减法</li>
+  <li><code>Engine/Source/Runtime/Core/Private/ProfilingDebugging/TraceAuxiliary.cpp</code> — <code>-trace=</code> 参数与预设</li>
+  <li><code>Engine/Source/Runtime/Core/Private/Misc/ConfigUtilities.cpp</code> — dummy CVar</li>
+</ul>
+
+<h4>外部资料</h4>
+<ul>
+  <li><a href="https://forums.unrealengine.com/t/gpu-time-is-huge-different-between-stat-gpu-and-stat-unit/416452">GPU time is huge different between "stat gpu" and "stat unit" — Epic 开发者社区</a></li>
+  <li><a href="https://forums.unrealengine.com/t/stat-gpu-stat-unit-gpu-time/2681506">Stat GPU 数据跟 Stat Unit GPU Time 数据差异 — Epic 开发者社区</a></li>
+  <li><a href="https://dev.epicgames.com/documentation/unreal-engine/optimization-and-development-best-practices-for-mobile-projects-in-unreal-engine">Optimization and Development Best Practices for Mobile Projects — Epic 官方文档</a></li>
+  <li><a href="https://dev.epicgames.com/documentation/unreal-engine/profile-android-projects-with-platformnative-tools">Profile Android Projects With Platform-Native Tools — Epic 官方文档</a></li>
+  <li><a href="https://zenn.dev/james0124/articles/684869e6210393">RenderDoc で Android の draw call は計測できない — TB(D)R における GPU 時間計測の注意</a></li>
+  <li><a href="https://zenn.dev/inpro/scraps/9b2f33dc222ab6">パフォーマンスチューニング（Mobile GPU）</a></li>
+  <li><a href="https://docs.unrealengine.com/udk/Three/MobileGPUProfiling.html">Mobile GPU Profiling（UDK 时期文档：只能用总帧时间的历史）</a></li>
+  <li><a href="https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdBeginPerTileExecutionQCOM.html">vkCmdBeginPerTileExecutionQCOM — Vulkan 规范（per-tile 模式下禁止写 timestamp）</a></li>
+</ul>
+
+<div class="callout note">
+  <div class="h">证据等级声明</div>
+  <ul style="margin:6px 0">
+    <li>§2 / §3 / §4.1 / §5 的全部结论：<strong>本 fork 源码逐行核对</strong>，行号见正文。</li>
+    <li>§7 的数值：<strong>本机实测</strong>（截图与日志留档）。</li>
+    <li>§6 的 TB(D)R 机制：<strong>社区 / 驱动工程师说法 + 本机观测吻合</strong>，<strong>未做对照实验</strong>（例如把某个 scope 的戳挪到 render pass 之外再测）。引用时请标注这一边界。</li>
+  </ul>
+</div>
+
+<footer>
+  关键词：UE5 · Mobile · GPU Time · stat unit · stat gpu · TBDR · r.Android.SupportsTimestampQueries · Vulkan timestamp · RHI_NEW_GPU_PROFILER<br>
+  源码基线：D:\GR_DevTest\UE5EA（UE 5.5.4 fork，CL 1011149）· 成文：2026-09-29
+</footer>
+
+</div>
+</body>
+</html>

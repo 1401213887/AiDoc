@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>2X2 资产达标率分析报告</title>
+<style>
+:root{--bg:#0f1420;--panel:#161d2e;--panel2:#1c2540;--line:#2a3552;--txt:#dbe4f5;--dim:#8b96b5;--acc:#35d0a5;--warn:#f0b95c;--bad:#f07c7c;--info:#5aa7ff}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--txt);font-family:"Segoe UI",system-ui,-apple-system,sans-serif;line-height:1.6;padding:32px 20px 80px}
+.wrap{max-width:1080px;margin:0 auto}
+h1{font-size:26px;margin-bottom:6px}h1 .tag{color:var(--acc);font-size:15px;vertical-align:2px;margin-left:8px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:22px}
+h2{font-size:19px;margin:34px 0 14px;padding-left:10px;border-left:4px solid var(--acc)}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+.card .num{font-size:30px;font-weight:700}
+.card .lbl{color:var(--dim);font-size:13px;margin-top:2px}
+.card .sub{color:var(--dim);font-size:12px;margin-top:4px}
+.card.good .num{color:var(--acc)}.card.bad .num{color:var(--bad)}.card.warn .num{color:var(--warn)}
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:12px 0}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--dim);font-weight:600;font-size:12px;white-space:nowrap}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.mono{font-family:Consolas,monospace;font-size:12px;color:var(--dim);word-break:break-all}
+.bar{height:14px;background:var(--panel2);border-radius:6px;overflow:hidden;min-width:90px}
+.fill{height:100%}.fill.good{background:var(--acc)}.fill.warn{background:var(--warn)}.fill.bad{background:var(--bad)}.fill.info{background:var(--info)}
+.barlabel{font-size:11px;color:var(--dim);margin-top:3px}
+.callout{border-radius:10px;padding:14px 16px;margin:14px 0;font-size:13.5px}
+.callout.good{background:rgba(53,208,165,.10);border:1px solid rgba(53,208,165,.35)}
+.callout.warn{background:rgba(240,185,92,.10);border:1px solid rgba(240,185,92,.35)}
+.callout.bad{background:rgba(240,124,124,.10);border:1px solid rgba(240,124,124,.35)}
+.pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:2px 12px;font-size:12px;color:var(--dim);margin-right:6px}
+.empty{text-align:center;color:var(--dim)}
+.toc a{color:var(--info);text-decoration:none;margin-right:14px;font-size:13px}
+@media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}}
+</style></head><body><div class="wrap">
+
+<h1>2X2 资产达标率分析<span class="tag">移动端有效性 · LOD 缺失审计</span></h1>
+<div class="sub">数据源：2X2MeshActor扫描结果_按路径去重.csv（按资产路径去重后 3,650 个唯一资产） · 生成于 2026-08-26</div>
+
+<div class="toc stage">
+<b>目录</b><br>
+<a href="#s1">① 核心结论</a><a href="#s2">② 规则命中分布</a><a href="#s3">③ 按目录分组达标率</a><a href="#s4">④ 危险组：有降级配置但 LOD 缺失</a><a href="#s5">⑤ LOD 缺失 Top 资产</a><a href="#s6">⑥ 高面数未配置 LOD 降级</a><a href="#s7">⑦ 判定口径说明</a>
+</div>
+
+<h2 id="s1">① 核心结论</h2>
+
+    <div class="cards">
+      <div class="card"><div class="num">3,650</div><div class="lbl">总资产数(去重)</div></div>
+      <div class="card good"><div class="num">3,020</div><div class="lbl">移动端有效资产</div><div class="sub">有效率 82.7%</div></div>
+      <div class="card bad"><div class="num">57</div><div class="lbl">LOD 缺失资产</div><div class="sub">缺失率 1.56%</div></div>
+      <div class="card warn"><div class="num">0</div><div class="lbl">危险组(有降级配置但LOD缺失)</div></div>
+    </div>
+<div class="callout good"><b>移动端资产有效率 82.7%</b>（3,020 / 3,650）。判定：MobileMinLOD&gt;0 或 LOD0&lt;300 命中其一即视为移动端有效。</div>
+<div class="callout warn"><b>LOD 缺失率 1.56%</b>（57 个资产）。高面数（LOD0≥300）但 LOD1-6 全部为 0，移动端降级时无 LOD 可用。</div>
+<div class="callout bad"><b>危险组 0 个</b>：已配置 LOD 降级（MinLOD&gt;0）但 LOD 链缺失 —— 降级到空 LOD，等于在移动端直接上高模，是 LOD 缺失里最需要优先处理的一批。</div>
+
+<h2 id="s2">② 规则命中分布</h2>
+<div class="stage"><table>
+<tr><th>规则</th><th>命中数</th><th>占比</th><th>分布</th></tr>
+<tr><td>R1 · MobileMinLOD > 0（显式 LOD 降级配置）</td><td>2,492</td><td>68.3%</td><td><div class="bar"><div class="fill good" style="width:68.3%"></div></div><div class="barlabel">68.3%</div></td></tr><tr><td>R2 · LOD0 < 300（低面数无需 LOD）</td><td>950</td><td>26.0%</td><td><div class="bar"><div class="fill good" style="width:26.0%"></div></div><div class="barlabel">26.0%</div></td></tr><tr><td>R1 且 R2 双命中</td><td>422</td><td>11.6%</td><td><div class="bar"><div class="fill warn" style="width:11.6%"></div></div><div class="barlabel">11.6%</div></td></tr><tr><td>R1/R2 均未命中（高面数且无降级配置）</td><td>630</td><td>17.3%</td><td><div class="bar"><div class="fill bad" style="width:17.3%"></div></div><div class="barlabel">17.3%</div></td></tr>
+</table></div>
+
+<h2 id="s3">③ 按目录分组达标率</h2>
+<div class="stage"><table>
+<tr><th>顶层目录</th><th>资产数</th><th>有效数</th><th>有效率</th><th>LOD缺失</th><th>R1命中(MinLOD&gt;0)</th><th>R2命中(LOD0&lt;300)</th></tr>
+<tr><td>NeoRing</td><td>3,358</td><td>2,798</td><td><b>83.3%</b></td><td>34 (1.01%)</td><td>2,336 (69.6%)</td><td>855 (25.5%)</td></tr><tr><td>Common</td><td>273</td><td>207</td><td><b>75.8%</b></td><td>19 (6.96%)</td><td>154 (56.4%)</td><td>82 (30.0%)</td></tr><tr><td>其他</td><td>15</td><td>13</td><td><b>86.7%</b></td><td>2 (13.33%)</td><td>2 (13.3%)</td><td>11 (73.3%)</td></tr><tr><td>Engine</td><td>4</td><td>2</td><td><b>50.0%</b></td><td>2 (50.00%)</td><td>0 (0.0%)</td><td>2 (50.0%)</td></tr>
+</table></div>
+
+<h2 id="s4">④ 危险组：有降级配置但 LOD 缺失（0 个）</h2>
+<div class="stage"><table>
+<tr><th>资产名</th><th>资产路径</th><th>LOD0面数</th><th>MinLOD</th><th>MaxLOD</th></tr>
+<tr><td colspan="5" class="empty">无</td></tr>
+</table>
+<div class="sub" style="margin-top:8px">显示按 LOD0 面数降序的前 30 条。全部 0 条见完整清单。</div></div>
+
+<h2 id="s5">⑤ LOD 缺失 Top 资产（LOD0≥300 且无次级 LOD，按 LOD0 降序前 40）</h2>
+<div class="stage"><table>
+<tr><th>#</th><th>资产名</th><th>资产路径</th><th>LOD0面数</th><th>MinLOD</th><th>MaxLOD</th></tr>
+<tr><td>1</td><td>SM_OutScene_13</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/SM_OutScene_13.SM_OutScene_13</td><td>40,449</td><td>0</td><td>-1</td></tr><tr><td>2</td><td>SM_OutScene_11</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/SM_OutScene_11.SM_OutScene_11</td><td>21,082</td><td>0</td><td>7</td></tr><tr><td>3</td><td>SM_OutScene_14</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/SM_OutScene_14.SM_OutScene_14</td><td>17,515</td><td>0</td><td>-1</td></tr><tr><td>4</td><td>SM_OutScene_12</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/SM_OutScene_12.SM_OutScene_12</td><td>17,116</td><td>0</td><td>7</td></tr><tr><td>5</td><td>SM_OutScene_15</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/SM_OutScene_15.SM_OutScene_15</td><td>16,914</td><td>0</td><td>7</td></tr><tr><td>6</td><td>SM_LifeChain_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Distant/SM_LifeChain_01.SM_LifeChain_01</td><td>14,875</td><td>0</td><td>7</td></tr><tr><td>7</td><td>SM_NR_Vision_Rock_12</td><td class="mono">/Game/Arts/Scene/NeoRing/Distant/SM_NR_Vision_Rock_12.SM_NR_Vision_Rock_12</td><td>10,324</td><td>0</td><td>7</td></tr><tr><td>8</td><td>SM_OutScene_16</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/SM_OutScene_16.SM_OutScene_16</td><td>8,182</td><td>0</td><td>7</td></tr><tr><td>9</td><td>SM_NR_Vision_Rock_11</td><td class="mono">/Game/Arts/Scene/NeoRing/Distant/SM_NR_Vision_Rock_11.SM_NR_Vision_Rock_11</td><td>5,924</td><td>0</td><td>7</td></tr><tr><td>10</td><td>SM_swirl_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Distant/SM_swirl_01.SM_swirl_01</td><td>5,859</td><td>0</td><td>7</td></tr><tr><td>11</td><td>SK_NR_POI2C_Robot_07</td><td class="mono">/Game/Arts/Scene/NeoRing/Ground/POI_02_C/SK_NR_POI2C_Robot_07.SK_NR_POI2C_Robot_07</td><td>5,579</td><td>0</td><td>7</td></tr><tr><td>12</td><td>SK_NR_POI2C_Robot_05</td><td class="mono">/Game/Arts/Scene/NeoRing/Ground/POI_02_C/SK_NR_POI2C_Robot_05.SK_NR_POI2C_Robot_05</td><td>5,563</td><td>0</td><td>7</td></tr><tr><td>13</td><td>SK_NR_POI2C_Robot_03</td><td class="mono">/Game/Arts/Scene/NeoRing/Ground/POI_02_C/SK_NR_POI2C_Robot_03.SK_NR_POI2C_Robot_03</td><td>5,475</td><td>0</td><td>7</td></tr><tr><td>14</td><td>SK_NR_POI2C_Robot_02</td><td class="mono">/Game/Arts/Scene/NeoRing/Ground/POI_02_C/SK_NR_POI2C_Robot_02.SK_NR_POI2C_Robot_02</td><td>5,453</td><td>0</td><td>7</td></tr><tr><td>15</td><td>SK_NR_POI2C_Robot_06</td><td class="mono">/Game/Arts/Scene/NeoRing/Ground/POI_02_C/SK_NR_POI2C_Robot_06.SK_NR_POI2C_Robot_06</td><td>5,350</td><td>0</td><td>7</td></tr><tr><td>16</td><td>SK_Robot01</td><td class="mono">/Game/Arts/Scene/NeoRing/Ground/POI_02_C/SK_Robot01.SK_Robot01</td><td>5,289</td><td>0</td><td>7</td></tr><tr><td>17</td><td>SM_NR_Vision_Rock_15</td><td class="mono">/Game/Arts/Scene/NeoRing/Distant/SM_NR_Vision_Rock_15.SM_NR_Vision_Rock_15</td><td>5,164</td><td>0</td><td>7</td></tr><tr><td>18</td><td>SM_OutScene_06</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/SM_OutScene_06.SM_OutScene_06</td><td>4,782</td><td>0</td><td>7</td></tr><tr><td>19</td><td>SM_OutScene_01</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/SM_OutScene_01.SM_OutScene_01</td><td>4,744</td><td>0</td><td>7</td></tr><tr><td>20</td><td>SM_SiFiWire_01_A</td><td class="mono">/Game/Arts/Scene/NeoRing/Props/Room/SM_SiFiWire_01_A.SM_SiFiWire_01_A</td><td>4,718</td><td>0</td><td>7</td></tr><tr><td>21</td><td>SM_Building_38_CardReader_01</td><td class="mono">/Game/Arts/Scene/Common/Building/38/2A/Indoor/SM_Building_38_CardReader_01.SM_Building_38_CardReader_01</td><td>4,510</td><td>0</td><td>0</td></tr><tr><td>22</td><td>SM_OutScene_04</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/SM_OutScene_04.SM_OutScene_04</td><td>2,960</td><td>0</td><td>7</td></tr><tr><td>23</td><td>SM_OutScene_07</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/SM_OutScene_07.SM_OutScene_07</td><td>2,864</td><td>0</td><td>7</td></tr><tr><td>24</td><td>SM_Trestle_Board_A</td><td class="mono">/Game/Arts/Scene/WhiteBox/NR_Meshes/NR_Gap_Cover/SM_Trestle_Board_A.SM_Trestle_Board_A</td><td>2,284</td><td>0</td><td>7</td></tr><tr><td>25</td><td>SM_WildGB_Mid_A_Ground_01_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Ground/WildPoint/SM_WildGB_Mid_A_Ground_01_01.SM_WildGB_Mid_A_Ground_01_01</td><td>1,970</td><td>0</td><td>7</td></tr><tr><td>26</td><td>SM_NR_POI2C_Platform_03_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Ground/POI_02_C/SM_NR_POI2C_Platform_03_01.SM_NR_POI2C_Platform_03_01</td><td>1,592</td><td>0</td><td>7</td></tr><tr><td>27</td><td>SM_MeterBox_10</td><td class="mono">/Game/Arts/Scene/Common/Props/Laboratory/SM_MeterBox_10.SM_MeterBox_10</td><td>1,523</td><td>0</td><td>7</td></tr><tr><td>28</td><td>SM_Building_NR_05_1A_Prop_13</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_05/1A/Indoor/D/SM_Building_NR_05_1A_Prop_13.SM_Building_NR_05_1A_Prop_13</td><td>1,192</td><td>0</td><td>7</td></tr><tr><td>29</td><td>SM_RUSH02_POI04_WaterFall_016</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/Water/SM_RUSH02_POI04_WaterFall_016.SM_RUSH02_POI04_WaterFall_016</td><td>1,152</td><td>0</td><td>7</td></tr><tr><td>30</td><td>SM_HandrailFence_02_05</td><td class="mono">/Game/Arts/Scene/NeoRing/Props/HandRail/SM_HandrailFence_02_05.SM_HandrailFence_02_05</td><td>1,120</td><td>0</td><td>7</td></tr><tr><td>31</td><td>SM_MeterBox_06_e</td><td class="mono">/Game/Arts/Scene/NeoRing/Props/Buildings/SM_MeterBox_06_e.SM_MeterBox_06_e</td><td>1,040</td><td>0</td><td>7</td></tr><tr><td>32</td><td>Sphere</td><td class="mono">/Engine/BasicShapes/Sphere.Sphere</td><td>960</td><td>0</td><td>7</td></tr><tr><td>33</td><td>SM_MeterBox_08</td><td class="mono">/Game/Arts/Scene/NeoRing/Props/Buildings/SM_MeterBox_08.SM_MeterBox_08</td><td>836</td><td>0</td><td>7</td></tr><tr><td>34</td><td>SM_OutScene_05</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/SM_OutScene_05.SM_OutScene_05</td><td>790</td><td>0</td><td>7</td></tr><tr><td>35</td><td>SM_MeterBox_06_d</td><td class="mono">/Game/Arts/Scene/NeoRing/Props/Buildings/SM_MeterBox_06_d.SM_MeterBox_06_d</td><td>784</td><td>0</td><td>7</td></tr><tr><td>36</td><td>SM_SulfurField_WaterFall_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Ground/Wild_Sulfur/SM_SulfurField_WaterFall_01.SM_SulfurField_WaterFall_01</td><td>772</td><td>0</td><td>7</td></tr><tr><td>37</td><td>SM_horizontal_line_01</td><td class="mono">/Game/Arts/Scene/Functional/GameplaySetup/Horizontal_line/SM_horizontal_line_01.SM_horizontal_line_01</td><td>752</td><td>0</td><td>0</td></tr><tr><td>38</td><td>SM_POI07C_Ground03_10</td><td class="mono">/Game/Arts/Scene/NeoRing/Ground/POI_07_C/SM_POI07C_Ground03_10.SM_POI07C_Ground03_10</td><td>660</td><td>0</td><td>7</td></tr><tr><td>39</td><td>SM_NR_Vision_Building_46</td><td class="mono">/Game/Arts/Scene/Common/Cover/Stone/Vision2x2/Mesh/Building/SM_NR_Vision_Building_46.SM_NR_Vision_Building_46</td><td>622</td><td>0</td><td>7</td></tr><tr><td>40</td><td>SM_HandrailFence_02_04</td><td class="mono">/Game/Arts/Scene/NeoRing/Props/HandRail/SM_HandrailFence_02_04.SM_HandrailFence_02_04</td><td>560</td><td>0</td><td>7</td></tr>
+</table></div>
+
+<h2 id="s6">⑥ 高面数且未配置 LOD 降级（MinLOD=0 但 LOD0≥300，前 20）</h2>
+<div class="stage"><table>
+<tr><th>#</th><th>资产名</th><th>资产路径</th><th>LOD0面数</th><th>MinLOD</th></tr>
+<tr><td>1</td><td>SM_Building_NR_05_1A_Ceiling_B_02</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_05/1A/Indoor/B/SM_Building_NR_05_1A_Ceiling_B_02.SM_Building_NR_05_1A_Ceiling_B_02</td><td>67,482</td><td>0</td></tr><tr><td>2</td><td>SM_Building_NR_21_1A_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_21/1A/SM_Building_NR_21_1A_01.SM_Building_NR_21_1A_01</td><td>48,802</td><td>0</td></tr><tr><td>3</td><td>SM_Building_NR_05_1A_Floor_02</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_05/1A/SM_Building_NR_05_1A_Floor_02.SM_Building_NR_05_1A_Floor_02</td><td>45,829</td><td>0</td></tr><tr><td>4</td><td>SM_Building_NR_29_1A_Wall_03</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_29/1A/SM_Building_NR_29_1A_Wall_03.SM_Building_NR_29_1A_Wall_03</td><td>44,908</td><td>0</td></tr><tr><td>5</td><td>SM_Building_NR_13_1A</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_13/1A/SM_Building_NR_13_1A.SM_Building_NR_13_1A</td><td>42,292</td><td>0</td></tr><tr><td>6</td><td>SM_Building_NR_20_1A_Wall_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_20/1A/SM_Building_NR_20_1A_Wall_01.SM_Building_NR_20_1A_Wall_01</td><td>42,072</td><td>0</td></tr><tr><td>7</td><td>SM_Building_NR_22_1A_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_22/1A/SM_Building_NR_22_1A_01.SM_Building_NR_22_1A_01</td><td>39,468</td><td>0</td></tr><tr><td>8</td><td>SM_Building_NR_05_1A_Ground_B_03</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_05/1A/Indoor/B/SM_Building_NR_05_1A_Ground_B_03.SM_Building_NR_05_1A_Ground_B_03</td><td>37,090</td><td>0</td></tr><tr><td>9</td><td>SM_Building_NR_05_1A_3F_Ceiling_B_02</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_05/1A/Indoor/B/SM_Building_NR_05_1A_3F_Ceiling_B_02.SM_Building_NR_05_1A_3F_Ceiling_B_02</td><td>36,170</td><td>0</td></tr><tr><td>10</td><td>SM_Building_NR_05_1A_2F_Ceiling_A_03</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_05/1A/Indoor/A/SM_Building_NR_05_1A_2F_Ceiling_A_03.SM_Building_NR_05_1A_2F_Ceiling_A_03</td><td>33,756</td><td>0</td></tr><tr><td>11</td><td>SM_Building_NR_12_1A_Wall_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_12/1A/SM_Building_NR_12_1A_Wall_01.SM_Building_NR_12_1A_Wall_01</td><td>30,664</td><td>0</td></tr><tr><td>12</td><td>SM_Building_NR_19_1A_Wall_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_19/1A/SM_Building_NR_19_1A_Wall_01.SM_Building_NR_19_1A_Wall_01</td><td>30,013</td><td>0</td></tr><tr><td>13</td><td>SM_MiningMachine_01_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Ground/POI_09_C/SM_MiningMachine_01_01.SM_MiningMachine_01_01</td><td>29,919</td><td>0</td></tr><tr><td>14</td><td>SM_Building_NR_05_1A_Platform_A_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_05/1A/Indoor/A/SM_Building_NR_05_1A_Platform_A_01.SM_Building_NR_05_1A_Platform_A_01</td><td>29,522</td><td>0</td></tr><tr><td>15</td><td>SM_Building_NR_29_1A_Inwall_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_29/1A/Indoor/SM_Building_NR_29_1A_Inwall_01.SM_Building_NR_29_1A_Inwall_01</td><td>29,339</td><td>0</td></tr><tr><td>16</td><td>SM_Building_NR_13_1B_Inwall_01</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_13/1B/Indoor/SM_Building_NR_13_1B_Inwall_01.SM_Building_NR_13_1B_Inwall_01</td><td>28,360</td><td>0</td></tr><tr><td>17</td><td>SM_Building_NR_01_1A_08</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_01/1A/SM_Building_NR_01_1A_08.SM_Building_NR_01_1A_08</td><td>28,072</td><td>0</td></tr><tr><td>18</td><td>SM_Building_NR_01_1B_08</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_01/1B/SM_Building_NR_01_1B_08.SM_Building_NR_01_1B_08</td><td>27,860</td><td>0</td></tr><tr><td>19</td><td>SM_Building_NR_05_1A_02_15</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_05/1A/SM_Building_NR_05_1A_02_15.SM_Building_NR_05_1A_02_15</td><td>27,049</td><td>0</td></tr><tr><td>20</td><td>SM_Building_NR_05_1A_1F_Ceiling_A_02</td><td class="mono">/Game/Arts/Scene/NeoRing/Building/NR_05/1A/Indoor/A/SM_Building_NR_05_1A_1F_Ceiling_A_02.SM_Building_NR_05_1A_1F_Ceiling_A_02</td><td>26,057</td><td>0</td></tr>
+</table>
+<div class="sub" style="margin-top:8px">这些资产虽然 LOD 链完整，但未设置 MobileMinLOD（MinLOD=0），移动端 LOD 策略可能退化为编辑器默认。</div></div>
+
+<h2 id="s7">⑦ 判定口径说明</h2>
+<div class="stage">
+<p><span class="pill">R1</span> <b>MobileMinLOD &gt; 0</b> —— 显式设置了移动端 LOD 降级起点（0 视为未降级配置，不计入有效）。</p>
+<p><span class="pill">R2</span> <b>LOD0 &lt; 300</b> —— 低面数资产无需 LOD，直接视为有效。</p>
+<p><span class="pill">R3</span> <b>LOD0 ≥ 300 且 LOD1-6 全为 0</b> —— LOD 缺失（移动端降级时无 LOD 可切）。</p>
+<p><b>移动端有效</b> = R1 或 R2。<b>LOD 缺失率</b> = R3 命中数 / 总数。</p>
+<p class="sub" style="margin-top:8px">注：LOD 面数来自扫描时的网格 LOD 层级统计，"面数一致"不绝对等于"几何一致"，最终处置前建议在 Content Browser 核对资产引用。</p>
+</div>
+
+</div></body></html>
