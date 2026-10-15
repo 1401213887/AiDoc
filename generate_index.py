@@ -56,7 +56,7 @@ RULES = [
     # 05 崩溃与稳定性（含 crash / 掉帧排查）——放前面，避免被 VT/线程 规则抢走
     ("05_stability", ["crash", "dangling", "useafterfree", "use_after_free",
                        "orphantask", "skeletalmesh", "swappy", "frampacing",
-                       "framepacing", "帧率自动降", "掉帧", "30fps"]),
+                       "framepacing", "帧率自动降", "掉帧", "30fps", "死锁"]),
     # 06 Profiling 工具
     ("06_profiling", ["sdp", "adreno", "snapdragon", "profiler", "insights",
                       "cpuusagetrack", "cpu_trace", "cpu trace", "性能指标详解",
