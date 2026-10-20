@@ -1,0 +1,448 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UE5 Dynamic Texture2DArray 异步 Mip 读取：同步 IO 自锁根因与异步状态机改造</title>
+<style>
+:root{--bg:#0f1420;--panel:#161d2e;--panel2:#1c2540;--line:#2a3552;--txt:#dbe4f5;--dim:#8b96b5;--acc:#35d0a5;--warn:#f0b95c;--bad:#f07c7c;--info:#5aa7ff}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--txt);font-family:"Segoe UI",system-ui,-apple-system,sans-serif;line-height:1.65;padding:32px 20px 80px}
+.wrap{max-width:1100px;margin:0 auto}
+h1{font-size:25px;margin-bottom:6px}
+.meta{color:var(--dim);font-size:13px;margin-bottom:20px;line-height:1.9}
+.meta b{color:var(--txt)}
+h2{font-size:19px;margin:36px 0 14px;padding-left:10px;border-left:4px solid var(--acc)}
+h3{font-size:15px;margin:22px 0 10px;color:var(--acc)}
+p{margin:10px 0;font-size:14px}
+ul,ol{margin:10px 0 10px 24px;font-size:14px}
+li{margin:5px 0}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--dim);font-weight:600;font-size:12px;white-space:nowrap}
+code{background:var(--panel2);border-radius:4px;padding:1px 5px;font-family:Consolas,monospace;font-size:12.5px;color:#9ad9ff}
+pre.mono{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:Consolas,monospace;font-size:12px;color:var(--dim);line-height:1.6;margin:10px 0}
+.fig{background:#fff;border-radius:10px;padding:10px;margin:16px 0;overflow-x:auto}
+.fig svg{display:block;max-width:100%;height:auto}
+.cap{color:#475569;font-size:12px;margin-top:6px;text-align:center}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:18px 0}
+.toc a{color:var(--info);text-decoration:none;margin-right:16px;font-size:13px;line-height:2}
+</style></head><body><div class="wrap">
+<h1>UE5 Dynamic Texture2DArray 异步 Mip 读取：同步 IO 自锁根因与异步状态机改造</h1>
+<p><b>对象</b>：<code>FTexture2DArrayDynamicAllocator</code>（<code>UTexture2DArray</code> 动态切片流送分配器），引擎 UE5.5.4 / <code>//GR/main</code> CL 1195928（bug 1266750）。<b>现象</b>：PC-23、白厄前言地图、固态硬盘，进图未跳伞卡死；DMP 中流送更新停在 <code>UWorldPartitionStreamingPolicy::UpdateStreamingState()</code>，Async 线程栈落在 <code>FTexturePlatformData::TryLoadMipsWithSizes</code>。<b>结论</b>：根因不是 IO 慢，而是把同步 <code>GetMipData → GetCopy → OpenReadBulkData → Event-&gt;Wait()</code> 塞进了异步状态机；在 <code>TaskGraph.MaxActive*Workers=1</code> 下，唯一活跃 worker 被钉在等待事件上，其它任务无法推进。<b>修复</b>：用 <code>IBulkDataIORequest</code> + <code>TaskSynchronization</code> 计数器把非流送 mip 改成真正的异步；不满足异步条件时整批回退同步。<b>验证</b>：显式重编 exit 0；NeoRing 1/1 跑图 9 次异步命中、0 回退/0 IO 失败/0 Fatal，自然退出 rc=0；FPS 273 采样均值 81.0 / 中位 77.3（同步基线 64.7 / 56.3）。</p>
+<p><b>路径约定</b>：正文中的源码文件名均相对 <code>C:\GR_main\UE5EA\Engine\Source\Runtime\</code>；跑测日志相对 <code>C:\GR_main\S1Game\Saved\S1GameAutomationDebug\</code>。</p>
+<div class="toc"><b>目录</b><br><a href="#s1">1. 结论：问题不在“读得慢”，而在“异步状态机里同步读”</a><a href="#s2">2. 修复后的异步状态机：一个 mip 请求的一生</a><a href="#s3">3. 请求生命周期、失败回退与取消</a><a href="#s4">4. 改动清单（CL 1195928）</a><a href="#s5">5. 实机验证：编译、跑图与帧率</a><a href="#s6">6. 与原生 TextureStreaming 的对照</a><a href="#s7">7. 已知边界与未覆盖风险</a><a href="#s8">8. 复现与验证 Checklist</a><a href="#s9">9. 参考</a></div>
+<h2 id="s1">1. 结论：问题不在“读得慢”，而在“异步状态机里同步读”</h2>
+<p><code>FTexture2DArrayDynamicAllocator::AllocateMips</code> 是 <code>FTextureStreamIn</code> 状态机的一步，约定在 Async 线程执行：只做内存分配、发起异步请求，然后 <code>AdvanceTo</code> 到下一状态。改前的实现直接调用 <code>GetNoStreamingMips(Context)</code>（<code>depot_Texture2DArrayDynamicStreaming.cpp:75</code>），而 <code>GetNoStreamingMips</code> 最终落到同步的 <code>UTexture2DArray::GetMipData</code>（<code>TextureDerivedData.cpp:3448</code>）。</p>
+<p>同步链的每一跳都能回源：</p>
+<ol>
+<li><code>TextureDerivedData.cpp:3459</code>：<code>GetMipData</code> 调用 <code>TryLoadMipsWithSizes</code>。</li>
+<li><code>TextureDerivedData.cpp:2584</code>：对每个未驻留的 mip 调用 <code>Mip.BulkData.GetCopy(&amp;OutMipData[...], true)</code>。</li>
+<li><code>BulkData.cpp:908</code>、<code>BulkData.cpp:909</code>：<code>GetCopy</code> 把调用方内存包成 <code>FIoBuffer</code>，进入 <code>TryLoadDataIntoMemory</code>。</li>
+<li><code>BulkData.cpp:1691</code>：<code>TryLoadDataIntoMemory</code> 调用 <code>UE::BulkData::Private::OpenReadBulkData</code>。</li>
+<li><code>BulkDataStreaming.cpp:388</code>、<code>BulkDataStreaming.cpp:392</code>：<code>OpenReadBulkData</code> 创建 <code>FEventRef Event</code>，<code>Batch.IssueAndTriggerEvent</code> 后执行 <code>Event-&gt;Wait()</code>。</li>
+</ol>
+<p><code>Event-&gt;Wait()</code> 是硬阻塞。<code>TaskSynchronization</code> 根本看不到这次等待，所以 <code>TRenderAssetUpdate::TickInternal</code> 不会返回 <code>TS_Suspended</code>（<code>RenderAssetUpdate.inl:58</code>），状态机也无法把“等 IO”表达成“稍后继续”。worker 就这样停在调用栈里。</p>
+<p><b>为什么在 1/1 限流下会变成卡死</b>：<code>TaskGraph.MaxActive*Workers=1</code> 时，这个 worker 是唯一活跃名额。它停在 <code>Event-&gt;Wait()</code> 期间，流送更新、GC 增量可达性等任务都排在队列里，没有线程执行。DMP 里的 <code>UpdateStreamingState</code> 等待流送更新，正是这个窗口的表象；白厄前言的大块非流送 mip（复现用例约 45 MiB）把窗口拉长到足以被用户感知为“未跳伞卡死”。</p>
+<p><b>为什么有时不死锁</b>：<code>GetCopy</code> 只有在 <code>IsBulkDataLoaded()</code> 为假时才走磁盘 IO（<code>BulkData.cpp:891</code>）。如果 mip 已经驻留、页缓存命中，或者限流没有开到 1/1，<code>Event-&gt;Wait()</code> 的窗口就消失或变短。复现概率取决于资产驻留状态、磁盘与页缓存，而不是每次必现。</p>
+<div class="fig"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 560" width="1040" height="560">
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#5aa7ff"/>
+    </marker>
+  </defs>
+  <rect width="1040" height="560" fill="#f7f9fc"/>
+  <text x="20" y="28" font-size="14" font-weight="600" fill="#22304a">图 1 修复前的同步读取链：Async worker 在 Event-&gt;Wait() 上停住</text>
+  <text x="20" y="50" font-size="11" fill="#8b96b5">调用栈自上而下；右侧标出状态机约定与 1/1 限流下的后果</text>
+
+  <rect x="40" y="70" width="430" height="56" rx="8" fill="#dbeafe" stroke="#5aa7ff"/>
+  <text x="52" y="93" font-size="13" font-weight="600" fill="#0f1420">FTextureStreamIn::AllocateMips（Async）</text>
+  <text x="52" y="113" font-size="10.5" fill="#22304a">FTexture2DArrayDynamicAllocator::AllocateMips</text>
+
+  <line x1="255" y1="126" x2="255" y2="148" stroke="#5aa7ff" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="265" y="142" font-size="10" fill="#5aa7ff">Context / MipsView</text>
+
+  <rect x="40" y="150" width="430" height="56" rx="8" fill="#e0f2fe" stroke="#5aa7ff"/>
+  <text x="52" y="173" font-size="13" font-weight="600" fill="#0f1420">GetNoStreamingMips → UTexture2DArray::GetMipData</text>
+  <text x="52" y="193" font-size="10.5" fill="#22304a">FirstMipToLoad；目标是全部非流送 mip</text>
+
+  <line x1="255" y1="206" x2="255" y2="228" stroke="#5aa7ff" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="265" y="222" font-size="10" fill="#5aa7ff">FirstMipToLoad</text>
+
+  <rect x="40" y="230" width="430" height="56" rx="8" fill="#e0f2fe" stroke="#5aa7ff"/>
+  <text x="52" y="253" font-size="13" font-weight="600" fill="#0f1420">FTexturePlatformData::TryLoadMipsWithSizes</text>
+  <text x="52" y="273" font-size="10.5" fill="#22304a">遍历 Mips[FirstMipToLoad .. LoadableMips)</text>
+
+  <line x1="255" y1="286" x2="255" y2="308" stroke="#5aa7ff" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="265" y="302" font-size="10" fill="#5aa7ff">Mip.BulkData</text>
+
+  <rect x="40" y="310" width="430" height="56" rx="8" fill="#e0f2fe" stroke="#5aa7ff"/>
+  <text x="52" y="333" font-size="13" font-weight="600" fill="#0f1420">FBulkData::GetCopy → TryLoadDataIntoMemory</text>
+  <text x="52" y="353" font-size="10.5" fill="#22304a">磁盘未驻留：进入同步 IO；已驻留：仅 memcpy</text>
+
+  <line x1="255" y1="366" x2="255" y2="388" stroke="#5aa7ff" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="265" y="382" font-size="10" fill="#5aa7ff">Dest / BulkDataSize</text>
+
+  <rect x="40" y="390" width="430" height="56" rx="8" fill="#e0f2fe" stroke="#5aa7ff"/>
+  <text x="52" y="413" font-size="13" font-weight="600" fill="#0f1420">UE::BulkData::Private::OpenReadBulkData</text>
+  <text x="52" y="433" font-size="10.5" fill="#22304a">FIoBatch::Read + IssueAndTriggerEvent</text>
+
+  <line x1="255" y1="446" x2="255" y2="468" stroke="#5aa7ff" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="265" y="462" font-size="10" fill="#5aa7ff">FIoRequest</text>
+
+  <rect x="40" y="470" width="430" height="56" rx="8" fill="#fee2e2" stroke="#f07c7c"/>
+  <text x="52" y="493" font-size="13" font-weight="600" fill="#0f1420">FEventRef::Wait()</text>
+  <text x="52" y="513" font-size="10.5" fill="#22304a">Async worker 停在等待事件上，直到 IO 完成</text>
+
+  <rect x="520" y="70" width="480" height="110" rx="8" fill="#f0fdf4" stroke="#35d0a5"/>
+  <text x="536" y="94" font-size="13" font-weight="600" fill="#0f1420">状态机约定</text>
+  <text x="536" y="118" font-size="11" fill="#22304a">Async 步骤只做内存分配与发起请求；</text>
+  <text x="536" y="140" font-size="11" fill="#22304a">阻塞等待绕过了 TaskSynchronization 挂起机制。</text>
+  <text x="536" y="162" font-size="11" fill="#22304a">状态机无法把这次等待表达成“稍后继续”。</text>
+
+  <rect x="520" y="300" width="480" height="150" rx="8" fill="#fff7ed" stroke="#f0b95c"/>
+  <text x="536" y="324" font-size="13" font-weight="600" fill="#0f1420">1/1 限流下的后果</text>
+  <text x="536" y="348" font-size="11" fill="#22304a">唯一活跃 worker 停在 Wait()；</text>
+  <text x="536" y="370" font-size="11" fill="#22304a">其它任务（流送更新 / GC 增量可达性）无法被调度；</text>
+  <text x="536" y="392" font-size="11" fill="#22304a">DMP 中表现为 UpdateStreamingState 等待流送更新。</text>
+  <text x="536" y="420" font-size="11" fill="#8b96b5">是否命中取决于 mip 是否已在内存、页缓存与磁盘状态。</text>
+
+  <rect x="520" y="470" width="480" height="56" rx="8" fill="#fef2f2" stroke="#f07c7c"/>
+  <text x="536" y="493" font-size="12" font-weight="600" fill="#0f1420">结论：读得慢只是表象，占死 worker 才是死锁入口</text>
+  <text x="536" y="513" font-size="10.5" fill="#22304a">异步化的目标不是“更快”，而是“不占住唯一的名额”。</text>
+</svg><div class="cap">图 1 修复前的同步读取链：Async worker 在 Event-&gt;Wait() 上停住</div></div>
+<h2 id="s2">2. 修复后的异步状态机：一个 mip 请求的一生</h2>
+<p>修复把非流送 mip 的读取改成与引擎流送 provider 相同的异步协议：发起请求、计数器挂起、回调续跑。核心状态机在 <code>Texture2DArrayDynamicStreaming.cpp:51</code> 的 <code>AllocateMips</code>：</p>
+<ol>
+<li><b>首次进入（Async）</b>：校验 mips view；分配 <code>OutMipInfos</code>、<code>StreamedMipData</code>、<code>StreamedSliceSize</code>。分配块由 <code>bMipBuffersAllocated</code> 守住（<code>Texture2DArrayDynamicStreaming.cpp:61</code>），保证状态机重入时不会重复 <code>AddDefaulted</code> 或重复 <code>Malloc</code>。</li>
+<li><b>发起请求</b>：<code>IssueNoStreamingMipRequests</code>（<code>Texture2DArrayDynamicStreaming.cpp:312</code>）先对整批 mip 做异步兼容性预检；通过后逐 mip 调用 <code>IssueNoStreamingMipRequest</code>（<code>Texture2DArrayDynamicStreaming.cpp:372</code>）。</li>
+<li><b>占用计数器</b>：每发一个请求前执行 <code>Counter.Increment()</code> 与 <code>PendingNoStreamingRequests.Increment()</code>（<code>Texture2DArrayDynamicStreaming.cpp:380</code>、<code>Texture2DArrayDynamicStreaming.cpp:381</code>）。<code>Counter</code> 就是 <code>SyncOptions.Counter</code>，也就是 <code>TaskSynchronization</code>（<code>TextureMipDataProvider.h:54</code>）。</li>
+<li><b>挂起而不是轮询</b>：<code>AllocateMips</code> 发现 <code>PendingNoStreamingRequests &gt; 0</code> 时执行 <code>AdvanceTo(ETickState::AllocateMips, ETickThread::Async)</code> 并返回 <code>true</code>（<code>Texture2DArrayDynamicStreaming.cpp:110</code>）。此时 <code>TaskSynchronization &gt; 0</code>，下一次 <code>TickInternal</code> 直接返回 <code>TS_Suspended</code>，不消耗 CPU 自旋。</li>
+<li><b>回调续跑</b>：IO 完成回调（<code>Texture2DArrayDynamicStreaming.cpp:383</code>）校验结果与字节数，递减 <code>Counter</code> 与 <code>Pending</code>；最后一个回调设置 <code>bNoStreamingComplete</code> 并调用 <code>Reschedule</code>（<code>Texture2DArrayDynamicStreaming.cpp:396</code>、<code>Texture2DArrayDynamicStreaming.cpp:399</code>、<code>Texture2DArrayDynamicStreaming.cpp:402</code>）。</li>
+<li><b>重新进入</b>：<code>Reschedule</code> 就是 <code>SyncOptions.RescheduleCallback</code>（<code>TextureStreamIn.cpp:64</code>），它在对象未被锁定时调用 <code>Tick(TT_None)</code>。状态机重新进入 <code>AllocateMips</code>；<code>bMipBuffersAllocated</code> 保证不会重复分配。</li>
+<li><b>完成</b>：Pending 归零且完成标志已置位后，<code>AdvanceTo(ETickState::FinalizeMips, ETickThread::Render)</code>（<code>Texture2DArrayDynamicStreaming.cpp:131</code>）。<code>FinalizeMips</code>（<code>Texture2DArrayDynamicStreaming.cpp:135</code>）再次校验完成状态与数据量，把 slice 拷进中间 RHI 纹理，释放请求，最后 <code>AdvanceTo(Done)</code>。</li>
+</ol>
+<p><b>关键数据</b>：每个 mip 的目标缓冲区在 <code>IssueNoStreamingMipRequest</code> 中一次性分配为 <code>FMemory::Malloc(BulkDataSize, 16)</code>，并放进 <code>NoStreamingMipsData</code>（<code>Texture2DArrayDynamicStreaming.cpp:377</code>、<code>Texture2DArrayDynamicStreaming.cpp:378</code>）。<code>NoStreamingMipsData</code> 的索引与 <code>FinalizeMips</code> 的 <code>DataMipIndex = MipIndex - NoStreamingFirstLODIdx</code> 对齐；请求对象放进 <code>NoStreamingRequests</code>（<code>Texture2DArrayDynamicStreaming.h:85</code>）。</p>
+<div class="fig"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 520" width="1100" height="520">
+  <defs>
+    <marker id="ar2" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#5aa7ff"/>
+    </marker>
+    <marker id="ar2g" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#35d0a5"/>
+    </marker>
+  </defs>
+  <rect width="1100" height="520" fill="#f7f9fc"/>
+  <text x="20" y="28" font-size="14" font-weight="600" fill="#22304a">图 2 修复后的异步状态机：从发请求到 Finalize，worker 只做两小段工作</text>
+  <text x="20" y="50" font-size="11" fill="#8b96b5">Counter = SyncOptions.Counter = TaskSynchronization；Pending = PendingNoStreamingRequests</text>
+
+  <rect x="40" y="78" width="230" height="84" rx="8" fill="#dbeafe" stroke="#5aa7ff"/>
+  <text x="52" y="102" font-size="12.5" font-weight="600" fill="#0f1420">AllocateMips（首次，Async）</text>
+  <text x="52" y="124" font-size="10.5" fill="#22304a">分配 Dest / OutMipInfos</text>
+  <text x="52" y="144" font-size="10.5" fill="#22304a">bMipBuffersAllocated 只分配一次</text>
+
+  <line x1="270" y1="120" x2="318" y2="120" stroke="#5aa7ff" stroke-width="1.6" marker-end="url(#ar2)"/>
+  <text x="294" y="70" font-size="9.5" fill="#5aa7ff" text-anchor="middle">SyncOptions</text>
+
+  <rect x="320" y="78" width="260" height="84" rx="8" fill="#e0f2fe" stroke="#5aa7ff"/>
+  <text x="332" y="102" font-size="12.5" font-weight="600" fill="#0f1420">IssueNoStreamingMipRequests</text>
+  <text x="332" y="124" font-size="10.5" fill="#22304a">逐 mip：CreateStreamingRequest</text>
+  <text x="332" y="144" font-size="10.5" fill="#22304a">每发一个：Counter++ / Pending++</text>
+
+  <line x1="580" y1="120" x2="628" y2="120" stroke="#5aa7ff" stroke-width="1.6" marker-end="url(#ar2)"/>
+  <text x="604" y="112" font-size="10" fill="#5aa7ff" text-anchor="middle">requests</text>
+
+  <rect x="630" y="78" width="150" height="84" rx="8" fill="#fff7ed" stroke="#f0b95c"/>
+  <text x="642" y="108" font-size="12.5" font-weight="600" fill="#0f1420">Pending &gt; 0 ?</text>
+  <text x="642" y="130" font-size="10.5" fill="#22304a">还有请求在飞</text>
+
+  <line x1="780" y1="120" x2="828" y2="120" stroke="#5aa7ff" stroke-width="1.6" marker-end="url(#ar2)"/>
+  <text x="804" y="112" font-size="10" fill="#5aa7ff" text-anchor="middle">yes</text>
+
+  <rect x="830" y="78" width="230" height="84" rx="8" fill="#e0f2fe" stroke="#5aa7ff"/>
+  <text x="842" y="102" font-size="12.5" font-weight="600" fill="#0f1420">AdvanceTo(AllocateMips, Async)</text>
+  <text x="842" y="124" font-size="10.5" fill="#22304a">return true；不轮询、不占 worker</text>
+  <text x="842" y="144" font-size="10.5" fill="#22304a">Tick 因 Counter &gt; 0 返回 Suspended</text>
+
+  <line x1="705" y1="162" x2="705" y2="248" stroke="#5aa7ff" stroke-width="1.6" marker-end="url(#ar2)"/>
+  <text x="715" y="200" font-size="10" fill="#5aa7ff">no</text>
+
+  <rect x="630" y="250" width="150" height="84" rx="8" fill="#fff7ed" stroke="#f0b95c"/>
+  <text x="642" y="280" font-size="12.5" font-weight="600" fill="#0f1420">Pending == 0 ?</text>
+  <text x="642" y="302" font-size="10.5" fill="#22304a">且完成标志已置位</text>
+
+  <line x1="630" y1="292" x2="582" y2="292" stroke="#35d0a5" stroke-width="1.6" marker-end="url(#ar2g)"/>
+  <text x="606" y="284" font-size="10" fill="#35d0a5" text-anchor="middle">yes</text>
+
+  <rect x="360" y="250" width="220" height="84" rx="8" fill="#dcfce7" stroke="#35d0a5"/>
+  <text x="372" y="274" font-size="12.5" font-weight="600" fill="#0f1420">AdvanceTo(FinalizeMips, Render)</text>
+  <text x="372" y="296" font-size="10.5" fill="#22304a">切到 Render 线程</text>
+  <text x="372" y="316" font-size="10.5" fill="#22304a">准备拷入中间 RHI 纹理</text>
+
+  <line x1="360" y1="292" x2="302" y2="292" stroke="#35d0a5" stroke-width="1.6" marker-end="url(#ar2g)"/>
+  <text x="331" y="284" font-size="10" fill="#35d0a5" text-anchor="middle">next</text>
+
+  <rect x="70" y="250" width="230" height="84" rx="8" fill="#dcfce7" stroke="#35d0a5"/>
+  <text x="82" y="274" font-size="12.5" font-weight="600" fill="#0f1420">FinalizeMips（Render）</text>
+  <text x="82" y="296" font-size="10.5" fill="#22304a">校验完成/数量；拷贝 slice</text>
+  <text x="82" y="316" font-size="10.5" fill="#22304a">Release 请求；AdvanceTo(Done)</text>
+
+  <line x1="945" y1="162" x2="945" y2="248" stroke="#5aa7ff" stroke-width="1.6" marker-end="url(#ar2)"/>
+  <text x="955" y="200" font-size="10" fill="#5aa7ff">挂起</text>
+
+  <rect x="830" y="250" width="230" height="84" rx="8" fill="#e0f2fe" stroke="#5aa7ff"/>
+  <text x="842" y="274" font-size="12.5" font-weight="600" fill="#0f1420">IO 完成回调（IO 线程）</text>
+  <text x="842" y="296" font-size="10.5" fill="#22304a">校验结果；Counter--；Pending--</text>
+  <text x="842" y="316" font-size="10.5" fill="#22304a">最后一个：置完成标志 + Reschedule</text>
+
+  <path d="M945,334 L945,392 L155,392 L155,164" fill="none" stroke="#5aa7ff" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar2)"/>
+  <text x="550" y="384" font-size="10.5" fill="#5aa7ff" text-anchor="middle">RescheduleCallback → Tick(TT_None)：重新进入 AllocateMips</text>
+
+  <text x="20" y="438" font-size="11" fill="#22304a">数据流：Dest（每 mip 一块，FMemory::Malloc(BulkDataSize, 16)） → IBulkDataIORequest → NoStreamingRequests[]</text>
+  <text x="20" y="462" font-size="11" fill="#22304a">完成判定：Pending 归零后置 bNoStreamingComplete；若观察到 Pending==0 而完成标志尚未写入，下一次 Tick 会再进 AllocateMips，不会丢唤醒。</text>
+  <text x="20" y="486" font-size="11" fill="#8b96b5">说明：AdvanceTo 只设置下一状态/线程；真正的续跑由 IO 回调的 Reschedule 驱动，因此不会出现忙等。</text>
+</svg><div class="cap">图 2 修复后的异步状态机：从发请求到 Finalize，worker 只做两小段工作</div></div>
+<p><b>为什么用 <code>AdvanceTo(AllocateMips, Async)</code> 而不是新加一个 Poll 状态</b>：非流送 mip 的请求归 allocator 自己持有，不归 <code>FTextureMipDataProvider</code>。复用同一状态可以在不改变 <code>FTextureStreamIn</code> 状态机枚举的前提下表达“还没完，稍后再进”；<code>GetMipAllocatorThread(AllocateMips)</code> 仍返回 Async，语义一致（<code>TextureStreamIn.cpp:254</code>）。</p>
+<p><b>完成标志的竞态</b>：回调先递减 Pending，再写 <code>bNoStreamingComplete</code>。如果 <code>AllocateMips</code> 观察到 Pending 已归零、但完成标志尚未写入，会走 <code>!bNoStreamingComplete</code> 分支再次 <code>AdvanceTo(AllocateMips)</code>（<code>Texture2DArrayDynamicStreaming.cpp:124</code>）；随后回调的 <code>Reschedule</code> 会驱动下一次 Tick。这个窗口不会丢唤醒，也不会提前进入 Finalize。</p>
+<h2 id="s3">3. 请求生命周期、失败回退与取消</h2>
+<p>所有失败路径都收敛到同一个原则：先把 <code>Counter</code> / <code>Pending</code> 归零，再决定回退；所有释放路径都先确保回调结束，再销毁对象。</p>
+<table>
+<tr><th>场景</th><th>检测点</th><th>处理</th><th>证据</th></tr>
+<tr><td>mip 不可异步（已驻留、内联、压缩、磁盘尺寸与逻辑尺寸不一致）</td><td>发请求前的 <code>CanLoadMipAsync</code></td><td>整批走同步回退，不混合</td><td><code>Texture2DArrayDynamicStreaming.cpp:19</code>、<code>Texture2DArrayDynamicStreaming.cpp:339</code></td></tr>
+<tr><td>AssetLODBias 导致首 mip 不一致 / 没有可加载 mip</td><td><code>IssueNoStreamingMipRequests</code> 预检</td><td><code>UseSyncFallback</code> + <code>LoadNoStreamingMipsSync</code></td><td><code>Texture2DArrayDynamicStreaming.cpp:331</code>、<code>Texture2DArrayDynamicStreaming.cpp:333</code></td></tr>
+<tr><td><code>CreateStreamingRequest</code> 返回空</td><td><code>IssueNoStreamingMipRequest</code></td><td>归还计数、置 <code>bNoStreamingFailed</code>、中断发请求；Pending 归零后回退</td><td><code>Texture2DArrayDynamicStreaming.cpp:407</code>、<code>Texture2DArrayDynamicStreaming.cpp:410</code></td></tr>
+<tr><td>回调发现取消、无结果或短读</td><td>IO 回调</td><td>置 <code>bNoStreamingFailed</code>，<code>MarkMountedStateDirty</code>，Pending 归零后回退</td><td><code>Texture2DArrayDynamicStreaming.cpp:385</code>、<code>Texture2DArrayDynamicStreaming.cpp:388</code>、<code>Texture2DArrayDynamicStreaming.cpp:391</code></td></tr>
+<tr><td>运行期 IO 失败</td><td><code>AllocateMips</code> 看到 Pending 归零且 <code>bNoStreamingFailed</code></td><td><code>UseSyncFallback("runtime IO failure")</code> + 同步重读</td><td><code>Texture2DArrayDynamicStreaming.cpp:116</code>、<code>Texture2DArrayDynamicStreaming.cpp:118</code></td></tr>
+<tr><td>状态机被取消</td><td><code>Cancel</code> / <code>Abort</code></td><td>取消并等待所有请求，再释放缓冲区</td><td><code>Texture2DArrayDynamicStreaming.cpp:474</code>、<code>Texture2DArrayDynamicStreaming.cpp:435</code></td></tr>
+</table>
+<p><b>同步回退的形状</b>：<code>LoadNoStreamingMipsSync</code>（<code>Texture2DArrayDynamicStreaming.cpp:421</code>）保留原语义，调用 <code>UTexture2DArray::GetMipData</code>。它仍然会阻塞，但只在两类情况下发生：整批 mip 不满足异步条件（在建请求前就能判定），或运行期 IO 失败（已经付出一次失败 IO 的代价）。这是把“正确性优先”放在“彻底异步”之前的取舍；正常资产不会走这条路径。</p>
+<p><b>取消与 Abort 的钩子</b>：<code>FTextureMipAllocator</code> 新增了两个默认虚函数 <code>AbortPollMips()</code> 与 <code>HasPendingIO()</code>（<code>TextureMipAllocator.h:80</code>、<code>TextureMipAllocator.h:81</code>）。<code>FTextureStreamIn::Abort</code> 在 <code>bIsPollingMipData</code> 或 <code>MipAllocator-&gt;HasPendingIO()</code> 为真时启动 abort task（<code>TextureStreamIn.cpp:521</code>、<code>TextureStreamIn.cpp:526</code>）；<code>FAbortPollMipsTask::DoWork</code> 在持有更新锁的情况下调用 allocator 的 <code>AbortPollMips()</code>（<code>TextureStreamIn.cpp:545</code>）。</p>
+<p><b>为什么释放必须先等回调</b>：回调按引用捕获 <code>Counter</code>，并捕获 <code>this</code> 用于日志与 <code>MarkMountedStateDirty</code>（<code>Texture2DArrayDynamicStreaming.cpp:383</code>）。如果 allocator 在请求仍在飞时析构，回调就是 UAF。<code>ReleaseNoStreamingRequests</code> 先 <code>PollCompletion</code>，未完成则 <code>Cancel</code> + <code>WaitCompletion</code>，然后才 <code>Reset</code>（<code>Texture2DArrayDynamicStreaming.cpp:439</code>、<code>Texture2DArrayDynamicStreaming.cpp:441</code>、<code>Texture2DArrayDynamicStreaming.cpp:445</code>）。</p>
+<p><b>取消线程的选择</b>：<code>GetCancelThread</code> 在仍有请求或 Pending 时返回 <code>Async</code>；否则若存在中间纹理返回 <code>Render</code>；否则若有临时 mip 数据返回 <code>Async</code>；都没有则 <code>None</code>（<code>Texture2DArrayDynamicStreaming.cpp:486</code>）。这让 <code>Cancel</code> 总能在正确的线程上等待回调。</p>
+<div class="fig"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 430" width="1000" height="430">
+  <defs>
+    <marker id="ar3" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#5aa7ff"/>
+    </marker>
+    <marker id="ar3r" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#f07c7c"/>
+    </marker>
+  </defs>
+  <rect width="1000" height="430" fill="#f7f9fc"/>
+  <text x="20" y="28" font-size="14" font-weight="600" fill="#22304a">图 3 单个请求的生命周期：成功、失败、取消都收敛到“先等回调结束，再释放”</text>
+  <text x="20" y="50" font-size="11" fill="#8b96b5">失败路径不会把半成品留给 Finalize；取消路径不会在回调仍持有 this/Counter 时销毁对象</text>
+
+  <rect x="40" y="90" width="180" height="64" rx="8" fill="#dbeafe" stroke="#5aa7ff"/>
+  <text x="52" y="114" font-size="12.5" font-weight="600" fill="#0f1420">Issued</text>
+  <text x="52" y="136" font-size="10.5" fill="#22304a">CreateStreamingRequest 成功</text>
+
+  <line x1="220" y1="122" x2="268" y2="122" stroke="#5aa7ff" stroke-width="1.6" marker-end="url(#ar3)"/>
+  <text x="244" y="114" font-size="10" fill="#5aa7ff" text-anchor="middle">已提交</text>
+
+  <rect x="270" y="90" width="180" height="64" rx="8" fill="#e0f2fe" stroke="#5aa7ff"/>
+  <text x="282" y="114" font-size="12.5" font-weight="600" fill="#0f1420">Pending</text>
+  <text x="282" y="136" font-size="10.5" fill="#22304a">Counter / Pending 已 +1</text>
+
+  <line x1="450" y1="110" x2="498" y2="76" stroke="#35d0a5" stroke-width="1.6" marker-end="url(#ar3)"/>
+  <text x="474" y="86" font-size="10" fill="#35d0a5" text-anchor="middle">成功</text>
+
+  <rect x="500" y="44" width="180" height="64" rx="8" fill="#dcfce7" stroke="#35d0a5"/>
+  <text x="512" y="68" font-size="12.5" font-weight="600" fill="#0f1420">Complete</text>
+  <text x="512" y="90" font-size="10.5" fill="#22304a">Pending 归零，置完成标志</text>
+
+  <line x1="450" y1="136" x2="498" y2="178" stroke="#f07c7c" stroke-width="1.6" marker-end="url(#ar3r)"/>
+  <text x="474" y="168" font-size="10" fill="#f07c7c" text-anchor="middle">失败</text>
+
+  <rect x="500" y="150" width="180" height="64" rx="8" fill="#fee2e2" stroke="#f07c7c"/>
+  <text x="512" y="174" font-size="12.5" font-weight="600" fill="#0f1420">Failed</text>
+  <text x="512" y="196" font-size="10.5" fill="#22304a">cancel / 短读 / IO 错误</text>
+
+  <line x1="450" y1="146" x2="498" y2="288" stroke="#f07c7c" stroke-width="1.6" marker-end="url(#ar3r)"/>
+  <text x="474" y="246" font-size="10" fill="#f07c7c" text-anchor="middle">Cancel</text>
+
+  <rect x="500" y="260" width="180" height="64" rx="8" fill="#fef2f2" stroke="#f07c7c"/>
+  <text x="512" y="284" font-size="12.5" font-weight="600" fill="#0f1420">Cancelled</text>
+  <text x="512" y="306" font-size="10.5" fill="#22304a">Cancel() / AbortPollMips()</text>
+
+  <line x1="680" y1="182" x2="738" y2="182" stroke="#f07c7c" stroke-width="1.6" marker-end="url(#ar3r)"/>
+  <text x="709" y="174" font-size="10" fill="#f07c7c" text-anchor="middle">failed</text>
+
+  <rect x="740" y="150" width="230" height="64" rx="8" fill="#fff7ed" stroke="#f0b95c"/>
+  <text x="752" y="174" font-size="12.5" font-weight="600" fill="#0f1420">Sync fallback</text>
+  <text x="752" y="196" font-size="10.5" fill="#22304a">LoadNoStreamingMipsSync → GetMipData</text>
+
+  <path d="M680,76 L860,76 L860,298" fill="none" stroke="#35d0a5" stroke-width="1.6" marker-end="url(#ar3)"/>
+  <text x="872" y="238" font-size="10" fill="#35d0a5">Finalize 释放</text>
+
+  <path d="M680,292 L710,292 L710,332 L738,332" fill="none" stroke="#f07c7c" stroke-width="1.6" marker-end="url(#ar3r)"/>
+  <text x="720" y="286" font-size="10" fill="#f07c7c">等待回调结束</text>
+
+  <path d="M850,214 L850,298" fill="none" stroke="#f0b95c" stroke-width="1.6" marker-end="url(#ar3)"/>
+  <text x="860" y="262" font-size="10" fill="#f0b95c">释放旧请求</text>
+
+  <rect x="740" y="300" width="230" height="64" rx="8" fill="#f1f5f9" stroke="#8b96b5"/>
+  <text x="752" y="324" font-size="12.5" font-weight="600" fill="#0f1420">ReleaseNoStreamingRequests</text>
+  <text x="752" y="346" font-size="10.5" fill="#22304a">PollCompletion？否则 Cancel + Wait</text>
+
+  <text x="20" y="386" font-size="11" fill="#22304a">关键约束：回调按引用捕获 Counter，并捕获 this；对象销毁前必须 WaitCompletion，否则就是 UAF。</text>
+  <text x="20" y="408" font-size="11" fill="#8b96b5">同步回退只发生在“整批 mip 都不满足异步条件”或“运行期 IO 失败”；前者在发请求前判定，后者在 Pending 归零后判定。</text>
+</svg><div class="cap">图 3 单个请求的生命周期：成功、失败、取消都收敛到“先等回调结束，再释放”</div></div>
+<h2 id="s4">4. 改动清单（CL 1195928）</h2>
+<p>CL 1195928（2026-10-20，bug 1266750）只改了 4 个文件；异步修复的主体在前两个文件，后两个是状态机/allocator 的协作钩子。</p>
+<table>
+<tr><th>文件</th><th>版本</th><th>改动</th><th>关键位置</th></tr>
+<tr><td><code>Engine/Private/Streaming/Texture2DArrayDynamicStreaming.cpp</code></td><td>#5</td><td>异步状态机、请求发起/释放/取消、同步回退、完成校验</td><td><code>Texture2DArrayDynamicStreaming.cpp:51</code>、<code>Texture2DArrayDynamicStreaming.cpp:312</code>、<code>Texture2DArrayDynamicStreaming.cpp:372</code>、<code>Texture2DArrayDynamicStreaming.cpp:435</code></td></tr>
+<tr><td><code>Engine/Private/Streaming/Texture2DArrayDynamicStreaming.h</code></td><td>#3</td><td>新增请求数组、Pending 计数、完成/失败/回退标志、声明</td><td><code>Texture2DArrayDynamicStreaming.h:37</code>、<code>Texture2DArrayDynamicStreaming.h:85</code>、<code>Texture2DArrayDynamicStreaming.h:87</code></td></tr>
+<tr><td><code>Engine/Private/Streaming/TextureMipAllocator.h</code></td><td>#2</td><td>新增 <code>AbortPollMips()</code> / <code>HasPendingIO()</code> 默认实现</td><td><code>TextureMipAllocator.h:80</code>、<code>TextureMipAllocator.h:81</code></td></tr>
+<tr><td><code>Engine/Private/Streaming/TextureStreamIn.cpp</code></td><td>#2</td><td><code>Abort</code> 检查 allocator 的 pending IO；abort task 调用 allocator 钩子</td><td><code>TextureStreamIn.cpp:521</code>、<code>TextureStreamIn.cpp:545</code></td></tr>
+</table>
+<p><b>头文件成员</b>：<code>NoStreamingMipsData</code>（<code>Texture2DArrayDynamicStreaming.h:83</code>）、<code>NoStreamingRequests</code>（<code>Texture2DArrayDynamicStreaming.h:85</code>）、<code>PendingNoStreamingRequests</code>（<code>Texture2DArrayDynamicStreaming.h:86</code>）、<code>bNoStreamingComplete</code> / <code>bNoStreamingFailed</code> / <code>bUseSyncFallback</code> 三个原子标志（<code>Texture2DArrayDynamicStreaming.h:87</code>、<code>Texture2DArrayDynamicStreaming.h:88</code>、<code>Texture2DArrayDynamicStreaming.h:90</code>）、<code>bNoStreamingLoadStarted</code> 与 <code>bMipBuffersAllocated</code>（<code>Texture2DArrayDynamicStreaming.h:89</code>、<code>Texture2DArrayDynamicStreaming.h:91</code>）、缓存的 <code>TextureName</code>（<code>Texture2DArrayDynamicStreaming.h:92</code>）。</p>
+<p><b>不在 CL 1195928 内的配套改动</b>：<code>WaitingQueue.cpp</code> 的阻塞补偿/让出唤醒逻辑是另一条线（本地 #4 之上仍有未提交 edit），用于 1/1 限流下“worker 阻塞在任务里”时补线程、以及有界唤醒让出者（<code>WaitingQueue.cpp:356</code>、<code>WaitingQueue.cpp:387</code>、<code>WaitingQueue.cpp:516</code>）。它不替代本次异步修复，但两者叠加才能覆盖“其它同步等待”仍可能占死名额的场景。</p>
+<h2 id="s5">5. 实机验证：编译、跑图与帧率</h2>
+<p><b>编译</b>：显式重编 S1Game Development，日志 <code>build_comment_restore_explicit.log</code> 显示 <code>[1/4] Compile Module.Engine.28.cpp</code>（<code>build_comment_restore_explicit.log:29</code>）、<code>[2/4] Compile Module.Engine.76.cpp</code>（<code>build_comment_restore_explicit.log:31</code>）、<code>[3/4] Link S1Game.exe</code>（<code>build_comment_restore_explicit.log:32</code>）、<code>BUILD_EXITCODE=0</code>（<code>build_comment_restore_explicit.log:40</code>）。exe/pdb 已替换到包体，产物时间 11:38。</p>
+<p><b>跑图配置</b>：NeoRing，<code>-LoginPort=13789</code>，<code>TaskGraph.MaxActiveForegroundWorkers=1</code>、<code>TaskGraph.MaxActiveBackgroundWorkers=1</code>、<code>TaskGraph.YieldWakeIntervalMs=1</code>、<code>TaskGraph.CompensateBlockedWorkers=1</code>，<code>LogTexture Log</code>。脚本为 <code>loop/run-async-13789.bat</code>。</p>
+<p><b>结果</b>：</p>
+<table>
+<tr><th>指标</th><th>结果</th><th>证据</th></tr>
+<tr><td>日志窗口</td><td>11:39:03 打开 → 11:49:23 退出</td><td><code>Logs/async_13789.log</code></td></tr>
+<tr><td>异步非流送 mip 命中</td><td>9 次（均为 <code>TA_IMP</code>，1 mip，first LOD 0）</td><td><code>Logs/async_13789.log:207802</code></td></tr>
+<tr><td>同步回退 / IO 失败 / Finalize abort</td><td>0 / 0 / 0</td><td>全日志 grep 无命中</td></tr>
+<tr><td>Fatal / Assertion / RenderThread 超时 / Access violation</td><td>0</td><td>全日志 grep 无命中</td></tr>
+<tr><td>自然退出</td><td><code>RequestExit(0, ...)</code>，wrapper <code>rc=0</code></td><td><code>Logs/async_13789.log:791538</code></td></tr>
+</table>
+<p><b>帧率对比</b>（Gauntlet <code>FPS=[...]</code> 采样；同脚本、同 1/1 限流、同一地图）：</p>
+<table>
+<tr><th>版本</th><th>采样数</th><th>均值</th><th>中位</th><th>P5</th></tr>
+<tr><td>同步基线</td><td>274</td><td>64.7</td><td>56.3</td><td>35.2</td></tr>
+<tr><td>上一版异步</td><td>273</td><td>81.8</td><td>78.8</td><td>53.6</td></tr>
+<tr><td>本次最终版</td><td>273</td><td>81.0</td><td>77.3</td><td>52.9</td></tr>
+</table>
+<p>本次与上一版异步结果在跑测噪声内重合；相对同步基线均值 +25%、中位 +37%。本次 <code>FPS &lt; 30</code> 的采样 7 个，最低 0.7（加载/切换瞬间的单帧），与上一版异步的 11 个相比没有恶化。</p>
+<p><b>口径说明</b>：这是单次实机跑测，不是正式 benchmark；FPS 来自 Gauntlet 控制器日志，未做固定场景截取。异步命中 9 次表示 9 次 stream-in 事件，不是 9 个 mip。</p>
+<h2 id="s6">6. 与原生 TextureStreaming 的对照</h2>
+<p>引擎原生的流送 mip 由 <code>FTexture2DMipDataProvider_IO</code> 处理，协议已经是异步的；本次修复是把动态 allocator 负责的“非流送 mip”补齐到同一协议。</p>
+<table>
+<tr><th>维度</th><th>原生 <code>FTexture2DMipDataProvider_IO</code></th><th>改前 Dynamic allocator</th><th>改后 Dynamic allocator</th></tr>
+<tr><td>读取方式</td><td><code>CreateStreamingRequest</code> 异步</td><td><code>GetMipData</code> 同步 <code>GetCopy</code></td><td><code>CreateStreamingRequest</code> 异步</td></tr>
+<tr><td>挂起机制</td><td><code>SyncOptions.Counter</code> + <code>Reschedule</code></td><td>无；直接阻塞</td><td><code>SyncOptions.Counter</code> + <code>Reschedule</code></td></tr>
+<tr><td>取消</td><td><code>AbortPollMips</code> / <code>ClearIORequests</code></td><td>无请求可取消</td><td><code>AbortPollMips</code> / <code>Release</code> 等待</td></tr>
+<tr><td>失败处理</td><td><code>bIORequestCancelled</code> + <code>MarkMountedStateDirty</code></td><td><code>GetMipData</code> 失败即取消</td><td><code>bNoStreamingFailed</code> + 回退 + <code>MarkMountedStateDirty</code></td></tr>
+<tr><td>线程</td><td>Async，不阻塞</td><td>Async，但阻塞在 <code>Event-&gt;Wait()</code></td><td>Async，不阻塞</td></tr>
+</table>
+<p>原生 provider 的关键代码可以逐条对照：<code>GetMips</code> 在发请求前 <code>SyncOptions.Counter-&gt;Increment()</code>（<code>Texture2DMipDataProvider_IO.cpp:102</code>），随后 <code>OwnerMip.BulkData.CreateStreamingRequest(...)</code>（<code>Texture2DMipDataProvider_IO.cpp:123</code>）；回调 <code>AsyncFileCallBack</code> 递减计数，归零时调用 <code>RescheduleCallback()</code>（<code>Texture2DMipDataProvider_IO.cpp:194</code>、<code>Texture2DMipDataProvider_IO.cpp:204</code>、<code>Texture2DMipDataProvider_IO.cpp:213</code>）；<code>PollMips</code> 负责收尾（<code>Texture2DMipDataProvider_IO.cpp:139</code>），<code>AbortPollMips</code> 负责取消（<code>Texture2DMipDataProvider_IO.cpp:159</code>），<code>ClearIORequests</code> 在未完成时 <code>Cancel</code> + <code>WaitCompletion</code>（<code>Texture2DMipDataProvider_IO.cpp:218</code>、<code>Texture2DMipDataProvider_IO.cpp:226</code>）。</p>
+<p><b>为什么不能直接把非流送 mip 交给 provider</b>：provider 的 <code>GetMips</code> 只处理 <code>[PendingFirstLODIdx, CurrentFirstLODIdx)</code> 范围内的流送 mip（<code>Texture2DMipDataProvider_IO.cpp:77</code>、<code>Texture2DMipDataProvider_IO.cpp:139</code>）；非流送 mip 位于 <code>NumNonStreamingLODs</code> 之后、由 allocator 在 Finalize 前填充，不在 provider 的窗口里。职责边界决定了 allocator 必须自己完成这段异步读取。</p>
+<div class="fig"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 380" width="1050" height="380">
+  <defs>
+    <marker id="ar4" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#5aa7ff"/>
+    </marker>
+  </defs>
+  <rect width="1050" height="380" fill="#f7f9fc"/>
+  <text x="20" y="28" font-size="14" font-weight="600" fill="#22304a">图 4 同一段时间轴上的 worker 占用：同步把整段 IO 变成阻塞，异步只在首尾工作</text>
+  <text x="20" y="50" font-size="11" fill="#8b96b5">两条 lane 的时间轴对齐；灰色小条表示其它任务</text>
+
+  <text x="20" y="96" font-size="12" font-weight="600" fill="#22304a">改前</text>
+  <text x="20" y="116" font-size="10.5" fill="#8b96b5">同步</text>
+  <rect x="150" y="78" width="120" height="22" rx="4" fill="#dbeafe" stroke="#5aa7ff"/>
+  <text x="210" y="94" font-size="10" fill="#22304a" text-anchor="middle">AllocateMips</text>
+  <rect x="270" y="78" width="560" height="22" rx="4" fill="#f07c7c" opacity="0.85"/>
+  <text x="550" y="94" font-size="10.5" fill="#0f1420" text-anchor="middle">GetCopy → OpenReadBulkData → Event-&gt;Wait（worker 被占死）</text>
+  <rect x="830" y="78" width="120" height="22" rx="4" fill="#dbeafe" stroke="#5aa7ff"/>
+  <text x="890" y="94" font-size="10" fill="#22304a" text-anchor="middle">Finalize</text>
+
+  <rect x="150" y="112" width="800" height="16" rx="4" fill="#e2e8f0"/>
+  <rect x="270" y="112" width="560" height="16" rx="4" fill="#cbd5e1"/>
+  <text x="550" y="124" font-size="9.5" fill="#475569" text-anchor="middle">其它任务：唯一活跃 worker 不可用，排队</text>
+
+  <text x="20" y="196" font-size="12" font-weight="600" fill="#22304a">改后</text>
+  <text x="20" y="216" font-size="10.5" fill="#8b96b5">异步</text>
+  <rect x="150" y="178" width="100" height="22" rx="4" fill="#dbeafe" stroke="#5aa7ff"/>
+  <text x="200" y="194" font-size="10" fill="#22304a" text-anchor="middle">发请求</text>
+  <rect x="250" y="178" width="580" height="22" rx="4" fill="#dcfce7" stroke="#35d0a5"/>
+  <text x="540" y="194" font-size="10.5" fill="#0f1420" text-anchor="middle">挂起：Counter &gt; 0，worker 不参与等待</text>
+  <rect x="830" y="178" width="120" height="22" rx="4" fill="#86efac" stroke="#35d0a5"/>
+  <text x="890" y="194" font-size="10" fill="#22304a" text-anchor="middle">Finalize</text>
+
+  <rect x="150" y="212" width="800" height="16" rx="4" fill="#e2e8f0"/>
+  <rect x="250" y="212" width="60" height="16" rx="4" fill="#5aa7ff" opacity="0.75"/>
+  <rect x="390" y="212" width="60" height="16" rx="4" fill="#5aa7ff" opacity="0.75"/>
+  <rect x="530" y="212" width="60" height="16" rx="4" fill="#5aa7ff" opacity="0.75"/>
+  <rect x="670" y="212" width="60" height="16" rx="4" fill="#5aa7ff" opacity="0.75"/>
+  <text x="800" y="224" font-size="9.5" fill="#475569">其它任务可继续执行</text>
+
+  <line x1="150" y1="270" x2="950" y2="270" stroke="#8b96b5" stroke-width="1"/>
+  <line x1="150" y1="264" x2="150" y2="276" stroke="#8b96b5" stroke-width="1"/>
+  <line x1="270" y1="264" x2="270" y2="276" stroke="#8b96b5" stroke-width="1"/>
+  <line x1="830" y1="264" x2="830" y2="276" stroke="#8b96b5" stroke-width="1"/>
+  <line x1="950" y1="264" x2="950" y2="276" stroke="#8b96b5" stroke-width="1"/>
+  <text x="150" y="292" font-size="10" fill="#8b96b5" text-anchor="middle">t0</text>
+  <text x="270" y="292" font-size="10" fill="#8b96b5" text-anchor="middle">请求发出</text>
+  <text x="830" y="292" font-size="10" fill="#8b96b5" text-anchor="middle">IO 完成</text>
+  <text x="950" y="292" font-size="10" fill="#8b96b5" text-anchor="middle">Done</text>
+
+  <text x="20" y="336" font-size="11" fill="#22304a">改前的红线长度 = 实际阻塞时长（取决于磁盘/页缓存，复现用例的大块非流送 mip 约 45 MiB）。</text>
+  <text x="20" y="358" font-size="11" fill="#8b96b5">改后 worker 只在“发请求”和“Finalize”两段工作；等待期间可以调度其它任务，1/1 限流下也不会被单个纹理独占。</text>
+</svg><div class="cap">图 4 同一段时间轴上的 worker 占用：同步把整段 IO 变成阻塞，异步只在首尾工作</div></div>
+<h2 id="s7">7. 已知边界与未覆盖风险</h2>
+<ul>
+<li><b>Packed mip tail（<code>NumMipsInTail &gt; 1</code>）</b>：异步与同步使用同一个 <code>LoadableMips</code> 计算（<code>Texture2DArrayDynamicStreaming.cpp:324</code>、<code>Texture2DArrayDynamicStreaming.cpp:325</code>），加载集合一致；但 <code>GetNoStreamingData</code> 的 <code>MipView.GetSize() / ArrayCount</code> 对 packed mip 并不成立，源码里保留了“This check works for normal mips but not packed mips”的注释（<code>Texture2DArrayDynamicStreaming.cpp:531</code>）。这是既有边界，不是本次引入，也未在本次跑测覆盖。</li>
+<li><b>Off-thread <code>GetPlatformData()</code></b>：<code>IssueNoStreamingMipRequests</code> 在 Async 线程调用 <code>Texture2DArray-&gt;GetPlatformData()</code>（<code>Texture2DArrayDynamicStreaming.cpp:315</code>）。改前的 <code>GetMipData</code> 也在 Async 线程做同样的事，线程模型没有变差；但 editor/streaming 的极端时序未做压力测试。</li>
+<li><b>回退路径会重复 IO</b>：如果部分请求成功、后续请求失败，成功缓冲会被 <code>Reset</code>，整批非流送 mip 同步重读（<code>Texture2DArrayDynamicStreaming.cpp:430</code>、<code>Texture2DArrayDynamicStreaming.cpp:432</code>）。正确性没问题，失败路径的 IO 量翻倍。</li>
+<li><b>内存驻留窗口变长</b>：非流送 mip 的缓冲区从发请求一直驻留到 Finalize；总量与同步路径相同，但驻留时间与其它流送工作重叠。45 MiB 级别的资产需要关注峰值。</li>
+<li><b>未覆盖的复现矩阵</b>：本次只跑了 NeoRing + 1/1 限流；45 MiB / 白厄前言 / 4 核原始复现未重跑，取消与低内存压力路径未做专项压测。</li>
+<li><b>调度器补偿是独立改动</b>：<code>WaitingQueue.cpp</code> 的补偿/唤醒逻辑不在 CL 1195928 内；如果其它路径仍有阻塞等待，1/1 限流下仍可能被占死。不要把本次异步修复当成所有 TaskGraph 死锁的通用解。</li>
+</ul>
+<h2 id="s8">8. 复现与验证 Checklist</h2>
+<ol>
+<li><b>编译</b>：<code>S1Game</code> Development，确认日志出现 <code>Compile Module.Engine.*</code> 与 <code>Link S1Game.exe</code>，且 <code>BUILD_EXITCODE=0</code>；把 <code>Binaries/Win64/S1Game.exe</code> 与 <code>.pdb</code> 替换到包体。</li>
+<li><b>跑图</b>：使用 <code>loop/run-async-13789.bat</code>（NeoRing、1/1 限流、<code>LogTexture Log</code>），等待自然退出，不要在中途手动结束。</li>
+<li><b>命中确认</b>：<code>grep -c "async non-streaming mip IO" Logs/async_13789.log</code>，期望 &gt; 0；本次为 9。</li>
+<li><b>失败确认</b>：<code>grep -i "sync fallback\|non-streaming mip IO failed\|failed to create async request\|FinalizeMips aborted\|Fatal\|timed out waiting for RenderThread\|Access violation" Logs/async_13789.log</code>，期望 0 行。</li>
+<li><b>退出确认</b>：<code>grep "RequestExit" Logs/async_13789.log</code>，期望包含 <code>RequestExit(0</code>；wrapper 期望 <code>rc=0</code>。</li>
+<li><b>性能确认</b>：从 <code>LogGameTestGauntletController: ... FPS=[...]</code> 提取采样，和同步基线同脚本对比；关注均值/中位与 <code>&lt;30</code> 采样数，不要只看单帧峰值。</li>
+<li><b>回归排查</b>：如果出现大量 <code>sync fallback</code>，先看 <code>CanLoadMipAsync</code> 的四个条件（大小、磁盘大小、是否已加载、是否压缩）；如果出现 <code>FinalizeMips aborted: non-streaming mip IO not complete</code>，检查完成标志与 <code>Reschedule</code>；如果卡死，检查 <code>HasPendingIO</code> / abort 钩子是否覆盖到 allocator。</li>
+</ol>
+<h2 id="s9">9. 参考</h2>
+<p><b>本次改动（CL 1195928）</b></p>
+<ul>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\Texture2DArrayDynamicStreaming.cpp:51</code> — <code>AllocateMips</code> 异步状态机。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\Texture2DArrayDynamicStreaming.cpp:312</code> — <code>IssueNoStreamingMipRequests</code> 预检与发请求。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\Texture2DArrayDynamicStreaming.cpp:372</code> — <code>IssueNoStreamingMipRequest</code> 单请求与回调。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\Texture2DArrayDynamicStreaming.cpp:435</code> — <code>ReleaseNoStreamingRequests</code> 等待后释放。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\Texture2DArrayDynamicStreaming.cpp:474</code> — <code>Cancel</code>。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\Texture2DArrayDynamicStreaming.h:85</code> — 请求数组与计数成员。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\TextureMipAllocator.h:80</code> — allocator abort/pending 钩子。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\TextureStreamIn.cpp:521</code> — Abort 启动条件。</li>
+</ul>
+<p><b>引擎既有异步协议</b></p>
+<ul>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Public\Streaming\TextureMipDataProvider.h:47</code> — <code>FTextureUpdateSyncOptions</code>；<code>TextureMipDataProvider.h:54</code> Counter；<code>TextureMipDataProvider.h:57</code> RescheduleCallback。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Internal\Streaming\RenderAssetUpdate.inl:58</code> — <code>TaskSynchronization</code> 挂起。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\TextureStreamIn.cpp:64</code> — Reschedule 回调。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\Texture2DMipDataProvider_IO.cpp:102</code> — 原生 provider 的 Counter++。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\Texture2DMipDataProvider_IO.cpp:123</code> — 原生 provider 的 CreateStreamingRequest。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\Texture2DMipDataProvider_IO.cpp:194</code> — AsyncFileCallBack。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\Streaming\Texture2DMipDataProvider_IO.cpp:218</code> — ClearIORequests。</li>
+</ul>
+<p><b>同步阻塞链</b></p>
+<ul>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\TextureDerivedData.cpp:3448</code> — <code>UTexture2DArray::GetMipData</code>。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\TextureDerivedData.cpp:2518</code> — <code>TryLoadMipsWithSizes</code>。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Engine\Private\TextureDerivedData.cpp:2584</code> — <code>GetCopy</code>。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\CoreUObject\Private\Serialization\BulkData.cpp:878</code> — <code>FBulkData::GetCopy</code>。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\CoreUObject\Private\Serialization\BulkData.cpp:1649</code> — <code>TryLoadDataIntoMemory</code>。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\CoreUObject\Private\Serialization\BulkDataStreaming.cpp:373</code> — <code>OpenReadBulkData</code>。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\CoreUObject\Private\Serialization\BulkDataStreaming.cpp:392</code> — <code>Event-&gt;Wait()</code>。</li>
+</ul>
+<p><b>调度器配套（独立改动）</b></p>
+<ul>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Core\Private\Async\Fundamental\WaitingQueue.cpp:356</code> — <code>GetActiveWorkerLimit</code>。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Core\Private\Async\Fundamental\WaitingQueue.cpp:387</code> — <code>ConditionalStandby</code> 每轮刷新。</li>
+<li><code>C:\GR_main\UE5EA\Engine\Source\Runtime\Core\Private\Async\Fundamental\WaitingQueue.cpp:516</code> — <code>ShouldYieldWorker</code>。</li>
+</ul>
+<p><b>跑测与编译证据</b></p>
+<ul>
+<li><code>C:\GR_main\S1Game\Saved\S1GameAutomationDebug\build_comment_restore_explicit.log:29</code> — 编译。</li>
+<li><code>C:\GR_main\S1Game\Saved\S1GameAutomationDebug\build_comment_restore_explicit.log:32</code> — 链接。</li>
+<li><code>C:\GR_main\S1Game\Saved\S1GameAutomationDebug\build_comment_restore_explicit.log:40</code> — exit 0。</li>
+<li><code>C:\GR_main\S1Game\Saved\S1GameAutomationDebug\loop\Logs\async_13789.log:207802</code> — 首次异步命中。</li>
+<li><code>C:\GR_main\S1Game\Saved\S1GameAutomationDebug\loop\Logs\async_13789.log:791538</code> — RequestExit(0)。</li>
+</ul>
+</div></body></html>
