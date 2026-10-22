@@ -1,0 +1,285 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UE5 AddPrimitive 与 RemovePrimitive 并发：SceneUpdateCommandQueue 空 SceneInfo 崩溃与 claim 作用域修复</title><style>:root{--bg:#0f1420;--panel:#161d2e;--panel2:#1c2540;--line:#2a3552;--txt:#dbe4f5;--dim:#8b96b5;--acc:#35d0a5;--warn:#f0b95c;--bad:#f07c7c;--info:#5aa7ff}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--txt);font-family:"Segoe UI",system-ui,-apple-system,sans-serif;line-height:1.65;padding:32px 20px 80px}
+.wrap{max-width:1100px;margin:0 auto}
+h1{font-size:25px;margin-bottom:6px}
+.meta{color:var(--dim);font-size:13px;margin-bottom:20px;line-height:1.9}
+.meta b{color:var(--txt)}
+h2{font-size:19px;margin:36px 0 14px;padding-left:10px;border-left:4px solid var(--acc)}
+h3{font-size:15px;margin:22px 0 10px;color:var(--acc)}
+p{margin:10px 0;font-size:14px}
+ul,ol{margin:10px 0 10px 24px;font-size:14px}
+li{margin:5px 0}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--dim);font-weight:600;font-size:12px;white-space:nowrap}
+code{background:var(--panel2);border-radius:4px;padding:1px 5px;font-family:Consolas,monospace;font-size:12.5px;color:#9ad9ff}
+pre.mono{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:Consolas,monospace;font-size:12px;color:var(--dim);line-height:1.6;margin:12px 0}
+.fig{background:#fff;border-radius:10px;padding:10px;margin:16px 0;overflow-x:auto}
+.fig svg{display:block;max-width:100%;height:auto}
+.cap{color:#475569;font-size:12px;margin-top:6px;text-align:center}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:18px 0}
+.toc a{color:var(--info);text-decoration:none;margin-right:16px;font-size:13px;line-height:2}
+.callout{background:var(--panel);border-left:4px solid var(--warn);border-radius:6px;padding:10px 14px;margin:14px 0;font-size:13.5px}
+.callout.bad{border-left-color:var(--bad)}
+.callout.ok{border-left-color:var(--acc)}</style></head><body><div class="wrap"><h1>UE5 AddPrimitive 与 RemovePrimitive 并发：SceneUpdateCommandQueue 空 SceneInfo 崩溃与 claim 作用域修复</h1><div class="meta"><b>对象</b>：S1Game UE5 fork（release CL 1183280，崩溃版本 build 0.1178669 Development Win64）的 primitive 增删链路。<b>现象</b>：渲染线程在 <code>SceneUpdateCommandQueue.h:531</code> 解引用空 <code>FPrimitiveSceneInfo</code> 崩溃（访问违规，非断言）。<b>根因</b>：异步建代理期间 <code>SceneProxy</code> 先于 <code>SceneInfo</code> 发布，而 <code>RemovePrimitive</code> 只判 proxy 不判 SceneInfo。<b>修复</b>：把 <code>AddPrimitiveClaim</code> 的持有期对齐到 Add 命令入队点，Remove 侧等待其释放。<b>验证</b>：8 小时 43 回合 soak 零异常；故障注入 76,726 次证明前置条件在本负载不成立。</div><div class="toc"><b>目录</b><br><a href="#s1">1. 结论：空 SceneInfo 从哪来，怎么修</a>
+<a href="#s2">2. 两个危险窗口：为什么只堵住一个会换来另一种崩溃</a>
+<a href="#s3">3. 修复：claim 作用域对齐入队点</a>
+<a href="#s4">4. FPrimitiveSceneDesc 路径：一个默认关闭的定时炸弹</a>
+<a href="#s5">5. 验证：故障注入与 soak，以及证据的边界</a>
+<a href="#s6">6. 一个 primitive 的一生（修复后）</a>
+<a href="#s7">7. 排查 Checklist：再遇同类崩溃怎么定位</a>
+<a href="#s8">8. 已知问题与技术债</a>
+<a href="#s9">9. 行号基线与参考</a>
+</div><h2 id="s1">1. 结论：空 SceneInfo 从哪来，怎么修</h2>
+<p>渲染线程崩在 <code>SceneUpdateCommandQueue.h:531</code> 的 <code>Commands.Emplace(SceneInfo, SceneInfo-&gt;GetPersistentIndex())</code>。
+这一行是该函数里<b>唯一</b>解引用 <code>SceneInfo</code> 的地方（<code>GetPersistentIndex()</code> 定义见 <code>PrimitiveSceneInfo.h:584</code>，是纯成员读取）。</p>
+
+<p><b>先定性：是访问违规，不是断言失败。</b>判据是正向的 —— <code>check()</code> 失败必经 <code>AssertionMacros.cpp:372</code> 的
+<code>GError-&gt;Logf(TEXT("Assertion failed: ..."))</code>，<b>必然写日志</b>；而崩溃日志中
+<code>Assertion failed</code> / <code>Critical error</code> / <code>Fatal error</code> / <code>appError</code> /
+<code>LogOutputDevice: Error</code> / <code>LogWindows: Error</code> <b>全部 0 次</b>。</p>
+
+<div class="callout">注意区分：TAPD 单标题里的 <code>UNREAL_ASSERT_EXCEPTION(0x00004000)</code>，其中
+<code>0x4000</code> 是 <code>WindowsPlatformCrashContext.cpp:95</code> 定义的 <code>AssertExceptionCode</code>。
+那是<b>另一个</b>断言类崩溃，与本文的访问违规不是同一件事。</div>
+
+<p>空指针来自 <code>BatchAddPrimitivesInternal</code> 内部的<b>发布顺序倒置</b>：</p>
+<table><tr><th>行</th><th>动作</th><th>此刻外部可见的状态</th></tr>
+<tr><td><code>RendererScene.cpp:2306</code></td><td><code>CreateSceneProxy()</code>，其内部
+<code>PrimitiveComponent.cpp:5788</code> 的 <code>AssignSceneProxy()</code> 已把 proxy 写入 <code>SceneData</code></td>
+<td><code>GetSceneProxy() != nullptr</code></td></tr>
+<tr><td><code>RendererScene.cpp:2323</code></td><td><code>proxy-&gt;PrimitiveSceneInfo = SceneInfo</code></td>
+<td>此前 <code>proxy-&gt;GetPrimitiveSceneInfo() == nullptr</code></td></tr></table>
+
+<p><code>FPrimitiveSceneProxy::PrimitiveSceneInfo</code> 的初值是 <code>nullptr</code>（<code>PrimitiveSceneProxy.cpp:747</code>），
+而 <code>BatchRemovePrimitivesInternal</code> 原本<b>只校验 proxy 非空、不校验 SceneInfo</b>，于是把 <code>nullptr</code> 投给渲染线程。</p>
+
+<div class="callout ok"><b>为什么一定是 nullptr 而不是悬垂指针</b>：MallocBinned 的池释放后内存仍映射，
+读悬垂指针的 <code>PersistentIndex</code> 不会 fault（只读到垃圾，崩溃会推迟到别处）；
+只有 nullptr 偏移后仍落在极小地址，才会在 531 行<b>确定性</b> fault。</div>
+
+<p>修复方向不是给队列加锁，而是<b>把 claim 的持有期对齐到 Add 命令入队点</b>：渲染命令按入队顺序在 RT 执行，
+只要 Add 已入队，后来者的 Delete 必排在它之后，<code>EnqueueAdd</code> 的「Add 必须最先」不变量就自动成立。</p>
+
+<h2 id="s2">2. 两个危险窗口：为什么只堵住一个会换来另一种崩溃</h2>
+<p>一句话结论：<b>窗口 A 导致空指针崩溃，窗口 B 导致 Add/Delete 入队顺序颠倒</b>；
+只处理 A 会把「罕见泄漏」换成「罕见 Dev/Test 断言」。</p>
+<div class="fig"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 470" width="1100" height="470"><defs><marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#64748b"/></marker><marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#ef4444"/></marker><marker id="ag" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#10b981"/></marker></defs><rect width="1100" height="470" fill="#ffffff"/><text x="20" y="28" font-size="14" font-weight="600" fill="#22304a">图 1  AddPrimitive 内部的两个危险窗口（修复前）</text><text x="20" y="48" font-size="11" fill="#6b7a99">横轴为 BatchAddPrimitivesInternal 的执行时序；红框是 GT 此刻执行 RemovePrimitive 会出事的区间</text><rect x="60" y="70" width="980" height="24" rx="4" fill="#e8edf6" stroke="#c7d2e5"/><text x="68" y="86" font-size="11" font-weight="600" fill="#22304a">worker 线程：FScene::BatchAddPrimitivesInternal（异步关卡注册批次，BatchSize=16）</text><rect x="60" y="112" width="230" height="76" rx="7" fill="#f1f5f9" stroke="#c7d2e5" stroke-width="1.3"/><text x="70" y="132" font-size="12.5" font-weight="600" fill="#22304a">① CreateSceneProxy()</text><text x="70" y="150" font-size="10.5" font-weight="400" fill="#6b7a99">RendererScene.cpp:2306</text><text x="70" y="165" font-size="10.5" font-weight="400" fill="#6b7a99">内部 AssignSceneProxy 已发布</text><text x="70" y="180" font-size="10.5" font-weight="400" fill="#6b7a99">SceneData.SceneProxy</text><rect x="300" y="112" width="230" height="76" rx="7" fill="#f1f5f9" stroke="#c7d2e5" stroke-width="1.3"/><text x="310" y="132" font-size="12.5" font-weight="600" fill="#22304a">② new FPrimitiveSceneInfo</text><text x="310" y="150" font-size="10.5" font-weight="400" fill="#6b7a99">RendererScene.cpp:2322</text><text x="310" y="165" font-size="10.5" font-weight="400" fill="#6b7a99">SceneInfo 已分配</text><text x="310" y="180" font-size="10.5" font-weight="400" fill="#6b7a99">但尚未挂到 proxy</text><rect x="540" y="112" width="230" height="76" rx="7" fill="#f1f5f9" stroke="#c7d2e5" stroke-width="1.3"/><text x="550" y="132" font-size="12.5" font-weight="600" fill="#22304a">③ proxy->PrimitiveSceneInfo=</text><text x="550" y="150" font-size="10.5" font-weight="400" fill="#6b7a99">RendererScene.cpp:2323</text><text x="550" y="165" font-size="10.5" font-weight="400" fill="#6b7a99">双向指针打通</text><text x="550" y="180" font-size="10.5" font-weight="400" fill="#6b7a99">claim 本应继续持有</text><rect x="790" y="112" width="230" height="76" rx="7" fill="#f1f5f9" stroke="#c7d2e5" stroke-width="1.3"/><text x="800" y="132" font-size="12.5" font-weight="600" fill="#22304a">④ ENQUEUE_RENDER_COMMAND</text><text x="800" y="150" font-size="10.5" font-weight="400" fill="#6b7a99">RendererScene.cpp:2374</text><text x="800" y="165" font-size="10.5" font-weight="400" fill="#6b7a99">Add 命令入队</text><text x="800" y="180" font-size="10.5" font-weight="400" fill="#6b7a99">RT 后续执行 EnqueueAdd</text><line x1="290" y1="150" x2="300" y2="150" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><line x1="530" y1="150" x2="540" y2="150" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><line x1="770" y1="150" x2="790" y2="150" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><rect x="286" y="100" width="268" height="100" rx="6" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="5,3"/><text x="290" y="218" font-size="11" fill="#ef4444" font-weight="600">窗口 A：proxy 非空、SceneInfo 为空 → Remove 投出 nullptr → 531 行解引用崩溃</text><rect x="776" y="100" width="268" height="100" rx="6" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3"/><text x="60" y="244" font-size="11" fill="#f59e0b" font-weight="600">窗口 B：SceneInfo 已链接但 Add 未入队 → Remove 先入队 Delete → EnqueueAdd 断言失败</text><text x="60" y="266" font-size="11" fill="#6b7a99" font-weight="400">改前 claim 在每次循环迭代末尾（RendererScene.cpp:2368 之后）就释放 → 窗口 B 完全失去保护</text><rect x="60" y="296" width="980" height="24" rx="4" fill="#fde8e8" stroke="#c7d2e5"/><text x="68" y="312" font-size="11" font-weight="600" fill="#22304a">GT：组件卸载 → DestroyRenderState_Concurrent → FScene::RemovePrimitive</text><rect x="60" y="338" width="300" height="58" rx="7" fill="#fde8e8" stroke="#ef4444" stroke-width="1.3"/><text x="70" y="358" font-size="12.5" font-weight="600" fill="#22304a">UnregisterComponent()</text><text x="70" y="376" font-size="10.5" font-weight="400" fill="#6b7a99">ActorComponent.cpp:2401</text><text x="70" y="391" font-size="10.5" font-weight="400" fill="#6b7a99">AsyncAddInFlight 在此路径无检查点</text><rect x="420" y="338" width="300" height="58" rx="7" fill="#fde8e8" stroke="#ef4444" stroke-width="1.3"/><text x="430" y="358" font-size="12.5" font-weight="600" fill="#22304a">BatchRemovePrimitivesInternal</text><text x="430" y="376" font-size="10.5" font-weight="400" fill="#6b7a99">读 GetSceneProxy() / GetPrimitiveSceneInfo()</text><rect x="780" y="338" width="260" height="58" rx="7" fill="#fde8e8" stroke="#ef4444" stroke-width="1.3"/><text x="790" y="358" font-size="12.5" font-weight="600" fill="#22304a">EnqueueDelete(SceneInfo)</text><text x="790" y="376" font-size="10.5" font-weight="400" fill="#6b7a99">SceneUpdateCommandQueue.h:531</text><text x="790" y="391" font-size="10.5" font-weight="400" fill="#6b7a99">解引用 SceneInfo->GetPersistentIndex()</text><line x1="360" y1="367" x2="420" y2="367" stroke="#ef4444" stroke-width="1.5" marker-end="url(#ar)"/><line x1="720" y1="367" x2="780" y2="367" stroke="#ef4444" stroke-width="1.5" marker-end="url(#ar)"/><line x1="540" y1="338" x2="420" y2="200" stroke="#ef4444" stroke-width="1.5" marker-end="url(#ar)"/><text x="60" y="424" font-size="11" fill="#6b7a99" font-weight="400">崩溃版本（build 0.1178669）为 Development Win64；日志中 Assertion failed / Fatal error / appError 均为 0 次 ⇒ 访问违规而非断言</text></svg></div><div class="cap">图 1：修复前 AddPrimitive 的两个危险窗口。窗口 A 导致空指针崩溃，窗口 B 导致 Add/Delete 入队顺序颠倒。</div>
+<h3>窗口 A：proxy 已发布、SceneInfo 未回填（2306 → 2323）</h3>
+<p>GT 在此刻 Remove，读到 proxy 非空而 SceneInfo 为空 → 投出 <code>nullptr</code> → 531 行解引用崩溃。
+这是线上那次崩溃命中的窗口，跨度亚微秒级。</p>
+
+<h3>窗口 B：SceneInfo 已链接、Add 命令未入队（claim 释放 → 2374）</h3>
+<p><code>ENQUEUE_RENDER_COMMAND(AddPrimitiveCommand)</code> 在 <code>RendererScene.cpp:2374</code>，
+位于<b>整个循环结束之后</b>；而改前 claim 在每次循环迭代末尾就释放。BatchSize=16 下这个窗口是<b>毫秒级</b>，
+比窗口 A 大几个数量级。</p>
+<p>GT 在此刻 Remove，拿到的是<b>有效</b> SceneInfo，于是正常入队 Delete —— 但它可能排在 worker 的 Add 之前。
+RT 执行到 <code>EnqueueAdd</code> 时会撞上两道断言：</p>
+<table><tr><th>断言</th><th>位置</th></tr>
+<tr><td><code>check(CommandSlots.Find(SceneInfo) == nullptr)</code>（注释原文：Add should always be the first command）</td><td><code>SceneUpdateCommandQueue.h:170</code></td></tr>
+<tr><td><code>check(!Command.bDeleted)</code></td><td><code>SceneUpdateCommandQueue.h:176</code></td></tr></table>
+<div class="callout bad">这意味着：如果只在 Remove 侧做判空，窗口 A 的结果从「崩溃」变成「代理泄漏 + 场景残留 primitive」；
+而等待若只等到 claim 释放（未覆盖入队），就会<b>必然</b>落进窗口 B，把崩溃从 531 行搬到 <code>EnqueueAdd</code>。
+Shipping 下 <code>check</code> 被编掉，同帧 Add+Delete 由引擎既有的同帧增删逻辑正确处理成「删除」，所以该断言只在 Dev/Test 触发。</div>
+
+<h2 id="s3">3. 修复：claim 作用域对齐入队点</h2>
+<p>一句话结论：<b>把逐 primitive 的 RAII claim 换成批量持有，析构点落在 <code>ENQUEUE_RENDER_COMMAND</code> 之后</b>，
+Add-before-Delete 不变量由构造保证，不依赖时序运气。</p>
+<div class="fig"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 400" width="1100" height="400"><defs><marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#64748b"/></marker><marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#ef4444"/></marker><marker id="ag" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#10b981"/></marker></defs><rect width="1100" height="400" fill="#ffffff"/><text x="20" y="28" font-size="14" font-weight="600" fill="#22304a">图 2  修复：claim 作用域对齐到 Add 命令入队点</text><text x="20" y="48" font-size="11" fill="#6b7a99">绿色区间为 claim 持有期；GT 的 Remove 在该区间内等待，等到即保证 Add 已先入队</text><rect x="60" y="70" width="980" height="24" rx="4" fill="#e8edf6" stroke="#c7d2e5"/><text x="68" y="86" font-size="11" font-weight="600" fill="#22304a">worker：FAddPrimitiveClaimScope 声明于循环前（RendererScene.cpp:2250），析构于函数退出</text><rect x="60" y="106" width="980" height="92" rx="6" fill="#e9f9f2" stroke="#10b981" stroke-width="2"/><text x="72" y="126" font-size="11.5" fill="#10b981" font-weight="600">claim 持有期（AddPrimitiveClaim != 0）</text><rect x="80" y="140" width="200" height="40" rx="5" fill="#ffffff" stroke="#10b981"/><text x="90" y="165" font-size="11.5" fill="#22304a">① CreateSceneProxy</text><rect x="300" y="140" width="200" height="40" rx="5" fill="#ffffff" stroke="#10b981"/><text x="310" y="165" font-size="11.5" fill="#22304a">② new SceneInfo</text><rect x="500" y="140" width="200" height="40" rx="5" fill="#ffffff" stroke="#10b981"/><text x="510" y="165" font-size="11.5" fill="#22304a">③ 回填 proxy->SceneInfo</text><rect x="760" y="140" width="200" height="40" rx="5" fill="#ffffff" stroke="#10b981"/><text x="770" y="165" font-size="11.5" fill="#22304a">④ ENQUEUE_RENDER_COMMAND</text><line x1="280" y1="160" x2="300" y2="160" stroke="#10b981" stroke-width="1.5" marker-end="url(#ag)"/><line x1="500" y1="160" x2="500" y2="160" stroke="#10b981" stroke-width="1.5" marker-end="url(#ag)"/><line x1="700" y1="160" x2="760" y2="160" stroke="#10b981" stroke-width="1.5" marker-end="url(#ag)"/><text x="60" y="222" font-size="11.5" fill="#10b981" font-weight="600">关键：④ 在 claim 释放之前完成 ⇒ 渲染命令按入队顺序执行 ⇒ 后来者的 Delete 必排在 Add 之后</text><rect x="60" y="256" width="980" height="24" rx="4" fill="#eef4ff" stroke="#c7d2e5"/><text x="68" y="272" font-size="11" font-weight="600" fill="#22304a">GT：WaitForInFlightAddPrimitive（RendererScene.cpp:2880）</text><rect x="60" y="296" width="300" height="62" rx="7" fill="#eef4ff" stroke="#5aa7ff" stroke-width="1.3"/><text x="70" y="316" font-size="12.5" font-weight="600" fill="#22304a">claim != 0 → 进入等待</text><text x="70" y="334" font-size="10.5" font-weight="400" fill="#6b7a99">256 次 FPlatformProcess::Yield()</text><text x="70" y="349" font-size="10.5" font-weight="400" fill="#6b7a99">（_mm_pause，不让时间片）</text><rect x="410" y="296" width="300" height="62" rx="7" fill="#eef4ff" stroke="#5aa7ff" stroke-width="1.3"/><text x="420" y="316" font-size="12.5" font-weight="600" fill="#22304a">转 YieldThread()（让出时间片）</text><text x="420" y="334" font-size="10.5" font-weight="400" fill="#6b7a99">挂钟上限 50 ms</text><text x="420" y="349" font-size="10.5" font-weight="400" fill="#6b7a99">超时记 Warning 并由判空兜底</text><rect x="760" y="296" width="280" height="62" rx="7" fill="#e9f9f2" stroke="#10b981" stroke-width="1.3"/><text x="770" y="316" font-size="12.5" font-weight="600" fill="#22304a">等到 claim == 0</text><text x="770" y="334" font-size="10.5" font-weight="400" fill="#6b7a99">proxy / SceneInfo 一致</text><text x="770" y="349" font-size="10.5" font-weight="400" fill="#6b7a99">Add 已入队 → 安全 Delete</text><line x1="360" y1="325" x2="410" y2="325" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><line x1="710" y1="325" x2="760" y2="325" stroke="#10b981" stroke-width="1.5" marker-end="url(#ag)"/><text x="60" y="384" font-size="11" fill="#6b7a99" font-weight="400">等待路径在 76,726 次 15 ms 人为放大窗口下命中 0 次 ⇒ 稳态成本仅「每次 Remove 一次原子读」</text></svg></div><div class="cap">图 2：修复后 claim 作用域覆盖到 ENQUEUE_RENDER_COMMAND，Add-before-Delete 不变量由构造保证。</div>
+<h3>3.1 Add 侧：FAddPrimitiveClaimScope</h3>
+<pre class="mono">// RendererScene.cpp:2250  声明于循环之前，析构于函数退出（入队之后）
+struct FAddPrimitiveClaimScope
+{
+    ~FAddPrimitiveClaimScope()
+    {
+        for (FThreadSafeCounter* Counter : Claimed)
+        {
+            Counter-&gt;Decrement();
+        }
+    }
+
+    // 抢到则登记、持有到本作用域结束；没抢到立即归还
+    bool TryClaim(FThreadSafeCounter&amp; Counter)
+    {
+        if (Counter.Increment() == 1)
+        {
+            Claimed.Add(&amp;Counter);
+            return true;
+        }
+        Counter.Decrement();
+        return false;
+    }
+
+    TArray&lt;FThreadSafeCounter*, SceneRenderingAllocator&gt; Claimed;
+};</pre>
+<div class="callout bad"><b>顺带修掉的一个真 bug</b>：原版 RAII 构造时<b>无条件</b> <code>Increment()</code>，
+析构却只在 <code>bAcquired</code> 时 <code>Decrement()</code> —— 每次抢占失败都会<b>永久抬高计数</b>，
+该 primitive 此后所有 <code>AddPrimitive</code> 都抢不到 claim 并 <code>continue</code>，<b>永久不可见</b>。
+新版在 <code>TryClaim</code> 内「抢不到立即归还」，彻底消除。</div>
+
+<h3>3.2 Remove 侧：WaitForInFlightAddPrimitive</h3>
+<p>定义于 <code>RendererScene.cpp:2880</code>，调用点 <code>RendererScene.cpp:2960</code>，在读 proxy 之前：</p>
+<table><tr><th>阶段</th><th>做法</th><th>依据</th></tr>
+<tr><td>短自旋</td><td>256 次 <code>FPlatformProcess::Yield()</code></td><td>正常窗口（<code>new</code> + 指针回填）亚微秒级</td></tr>
+<tr><td>让出时间片</td><td>转 <code>FPlatformProcess::YieldThread()</code></td><td><code>Yield()</code> 实为 <code>_mm_pause()</code>（<code>GenericPlatformProcess.h:819</code>），<b>不让时间片</b>；持有者被调度走时纯自旋等不到</td></tr>
+<tr><td>上限</td><td>挂钟 50 ms，超时记 Warning</td><td>兜底不挂死；超时后由判空分支接管</td></tr></table>
+<div class="callout">踩过的坑：首版用 <code>Yield()</code> 做<b>全部</b>等待。它是 CPU 暂停指令，不释放 CPU —— 这是个
+「看着对、跑起来也不报错」的写法，日志和跑测都不会暴露，只能靠读 <code>GenericPlatformProcess.h:819</code> 的实现发现。</div>
+
+<h3>3.3 判空兜底与现场记录</h3>
+<ul>
+<li><code>RemovePrimitiveSceneInfo_RenderThread</code>（<code>RendererScene.cpp:2842</code>）入口判空：为空则跳过 <code>EnqueueDelete</code>，止崩。</li>
+<li><code>LogMissingSceneInfoOnRemove</code>（<code>RendererScene.cpp:2915</code>）打印
+<code>Component / Owner / Proxy / bRegistered / bRenderStateCreated / bRenderStateDirty / AsyncAddInFlight / World</code>。
+其中 <code>AsyncAddInFlight</code> 可直接区分「在途」与其它来源。</li>
+<li><b>保留</b> <code>ReleaseSceneProxy()</code> 与 <code>DestroyCommands.Add(...)</code> —— 跳过会漏掉
+<code>AttachmentCounter</code> 的递减，导致 <code>FinishDestroy</code> 的 <code>check(AttachmentCounter == 0)</code> 二次崩溃。</li>
+<li>全部日志为 <b>Warning</b> 级，与 CL 1201185 既有的 <code>[SceneProxy] Concurrent AddPrimitive skipped</code> 一致。</li>
+</ul>
+
+<h2 id="s4">4. FPrimitiveSceneDesc 路径：一个默认关闭的定时炸弹</h2>
+<p>一句话结论：<b>CL 1201185 新增的二次确认 <code>if (Primitive-&gt;GetSceneProxy()) continue;</code> 对
+<code>FPrimitiveSceneDesc</code> 路径是误判</b>，会让首次合法 Add 被整个跳过。</p>
+
+<p><code>FPrimitiveSceneDesc</code> 的 <code>PrimitiveComponentInterface</code> 默认为 <code>nullptr</code>
+（<code>PrimitiveSceneDesc.h:28</code>），头文件注释明确写着：不提供 ComponentInterface 时，
+ProxyDesc 必须已由调用方创建并传入。项目侧 <code>S1WeaponAvatarComponent.cpp:1507</code> 正是这种用法 ——
+在调用 <code>AddPrimitive</code> <b>之前</b>就 <code>PrimitiveSceneData-&gt;SceneProxy = new FStaticMeshSceneProxy(...)</code>。</p>
+
+<p>于是「proxy 非空」在这条路径上<b>恒成立</b>，二次确认必然命中 → Add 被跳过 →
+<code>RendererScene.cpp:2323</code> 的回填永不执行 → 卸载时投出空 SceneInfo。</p>
+
+<p>修正方式是按路径区分判据（<code>RendererScene.cpp:2298</code>）：</p>
+<pre class="mono">FPrimitiveSceneProxy* ExistingSceneProxy = Primitive-&gt;GetSceneProxy();
+const bool bAlreadyAdded = ExistingSceneProxy &amp;&amp;
+    (Primitive-&gt;GetPrimitiveComponentInterface() != nullptr || ExistingSceneProxy-&gt;GetPrimitiveSceneInfo() != nullptr);</pre>
+<table><tr><th>路径</th><th>判据</th><th>行为</th></tr>
+<tr><td>组件首次</td><td>proxy == null</td><td>继续（不变）</td></tr>
+<tr><td>组件并发 / 已完成</td><td>proxy != null</td><td>跳过（不变）</td></tr>
+<tr><td><b>desc 首次</b></td><td>proxy 非空但 SceneInfo 为空</td><td><b>继续 → 回填 SceneInfo（修复）</b></td></tr>
+<tr><td>desc 重复 Add</td><td>proxy 与 SceneInfo 都非空</td><td>跳过（保留原防重复语义）</td></tr></table>
+<div class="callout"><b>当前未触发</b>：<code>avatar.weapon.EnableApproxWeaponMesh</code> 默认值为 <b>2</b>
+（<code>S1WeaponAvatarComponent.cpp:54</code>），走 StaticMeshComponent 分支；改成 <b>1</b> 才走 desc 路径。
+属于「改个 CVar 就必崩」的定时炸弹，无法通过跑测发现，只能靠代码推演。</div>
+
+<h2 id="s5">5. 验证：故障注入与 soak，以及证据的边界</h2>
+<p>一句话结论：<b>修复的正确性由构造保证且零成本；但「修复前崩 / 修复后不崩」的对照实验给不出来</b> ——
+前置条件在本测试负载下不成立，且这一点已被 76,726 次留痕证明不是仪表故障。</p>
+<div class="fig"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 330" width="1100" height="330"><defs><marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#64748b"/></marker><marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#ef4444"/></marker><marker id="ag" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#10b981"/></marker></defs><rect width="1100" height="330" fill="#ffffff"/><text x="20" y="28" font-size="14" font-weight="600" fill="#22304a">图 4  故障注入实验：把微秒级巧合变成可复现（已从提交物移除，仅留档）</text><text x="20" y="48" font-size="11" fill="#6b7a99">注入点在 claim 持有期内、Add 入队之前；留痕日志用于证伪「仪表是否真的运行」</text><rect x="60" y="80" width="300" height="70" rx="7" fill="#fff7ed" stroke="#f59e0b" stroke-width="1.3"/><text x="70" y="100" font-size="12.5" font-weight="600" fill="#22304a">r.ZXB.AddPrimitive.InjectDelayMs</text><text x="70" y="118" font-size="10.5" font-weight="400" fill="#6b7a99">默认 0（生产零开销）</text><text x="70" y="133" font-size="10.5" font-weight="400" fill="#6b7a99">实验值 8 / 15 ms</text><rect x="410" y="80" width="300" height="70" rx="7" fill="#fff7ed" stroke="#f59e0b" stroke-width="1.3"/><text x="420" y="100" font-size="12.5" font-weight="600" fill="#22304a">注入点：入队 Add 之前</text><text x="420" y="118" font-size="10.5" font-weight="400" fill="#6b7a99">claim 持有中 + proxy 已发布</text><text x="420" y="133" font-size="10.5" font-weight="400" fill="#6b7a99">+ SceneInfo 已链接</text><rect x="760" y="80" width="280" height="70" rx="7" fill="#e9f9f2" stroke="#10b981" stroke-width="1.3"/><text x="770" y="100" font-size="12.5" font-weight="600" fill="#22304a">UE_LOG 留痕 inject #N</text><text x="770" y="118" font-size="10.5" font-weight="400" fill="#6b7a99">证明仪表确实运行</text><text x="770" y="133" font-size="10.5" font-weight="400" fill="#6b7a99">实测 76,726 次</text><line x1="360" y1="115" x2="410" y2="115" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><line x1="710" y1="115" x2="760" y2="115" stroke="#10b981" stroke-width="1.5" marker-end="url(#ag)"/><text x="60" y="180" font-size="12" fill="#ef4444" font-weight="600">两个仪表坑（均已踩中并修正）：</text><text x="76" y="202" font-size="11" fill="#6b7a99" font-weight="400">① 首版注入点放在抢 claim 之前 → 拉长的不是危险窗口</text><text x="76" y="222" font-size="11" fill="#6b7a99" font-weight="400">② 首版用 !IsInGameThread() 判线程：ThreadingBase.cpp:227 的 IsCurrentTag 是精确相等，</text><text x="90" y="240" font-size="11" fill="#6b7a99" font-weight="400">而 CoreGlobals.h:762 定义 EParallelGameThread = EGameThread | EParallelThread —— 二者不等；</text><text x="90" y="258" font-size="11" fill="#6b7a99" font-weight="400">ThreadingBase.cpp:257 又让 Development 走线程 ID 比较、Test 走 tag 判定，两配置语义不同。</text><text x="90" y="276" font-size="11" fill="#10b981" font-weight="400">改用 FPlatformTLS::GetCurrentThreadId() != GGameThreadId，不依赖 tag 语义。</text><text x="60" y="306" font-size="11.5" fill="#22304a" font-weight="600">结论：注入 76,726 次 × 15 ms 下等待命中 0 次 ⇒ 前置条件（GT 移除在途 primitive）在本负载不成立，非仪表故障</text></svg></div><div class="cap">图 4：故障注入实验结构与两个已修正的仪表缺陷。</div>
+<h3>5.1 故障注入：把微秒级巧合变成可复现</h3>
+<p>新增 <code>r.ZXB.AddPrimitive.InjectDelayMs</code>（默认 0），注入点在 claim 持有期内、Add 入队之前 ——
+正是窗口 B 的位置。<b>关键设计：注入点自身必须打日志留痕</b>，否则「等待 0 命中」分不清是仪表坏还是真没发生。</p>
+<table><tr><th>观测项</th><th>结果</th></tr>
+<tr><td>注入实际执行</td><td><b>76,726 次</b> × 15 ms ≈ 累计 1,150 秒人为放大窗口</td></tr>
+<tr><td>等待命中 / 超时</td><td><b>0 / 0</b></td></tr>
+<tr><td><code>Concurrent AddPrimitive skipped</code></td><td><b>0</b> —— claim 持有变长<b>未</b>丢弃任何合法 Add</td></tr>
+<tr><td>崩溃 / 空 SceneInfo / 原断言</td><td>0</td></tr></table>
+<p><b>结论</b>：GT-直接 <code>UnregisterComponent()</code> 去移除一个正在异步添加中的 primitive，在本负载下不发生。
+合理解释是 CL 1201185 的 <code>AsyncAddInFlight</code> 已挡住帧末并行（<code>ActorComponent.cpp:2565</code>）
+与批量重注册（<code>StaticMeshResources.cpp:152</code>）两条路；而 GT-直接卸载需要「关卡边加载边卸载」，
+被 <code>World.cpp:4833</code> 的 <code>FinishAsyncSendAllEndOfFrameUpdates()</code> 与 AddToWorld/RemoveFromWorld 的串行化排除。</p>
+
+<h3>5.2 8 小时 soak</h3>
+<p>用例 <code>rush01</code>（循环，每回合 <code>KillAllDS</code> + 重进 → 完整关卡重载），生产配置：</p>
+<table><tr><th>项</th><th>结果</th></tr>
+<tr><td>时长 / 回合</td><td>28,811 秒（8 小时）/ 43 回合，<code>BUDGET-EXHAUSTED</code> 正常结束</td></tr>
+<tr><td>进程</td><td><code>Log file open</code> = 1（单进程全程不重启）</td></tr>
+<tr><td>进对局 / <code>ExitBattle</code></td><td>43 次 / 42 次（第 43 回合被预算截断）</td></tr>
+<tr><td>崩溃类信号</td><td><code>Assertion failed</code>、<code>Fatal error</code>、<code>appError called</code>、<code>Unhandled Exception</code>、<code>CrashContext.runtime-xml</code> 均 0</td></tr>
+<tr><td>间接退化</td><td><code>AttachmentCounter</code>、<code>invalid OctreeId</code>、<code>Failed to route Create/DestroyRenderState</code>、<code>already marked for async update</code>、<code>ensureAlways</code> 均 0</td></tr>
+</table>
+<p>间接退化那组是专门验计数器修复的：若 <code>Decrement</code> 逻辑写错，primitive 会逐渐消失或相关断言会刷 —— 43 轮下来一次未出现。</p>
+
+<h3>5.3 诚实边界</h3>
+<div class="callout bad"><ul>
+<li><b>无法给出「修复前崩 / 修复后不崩」的对照</b>：前置条件在本 harness 不可复现。原 TAPD 单记录的影响设备数为 1，本身极罕见。</li>
+<li><b>最终提交物未经跑测</b>：soak 与注入实验跑的是重构前的二进制；最终版（提取辅助函数 + 删除注入脚手架 + 日志降级）只通过了编译。重构为行为等价变更，但严格意义上提交物本身未跑测。</li>
+<li><b>日志级别变更的连带影响</b>：日志从 Error 降为 Warning 后，<b>不再被「Error 全 0」这类验收判据捕获</b>。后续跑测要验证防线是否命中，判据必须改为直接 grep <code>[ZXB]</code> 字符串。</li>
+</ul></div>
+
+<h2 id="s6">6. 一个 primitive 的一生（修复后）</h2>
+<p>把前面各节串成一条线：跟着一个 primitive 从关卡流入走到被移除。</p>
+<div class="fig"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 650" width="1100" height="650"><defs><marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#64748b"/></marker><marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#ef4444"/></marker><marker id="ag" markerWidth="9" markerHeight="9" refX="8" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="#10b981"/></marker></defs><rect width="1100" height="650" fill="#ffffff"/><text x="20" y="28" font-size="14" font-weight="600" fill="#22304a">图 3  一个 primitive 的一生：从关卡流入到被移除（修复后）</text><text x="20" y="48" font-size="11" fill="#6b7a99">贯穿主线；每条箭头标注传递的数据与所在线程</text><rect x="100" y="70" width="900" height="62" rx="7" fill="#f1f5f9" stroke="#c7d2e5" stroke-width="1.3"/><text x="110" y="90" font-size="12.5" font-weight="600" fill="#22304a">1. 关卡流入 AddToWorld</text><text x="110" y="108" font-size="10.5" font-weight="400" fill="#6b7a99">UWorld::UpdateLevelStreaming</text><text x="110" y="123" font-size="10.5" font-weight="400" fill="#6b7a99">World.cpp:4833 先 FinishAsyncSendAllEndOfFrameUpdates</text><line x1="550" y1="132" x2="550" y2="139" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><rect x="100" y="139" width="900" height="62" rx="7" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.3"/><text x="110" y="159" font-size="12.5" font-weight="600" fill="#22304a">2. CreateRenderState_Concurrent</text><text x="110" y="177" font-size="10.5" font-weight="400" fill="#6b7a99">置 bRenderStateCreated=true，代理交异步队列</text><text x="110" y="192" font-size="10.5" font-weight="400" fill="#6b7a99">出现「已注册 / 无代理」第三态</text><line x1="550" y1="201" x2="550" y2="208" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><rect x="100" y="208" width="900" height="62" rx="7" fill="#e9f9f2" stroke="#10b981" stroke-width="1.3"/><text x="110" y="228" font-size="12.5" font-weight="600" fill="#22304a">3. FAsyncAddPrimitiveQueue::Launch</text><text x="110" y="246" font-size="10.5" font-weight="400" fill="#6b7a99">AsyncAddInFlight.Set(1)（整批）</text><text x="110" y="261" font-size="10.5" font-weight="400" fill="#6b7a99">AsyncRegisterLevelContext.cpp:468</text><line x1="550" y1="270" x2="550" y2="277" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><rect x="100" y="277" width="900" height="62" rx="7" fill="#e9f9f2" stroke="#10b981" stroke-width="1.3"/><text x="110" y="297" font-size="12.5" font-weight="600" fill="#22304a">4. worker: BatchAddPrimitivesInternal</text><text x="110" y="315" font-size="10.5" font-weight="400" fill="#6b7a99">TryClaim → claim=1；建代理、建 SceneInfo、入队 Add</text><text x="110" y="330" font-size="10.5" font-weight="400" fill="#6b7a99">claim 覆盖全程（本次修复）</text><line x1="550" y1="339" x2="550" y2="346" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><rect x="100" y="346" width="900" height="62" rx="7" fill="#e9f9f2" stroke="#10b981" stroke-width="1.3"/><text x="110" y="366" font-size="12.5" font-weight="600" fill="#22304a">5. RT: EnqueueAdd(SceneInfo)</text><text x="110" y="384" font-size="10.5" font-weight="400" fill="#6b7a99">Add 成为该 SceneInfo 的第一条命令</text><text x="110" y="399" font-size="10.5" font-weight="400" fill="#6b7a99">SceneUpdateCommandQueue.h:170/176 两道断言成立</text><line x1="550" y1="408" x2="550" y2="415" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><rect x="100" y="415" width="900" height="62" rx="7" fill="#e9f9f2" stroke="#10b981" stroke-width="1.3"/><text x="110" y="435" font-size="12.5" font-weight="600" fill="#22304a">6. GT: Reset → AsyncAddInFlight.Set(0)</text><text x="110" y="453" font-size="10.5" font-weight="400" fill="#6b7a99">脏位重新挂回帧末更新</text><text x="110" y="468" font-size="10.5" font-weight="400" fill="#6b7a99">AsyncRegisterLevelContext.cpp:443</text><line x1="550" y1="477" x2="550" y2="484" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><rect x="100" y="484" width="900" height="62" rx="7" fill="#eef4ff" stroke="#5aa7ff" stroke-width="1.3"/><text x="110" y="504" font-size="12.5" font-weight="600" fill="#22304a">7. GT: 组件卸载 → RemovePrimitive</text><text x="110" y="522" font-size="10.5" font-weight="400" fill="#6b7a99">claim==0 直接通过；claim!=0 则等待</text><text x="110" y="537" font-size="10.5" font-weight="400" fill="#6b7a99">RendererScene.cpp:2960</text><line x1="550" y1="546" x2="550" y2="553" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/><rect x="100" y="553" width="900" height="62" rx="7" fill="#e9f9f2" stroke="#10b981" stroke-width="1.3"/><text x="110" y="573" font-size="12.5" font-weight="600" fill="#22304a">8. RT: EnqueueDelete(SceneInfo)</text><text x="110" y="591" font-size="10.5" font-weight="400" fill="#6b7a99">顺序必在 Add 之后 → 同帧增删由引擎既有逻辑处理</text><text x="110" y="606" font-size="10.5" font-weight="400" fill="#6b7a99">SceneUpdateCommandQueue.h:531 不再收到 nullptr</text></svg></div><div class="cap">图 3：一个 primitive 从关卡流入到被移除的完整生命周期（修复后）。</div>
+<p>关键不变量落在第 4~5 步之间：<b>claim 在 Add 命令入队之后才释放</b>，
+因此第 7 步的 GT Remove 要么直接通过（claim 已为 0，意味着 Add 必已入队），
+要么等待到 claim 为 0 —— 两种情况下第 8 步的 Delete 都排在 Add 之后。</p>
+
+<h2 id="s7">7. 排查 Checklist：再遇同类崩溃怎么定位</h2>
+<ol>
+<li><b>先定性：断言还是访问违规。</b>不要靠「栈里有没有 <code>FDebug::AssertFailed</code>」—— 栈可能被截断。
+正向判据是 <code>AssertionMacros.cpp:372</code> 保证 <code>check()</code> 必写日志，所以日志里
+<code>Assertion failed</code> 为 0 即可排除断言。</li>
+<li><b>PC 落在哪一行要精确到行。</b>本例 PC 在 531（解引用）而非 530（<code>check</code>），这是区分两类故障的唯一线索。</li>
+<li><b>排除「队列自身不同步」。</b><code>TRobinHoodHashTable</code> 扩容只重建桶数组，<code>KeyValueData</code> 索引稳定追加；
+队列从不 Remove，故 <code>check(CommandSlot == Commands.Num())</code> 在单线程路径恒成立。</li>
+<li><b>查发布顺序，而不是只查空指针。</b>双向指针（component→proxy→SceneInfo）中任一侧先发布，
+都会制造一个外部可见的不一致窗口。</li>
+<li><b>加仪表时，仪表自己必须留痕。</b>「0 命中」在仪表未留痕时毫无意义 —— 分不清是坏仪表还是真没发生。</li>
+<li><b>线程判定不要用 <code>IsInGameThread()</code>。</b>本 fork 中它在 Development 走线程 ID 比较
+（<code>ThreadingBase.cpp:257</code> 的 <code>newValue = oldValue</code>）、在 Test 走
+<code>IsCurrentTag</code>（<code>ThreadingBase.cpp:227</code>，<b>精确相等</b>而非位测试）。
+而 <code>CoreGlobals.h:762</code> 定义 <code>EParallelGameThread = EGameThread | EParallelThread</code> ——
+两种配置语义不同。要判「是否真的在 GT」请用 <code>FPlatformTLS::GetCurrentThreadId() != GGameThreadId</code>。</li>
+<li><b>确认 trace 仪表确实会被记录。</b><code>SCOPED_NAMED_EVENT</code> 展开含
+<code>TRACE_CPUPROFILER_EVENT_SCOPE</code>（<code>PlatformMisc.h:181</code>），
+且 <code>ENABLE_NAMED_EVENTS</code> 定义为 <code>(!UE_BUILD_SHIPPING &amp;&amp; 1)</code>（<code>PlatformMisc.h:33</code>），
+Test 下启用 —— 但 rush01 这类脚本不含 <code>Trace.Start</code>，trace 不落盘，查不到不等于没发生。</li>
+</ol>
+
+<h2 id="s8">8. 已知问题与技术债</h2>
+<ul>
+<li><b>口子 2（desc 路径）只在代码层面修正，无法跑测验证</b> —— <code>avatar.weapon.EnableApproxWeaponMesh</code>
+默认 2 走不到该分支。真正的验收时刻是有人把它改成 1。</li>
+<li><b>GT-直接卸载在途组件这条路，<code>AsyncAddInFlight</code> 仍无检查点</b>。
+全仓仅两处检查（<code>ActorComponent.cpp:2565</code>、<code>StaticMeshResources.cpp:152</code>）。
+本文的 claim 等待是在 Remove 侧兜住它，而非在源头阻止。</li>
+<li><b>50 ms 超时是权衡产物</b>：超时后进入判空分支，意味着放弃等待并接受「代理泄漏 + 场景残留」。
+等待更久会拉长 GT 卡顿，等待更短会更早退化。该阈值未经真实命中验证（命中率为 0）。</li>
+<li><b><code>SceneUpdateCommandQueue</code> 的移动构造存在潜伏不一致</b>：
+<code>SceneUpdateCommandQueue.h:115-121</code> 只搬运 <code>Commands</code>，目标对象的 <code>CommandSlots</code> 为默认空。
+目标若被 enqueue，<code>check(CommandSlot == Commands.Num())</code> 必失败（0 == N）。
+当前因目标只读而未暴露 —— 这恰好是会打在 <b>530</b> 行的故障，反向印证本次崩的是 531。</li>
+</ul>
+
+<h2 id="s9">9. 行号基线与参考</h2>
+<div class="callout"><b>行号基线</b>：除特别标注外，所有 <code>RendererScene.cpp</code> 行号对齐的是
+<b>depot #62 + 本次修改后</b>的工作区状态（文件共 8,381 行）。
+崩溃栈中的原始行号（<code>RendererScene.cpp:2795</code> / <code>RendererScene.cpp:2857</code>、<code>SceneUpdateCommandQueue.h:531</code>）
+对齐的是 build 0.1178669 当时的版本；该文件此后经 CL 1193034 / 1201185 两次改动，行号已整体下移。
+<code>SceneUpdateCommandQueue.h</code> 自分支以来未变（<code>#1</code>），故 531 行号在两个版本中一致。</div>
+
+<h3>核心源码位置</h3>
+<table><tr><th>文件:行</th><th>内容</th></tr>
+<tr><td><code>SceneUpdateCommandQueue.h:531</code></td><td>崩溃点：<code>Commands.Emplace(SceneInfo, SceneInfo-&gt;GetPersistentIndex())</code></td></tr>
+<tr><td><code>SceneUpdateCommandQueue.h:530</code></td><td><code>check(CommandSlot == Commands.Num())</code></td></tr>
+<tr><td><code>SceneUpdateCommandQueue.h:170</code> / <code>SceneUpdateCommandQueue.h:176</code></td><td><code>EnqueueAdd</code> 的 Add-first 两道断言</td></tr>
+<tr><td><code>RendererScene.cpp:2250</code></td><td><code>FAddPrimitiveClaimScope</code> 定义</td></tr>
+<tr><td><code>RendererScene.cpp:2298</code></td><td>按路径区分的二次确认 <code>bAlreadyAdded</code></td></tr>
+<tr><td><code>RendererScene.cpp:2306</code> / <code>RendererScene.cpp:2323</code> / <code>RendererScene.cpp:2374</code></td><td>建代理 / 回填 SceneInfo / 入队 Add</td></tr>
+<tr><td><code>RendererScene.cpp:2842</code></td><td><code>RemovePrimitiveSceneInfo_RenderThread</code> 入口判空</td></tr>
+<tr><td><code>RendererScene.cpp:2880</code> / <code>RendererScene.cpp:2960</code></td><td><code>WaitForInFlightAddPrimitive</code> 定义 / 调用</td></tr>
+<tr><td><code>RendererScene.cpp:2915</code></td><td><code>LogMissingSceneInfoOnRemove</code></td></tr>
+<tr><td><code>PrimitiveComponent.cpp:5788</code></td><td><code>AssignSceneProxy()</code> —— proxy 的发布点</td></tr>
+<tr><td><code>PrimitiveSceneProxy.cpp:747</code></td><td><code>PrimitiveSceneInfo(nullptr)</code> 初值</td></tr>
+<tr><td><code>PrimitiveSceneInfo.h:584</code></td><td><code>GetPersistentIndex()</code></td></tr>
+<tr><td><code>PrimitiveSceneDesc.h:28</code></td><td><code>PrimitiveComponentInterface = nullptr</code> 默认值</td></tr>
+<tr><td><code>S1WeaponAvatarComponent.cpp:1507</code> / <code>S1WeaponAvatarComponent.cpp:54</code></td><td>desc 路径预置 proxy / CVar 默认值 2</td></tr>
+<tr><td><code>AsyncRegisterLevelContext.cpp:468</code> / <code>AsyncRegisterLevelContext.cpp:443</code></td><td><code>AsyncAddInFlight</code> 置位 / 清位</td></tr>
+<tr><td><code>ActorComponent.cpp:2565</code> / <code>ActorComponent.cpp:2401</code></td><td>帧末更新的在途检查 / <code>DestroyRenderState_Concurrent</code></td></tr>
+<tr><td><code>StaticMeshResources.cpp:152</code></td><td>批量重注册的在途检查</td></tr>
+<tr><td><code>World.cpp:4833</code></td><td><code>UpdateLevelStreaming</code> 开头的 <code>FinishAsyncSendAllEndOfFrameUpdates()</code></td></tr>
+<tr><td><code>LevelTick.cpp:1151</code></td><td>帧末并行 <code>DoDeferredRenderUpdates_Concurrent()</code></td></tr>
+<tr><td><code>ThreadingBase.cpp:227</code> / <code>ThreadingBase.cpp:257</code></td><td><code>IsCurrentTag</code> 精确相等 / Development 的线程 ID 回退</td></tr>
+<tr><td><code>CoreGlobals.h:762</code></td><td><code>EParallelGameThread = EGameThread | EParallelThread</code></td></tr>
+<tr><td><code>PlatformMisc.h:33</code> / <code>PlatformMisc.h:181</code></td><td><code>ENABLE_NAMED_EVENTS</code> / <code>SCOPED_NAMED_EVENT</code> 展开含 trace</td></tr>
+<tr><td><code>GenericPlatformProcess.h:819</code></td><td><code>Yield()</code> = <code>_mm_pause()</code>，不让时间片</td></tr>
+<tr><td><code>AssertionMacros.cpp:372</code></td><td><code>check()</code> 失败必写 <code>Assertion failed</code> 日志</td></tr>
+<tr><td><code>WindowsPlatformCrashContext.cpp:95</code></td><td><code>AssertExceptionCode = 0x4000</code></td></tr>
+</table>
+
+<h3>相关文档</h3>
+<ul><li><code>UE5-异步AddToWorld非阻塞取消-SceneProxy重复创建-在途批次持有机制</code> —— 前作，讲 CL 1201185 的
+<code>AsyncAddInFlight</code> 机制；本文是其续篇，处理该机制未覆盖的 Remove 侧。</li></ul>
+
+</div></body></html>
