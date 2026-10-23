@@ -4,7 +4,7 @@
 >
 > - **互链约定**：全部相对路径，文件不移动，与 git 自动备份兼容。
 > - **本页由 `generate_index.py` 自动生成**，新增文档后重跑脚本即可刷新。
-> - 文档总数：**197** · 更新：2026-10-22
+> - 文档总数：**199** · 更新：2026-10-23
 
 ---
 
@@ -15,7 +15,7 @@
 | 01 | [01 · TBDR 与片上优化方法论](#01-TBDR-与片上优化方法论) | 31 | TBDR 原理、片上缓存、Subpass/Imageblock、HZB、Forward/Deferred 选型——方法论纵贯线 |
 | 02 | [02 · 头部手游案例库](#02-头部手游案例库) | 23 | 单款手游移动端渲染拆解（html）。方法论的具体落地参照 |
 | 03 | [03 · 专题横向汇总](#03-专题横向汇总) | 11 | 跨游戏横向对比：半透明 / 遮挡剔除 / DrawCall / FPS 全景 |
-| 04 | [04 · 引擎源码级分析](#04-引擎源码级分析) | 20 | PVS、视锥剔除、WorldPartition、TaskGraph、线程池、RDG 等源码深挖 |
+| 04 | [04 · 引擎源码级分析](#04-引擎源码级分析) | 22 | PVS、视锥剔除、WorldPartition、TaskGraph、线程池、RDG 等源码深挖 |
 | 05 | [05 · 崩溃与稳定性](#05-崩溃与稳定性) | 6 | 崩溃定位与修复：VT / SkeletalMesh / UseAfterFree、帧率掉档排查 |
 | 06 | [06 · Profiling 工具与教程](#06-Profiling-工具与教程) | 11 | 高通 SDP / Adreno / Snapdragon Profiler、UE Insights、CPU Trace 工具链 |
 | 07 | [07 · 项目专项分析](#07-项目专项分析) | 2 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
@@ -115,6 +115,8 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [UE5-异步AddToWorld非阻塞取消-SceneProxy重复创建-在途批次持有机制](./UE5-异步AddToWorld非阻塞取消-SceneProxy重复创建-在途批次持有机制.html) | HTML | 10-22 |
+| [UE5 异步 AddToWorld 非阻塞取消：在途建代理与帧末更新并发导致 SceneProxy 重复创建](./UE5-异步AddToWorld非阻塞取消-SceneProxy重复创建-在途批次持有机制.md) | MD | 10-22 |
 | [UE5-异步AddToWorld跨帧-SplineMesh顶点工厂未初始化-共享VF先发布后初始化的两层修复](./UE5-异步AddToWorld跨帧-SplineMesh顶点工厂未初始化-共享VF先发布后初始化的两层修复.html) | HTML | 10-18 |
 | [UE5 异步 AddToWorld 跨帧 —— SplineMesh 共享顶点工厂「先发布后初始化」竞态与两层修复](./UE5-异步AddToWorld跨帧-SplineMesh顶点工厂未初始化-共享VF先发布后初始化的两层修复.md) | MD | 10-18 |
 | [UE5-Editor-PreviewPlatform脚本化切换-UnrealEd绑定与WorldPartition崩溃修复](./UnrealMCP扩展/UE5-Editor-PreviewPlatform脚本化切换-UnrealEd绑定与WorldPartition崩溃修复.md) | MD | 10-14 |
