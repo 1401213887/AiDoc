@@ -4,7 +4,7 @@
 >
 > - **互链约定**：全部相对路径，文件不移动，与 git 自动备份兼容。
 > - **本页由 `generate_index.py` 自动生成**，新增文档后重跑脚本即可刷新。
-> - 文档总数：**199** · 更新：2026-10-23
+> - 文档总数：**201** · 更新：2026-10-24
 
 ---
 
@@ -19,7 +19,7 @@
 | 05 | [05 · 崩溃与稳定性](#05-崩溃与稳定性) | 6 | 崩溃定位与修复：VT / SkeletalMesh / UseAfterFree、帧率掉档排查 |
 | 06 | [06 · Profiling 工具与教程](#06-Profiling-工具与教程) | 11 | 高通 SDP / Adreno / Snapdragon Profiler、UE Insights、CPU Trace 工具链 |
 | 07 | [07 · 项目专项分析](#07-项目专项分析) | 2 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
-| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 93 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
+| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 95 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
 
 ---
 
@@ -184,6 +184,8 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [UE5 AddPrimitive 与 RemovePrimitive 并发：SceneUpdateCommandQueue 空 SceneInfo 崩溃与 claim 作用域修复](./UE5-AddPrimitive与RemovePrimitive并发-SceneUpdateCommandQueue空SceneInfo崩溃-claim作用域修复.md) | MD | 10-23 |
+| [UE5-AddPrimitive与RemovePrimitive并发-SceneUpdateCommandQueue空SceneInfo崩溃-claim作用域修复](./UE5-AddPrimitive与RemovePrimitive并发-SceneUpdateCommandQueue空SceneInfo崩溃-claim作用域修复.html) | HTML | 10-23 |
 | [UE5 Dynamic Texture2DArray 异步 Mip 读取：同步 IO 自锁根因与异步状态机改造](./UE5-DynamicTexture2DArray-异步Mip读取-同步IO自锁根因与异步状态机改造.md) | MD | 10-22 |
 | [UE5-DynamicTexture2DArray-异步Mip读取-同步IO自锁根因与异步状态机改造](./UE5-DynamicTexture2DArray-异步Mip读取-同步IO自锁根因与异步状态机改造.html) | HTML | 10-22 |
 | [NeoRing特效用例-CPU使用率优化-utrace热点分析与参数AB](./NeoRing特效用例-CPU使用率优化-utrace热点分析与参数AB.html) | HTML | 10-22 |
