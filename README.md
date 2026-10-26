@@ -4,7 +4,7 @@
 >
 > - **互链约定**：全部相对路径，文件不移动，与 git 自动备份兼容。
 > - **本页由 `generate_index.py` 自动生成**，新增文档后重跑脚本即可刷新。
-> - 文档总数：**205** · 更新：2026-10-25
+> - 文档总数：**210** · 更新：2026-10-26
 
 ---
 
@@ -19,7 +19,7 @@
 | 05 | [05 · 崩溃与稳定性](#05-崩溃与稳定性) | 6 | 崩溃定位与修复：VT / SkeletalMesh / UseAfterFree、帧率掉档排查 |
 | 06 | [06 · Profiling 工具与教程](#06-Profiling-工具与教程) | 11 | 高通 SDP / Adreno / Snapdragon Profiler、UE Insights、CPU Trace 工具链 |
 | 07 | [07 · 项目专项分析](#07-项目专项分析) | 2 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
-| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 99 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
+| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 104 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
 
 ---
 
@@ -184,6 +184,11 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [UE5-MaterialInstance父代理空指针-父材质先于子FinishDestroy-父销毁断开子链接修复](./UE5-MaterialInstance父代理空指针-父材质先于子FinishDestroy-父销毁断开子链接修复.html) | HTML | 10-25 |
+| [UE5 材质实例父代理空指针：父材质先于子 FinishDestroy 与「父销毁断开子链接」修复](./UE5-MaterialInstance父代理空指针-父材质先于子FinishDestroy-父销毁断开子链接修复.md) | MD | 10-25 |
+| [NeoRing 客户端 CPU 优化最终报告（RTX 2060 + GTX 1060 双机型）](./NeoRing-CPU优化最终报告-双机型-2026-10-24.md) | MD | 10-25 |
+| [BuildSVTVHM 流水线启动参数分析](./BuildSVTVHM流水线启动参数分析.md) | MD | 10-25 |
+| [NeoRing GTX 1060 机型 CPU 优化报告](./NeoRing-1060机型CPU优化报告-2026-10-24.md) | MD | 10-25 |
 | [TAPD 1270542 — 材质父代理空指针崩溃：跨分支交接文档](./TAPD-1270542-材质父代理空指针-跨分支交接.md) | MD | 10-24 |
 | [TAPD 1271073 — 载具位姿被 `-inf` 覆盖并污染角色 Bounds：跨分支交接文档](./TAPD-1271073-载具Inf位置污染-跨分支交接.md) | MD | 10-24 |
 | [NeoRing 客户端 CPU 优化项全量报告（生效 + 不生效）](./NeoRing-CPU优化项全量报告-2026-10-23.md) | MD | 10-24 |
