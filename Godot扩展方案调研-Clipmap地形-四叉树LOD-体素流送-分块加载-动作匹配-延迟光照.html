@@ -1,0 +1,130 @@
+<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'><title>Godot扩展方案调研-Clipmap地形-四叉树LOD-体素流送-分块加载-动作匹配-延迟光照</title><style>
+body{margin:0;background:#16191e;color:#e6edf3;font:16px/1.65 'Segoe UI','Microsoft YaHei',sans-serif}
+main{max-width:920px;margin:0 auto;padding:32px 20px 80px}
+h1{font-size:24px;font-weight:650;line-height:1.35;margin:0 0 12px}
+h2{font-size:18px;margin:32px 0 10px;font-weight:650}
+p{margin:8px 0}
+.cap{color:#9eb0c2;font-size:13px;margin-top:4px}
+pre{background:#101318;padding:12px 14px;overflow:auto;font:13px/1.5 Consolas,monospace;color:#d5deea}
+code{font:13px Consolas,monospace;color:#d5deea}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+th,td{border:1px solid #33404e;padding:6px 8px;vertical-align:top;text-align:left}
+th{background:#1e252e}
+a{color:#8eb4d4}
+svg{max-width:100%;height:auto;background:#12161b;margin-top:8px}
+</style></head><body><main><h1>Godot扩展方案调研-Clipmap地形-四叉树LOD-体素流送-分块加载-动作匹配-延迟光照</h1><p>调研对象是 Godot 4 上已经有人做成扩展或引擎草稿的 3D 缺口方案。快照日期 2026-10-30。Terrain3D、HTerrain、VoxelViewer、OWDB、动作匹配的结论能回到下载到 <code>E:\AiTemp\godot-ext-survey</code> 的源码行。其余方案只读了仓库说明或 PR 正文，正文里单独标了证据等级。Godot 引擎侧对照的是本机 <code>F:\godot</code> 4.8.0 beta。</p>
+<p><strong>目录</strong></p>
+<p>1. Terrain3D 几何 Clipmap</p>
+<p>2. HTerrain 四叉树分块</p>
+<p>3. Voxel Tools 观察者驱动流送</p>
+<p>4. Open World Database 按尺寸分块</p>
+<p>5. 动作匹配特征库</p>
+<p>6. Forward+ 延迟光照草稿</p>
+<p>7. 其余扩展</p>
+<p>8. 对照</p>
+<h2>Terrain3D 几何 Clipmap</h2>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 200" width="960" height="200">
+<rect x="16" y="28" width="200" height="72" fill="none" stroke="#8aa0b8"/>
+<text x="116" y="52" font-size="14" text-anchor="middle" fill="#e8eef4">平坦网格 生成一次</text>
+<text x="116" y="74" font-size="12" text-anchor="middle" fill="#9eb0c2">TILE EDGE FILL TRIM</text>
+<text x="250" y="64" font-size="12" text-anchor="start" fill="#c5d4e4">transform</text>
+<rect x="330" y="28" width="200" height="72" fill="none" stroke="#8aa0b8"/>
+<text x="430" y="52" font-size="14" text-anchor="middle" fill="#e8eef4">snap 按 LOD 对齐</text>
+<text x="430" y="74" font-size="12" text-anchor="middle" fill="#9eb0c2">step = 2^(lod+1)*spacing</text>
+<text x="560" y="64" font-size="12" text-anchor="start" fill="#c5d4e4">xz + scale</text>
+<rect x="640" y="28" width="300" height="72" fill="none" stroke="#8aa0b8"/>
+<text x="790" y="52" font-size="14" text-anchor="middle" fill="#e8eef4">顶点着色器读高度图</text>
+<text x="790" y="74" font-size="12" text-anchor="middle" fill="#9eb0c2">v_vertex.y = h  再乘 VIEW</text>
+<text x="24" y="150" font-size="13" text-anchor="start" fill="#c5d4e4">高度 RF 与控制 RF 按区域进 sampler2DArray。洞在顶点阶段把 x 写成 0/0。</text>
+<text x="24" y="174" font-size="13" text-anchor="start" fill="#c5d4e4">网格不带 UV2，作者说明光照贴图烤不了。碰撞是另一份 Height 形状，不是这张 GPU 网格。</text>
+</svg>
+<p class='cap'>图 1　Terrain3D：网格只提供 xz，高度来自区域纹理。</p>
+<p>这一套把地形画成一套绕相机转的平坦网格，高度不在网格里，在顶点着色器里从高度图读出来。</p>
+<p>它是 C++ GDExtension，官方编辑器不用重编。作者文档写网格生成一次，周期性把网格中心挪到相机，LOD 做在启动时生成的网格块里，不是相机往前走就销毁远处块、新建近处块。本次核对的是 GitHub <code>main</code> 上的网格器和着色器。</p>
+<p>数据按区域存。一个 <code>Terrain3DRegion</code> 有三张图：高度 <code>FORMAT_RF</code>，控制 <code>FORMAT_RF</code>，颜色 <code>FORMAT_RGBA8</code>。控制图用 <code>floatBitsToUint</code> 解出洞。实例（植被）另存在区域的字典里，不进这三张图。</p>
+<pre>Terrain3DRegion
+  height_map   RF
+  control_map  RF     洞、自动纹理等控制位
+  color_map    RGBA8  或压缩颜色图
+  instances    Dictionary</pre>
+<p>网格块类型在 <code>Terrain3DMesher</code> 里是固定枚举：<code>TILE</code>、<code>EDGE_A</code>、<code>EDGE_B</code>、<code>FILL_A</code>、<code>FILL_B</code>，LOD0 用 <code>STANDARD_TRIM_A/B</code> 占据和 FILL 相同的槽。每一级 LOD 把这些块实例化进 <code>RenderingServer</code>，材质是同一份。</p>
+<p>相机移动时 <code>snap()</code> 先把目标位置写进材质参数 <code>_target_pos</code>。位移小于 <code>vertex_spacing / 2^tessellation</code> 就只更新着色器参数，不挪实例。过了这个阈值，位置按 <code>vertex_spacing</code> 取整，再按 LOD 用 <code>snap_step = 2^(lod+1) * vertex_spacing</code> 对齐。实例缩放的 xz 是 <code>2^lod * vertex_spacing</code>，y 保持 1。对齐后的变换用 <code>instance_set_transform</code> 写回去，并 <code>instance_teleport</code>，避免物理插值把静态地面拖出残影。</p>
+<p>顶点着色器拿到的是这块平坦网格的世界 xz。LOD 交界用 <code>vertex_lerp</code> 把顶点从细网格挪到粗网格的位置上，避免两级 LOD 对不齐。高度：当该块缩放小于 <code>_vertex_spacing</code>（LOD0 那档）时，对四邻域高度做双线性，权重是 <code>(1-fx)*fy</code>、<code>fx*fy</code>、<code>fx*(1-fy)</code>、<code>(1-fx)*(1-fy)</code>。更粗的 LOD 则在 morph 前的位置和 morph 后的位置各取一次高度，再按 <code>vertex_lerp</code> 混合。最后 <code>v_vertex.y = h</code>，再用视图矩阵写 <code>VERTEX</code>。洞把 <code>v_vertex.x</code> 写成 <code>0/0</code>，让图元丢掉。</p>
+<p>碰撞不是这张 GPU 网格。文档写动态模式只在相机周围生成形状，完整模式为每个区域生成形状。导航不能走 <code>NavigationRegion3D</code> 自带的烘焙按钮，要用 Terrain3D 自己的烘焙器。光照贴图作者在议题里写明做不到：没有静态网格，也没有 UV2。</p>
+<p>图 1 的数据：<code>snap_step = 2^(lod+1) * vertex_spacing</code>，<code>lod_scale.xz = 2^lod * vertex_spacing</code>，高度双线性四权重如上。源码：<code>terrain_3d_region.h:17-35</code>，<code>terrain_3d_mesher.h:14-24</code>，<code>terrain_3d_mesher.cpp:319-344</code>，<code>terrain_3d_mesher.cpp:397-400</code>，<code>terrain3d_main.glsl:161-177</code>，<code>terrain3d_main.glsl:195-212</code>，<code>terrain3d_main.glsl:231-251</code>。</p>
+<h2>HTerrain 四叉树分块</h2>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 180" width="960" height="180">
+<rect x="16" y="24" width="180" height="64" fill="none" stroke="#8aa0b8"/>
+<text x="106" y="50" font-size="14" text-anchor="middle" fill="#e8eef4">视点 view_pos</text>
+<text x="106" y="70" font-size="12" text-anchor="middle" fill="#9eb0c2">每帧 update</text>
+<text x="220" y="56" font-size="12" text-anchor="start" fill="#c5d4e4">距离</text>
+<rect x="280" y="24" width="280" height="64" fill="none" stroke="#8aa0b8"/>
+<text x="420" y="48" font-size="14" text-anchor="middle" fill="#e8eef4">与 split_distance 比</text>
+<text x="420" y="70" font-size="12" text-anchor="middle" fill="#9eb0c2">base * 2^lod * scale</text>
+<text x="580" y="56" font-size="12" text-anchor="start" fill="#c5d4e4">近则拆</text>
+<rect x="650" y="24" width="290" height="64" fill="none" stroke="#8aa0b8"/>
+<text x="795" y="48" font-size="14" text-anchor="middle" fill="#e8eef4">四子块 LOD-1</text>
+<text x="795" y="70" font-size="12" text-anchor="middle" fill="#9eb0c2">远且子块无孙则合并</text>
+<text x="24" y="130" font-size="13" text-anchor="start" fill="#c5d4e4">网格是平的，顶点 Y=0，步长 stride = 1&lt;&lt;lod。接缝用 4 位掩码，16 种索引缓存。</text>
+<text x="24" y="154" font-size="13" text-anchor="start" fill="#c5d4e4">split_scale 钳在 2 到 5。HTerrain 节点默认 chunk_size = 32。</text>
+</svg>
+<p class='cap'>图 2　HTerrain：距离驱动四叉树拆合，网格顶点 Y 为 0。</p>
+<p>这一套把高度图切成固定大小的块，近处拆成四个子块，远处合成一个粗块。网格仍然是平的，高度留给着色器。</p>
+<p>实现全是 GDScript。作者在仓库说明里写自己只修 bug。默认块大小在 <code>hterrain.gd</code> 是 32。LOD 层数由 <code>compute_lod_count</code> 决定：分辨率不断右移，直到不大于块大小，次数就是最大深度，层数是深度加 1。例如分辨率 1024、块 32，右移 5 次，层数 6（深度 0 到 5）。</p>
+<p>每帧 <code>update(view_pos)</code> 从最粗的根往下走。块的世界中心是 <code>chunk_size * (origin + 0.5)</code>，<code>chunk_size = base_size * 2^lod</code>。垂直范围回调会把中心的 y 设成该块高度范围的中点，避免高山或深谷只用 xz 距离误判。分裂距离是 <code>base_size * 2^lod * split_scale</code>。<code>split_scale</code> 钳在 2 到 5。视点比这个距离近，并且当前 lod 大于 0，就拆成四个子块，子块原点是父原点乘 2 再加 <code>(i&amp;1, (i&amp;2)>>1)</code>，每个子块做一个 <code>lod-1</code> 的块，父块回收。四个子块都没有自己的孩子，并且视点已经远于分裂距离，就回收四个子块，父块做一个当前 lod 的块。</p>
+<p>网格在 <code>HTerrainMesher</code> 里按接缝掩码和 LOD 缓存。接缝是 4 位：左 1、右 2、下 4、上 8，一共 16 种。<code>make_flat_chunk</code> 的顶点是 <code>Vector3(x * stride, 0, y * stride)</code>，<code>stride = 1 &lt;&lt; lod</code>。所以 LOD0 是每格 1 个单位，LOD1 是 2，LOD2 是 4。接缝通过改索引，让粗块边缘的三角形跨两格，去接细块。块自己是 <code>RenderingServer</code> 的 instance，Godot 4.4 起会关掉物理插值，否则新建的静态块会闪。</p>
+<p>图 2 的数据：<code>split_distance = base_size * (1&lt;&lt;lod) * split_scale</code>，<code>split_scale</code> 范围 2 到 5，默认 <code>chunk_size</code> 32，顶点 Y 恒 0，<code>stride = 1&lt;&lt;lod</code>。源码：<code>hterrain.gd:215</code>，<code>quad_tree_lod.gd:50-61</code>，<code>quad_tree_lod.gd:71-77</code>，<code>quad_tree_lod.gd:97-143</code>，<code>hterrain_mesher.gd:4-8</code>，<code>hterrain_mesher.gd:39-54</code>，<code>hterrain_chunk.gd:32-33</code>。</p>
+<h2>Voxel Tools 观察者驱动流送</h2>
+<p>这一套不是高度场。体素能有悬空、隧道和运行时挖改。表面用 Transvoxel 或方块网格化，数据按块进出内存。</p>
+<p><code>VoxelViewer</code> 是一个 <code>Node3D</code>，注释写明放在玩家相机下，用来触发周围体素加载，离观察者近的更新优先。默认视距 128（世界单位）。垂直视距是视距乘 <code>view_distance_vertical_ratio</code>，默认 1。三个开关分开：要不要可视、要不要碰撞、要不要数据块通知。还有 <code>network_peer_id</code>，给多人各自一个观察者。</p>
+<p>可变 LOD 地形的 clipbox 流送入口是 <code>process_clipbox_streaming</code>。它收下观察者列表、体积变换，写出要存盘的数据块和要加载的数据块，并带 <code>can_load</code>、<code>can_mesh</code> 两个闸。本次只读了这个函数签名和 <code>voxel_viewer.h</code>，没有读 <code>.cpp</code> 里的块坐标计算，所以不写块边长和八叉树分裂公式。</p>
+<p>仓库文档写过：流送时不能编辑还没加载的边界，用 <code>VoxelTool.is_area_editable()</code> 判断。GDExtension 移植议题里，作者在 2023-11 写扩展能在编辑器里跑，但测试不够，崩溃仍可能偏多，编进引擎的模块版更稳。2025-10 该跟踪议题仍开着。本次没有复测 2026 年的扩展构建。</p>
+<p>源码：<code>voxel_viewer.h:10-12</code>，<code>voxel_viewer.h:57-64</code>，<code>voxel_clipbox.h:9-18</code>。</p>
+<h2>Open World Database 按尺寸分块</h2>
+<p>这一套不生成地形。它把已经摆在场景里的节点，按尺寸档装进不同大小的格子，相机（以及别的位置点）靠近才加载。</p>
+<p><code>ChunkManager</code> 持有 <code>loaded_chunks</code>、<code>chunk_requirements</code>、<code>position_registry</code>。每个位置点调用 <code>_calculate_position_requirements</code>：尺寸档从大到小走。<code>ALWAYS_LOADED</code> 或超出 <code>_chunk_sizes</code> 的档，需求记在一个固定的常驻块坐标上。其余档用该尺寸算这个位置需要哪些块坐标，再 <code>_add_chunk_requirement</code>。位置不再需要的块进入 <code>pending_chunk_operations</code>，键是 <code>"unload"</code>，交给 <code>batch_processor</code> 分批做，避免一帧卸完。</p>
+<p>主机模式自己管加载。<code>clear_autonomous_chunk_management</code> 用于 PEER，关掉本地自主装卸。另有 <code>enable_load_all_chunks_mode</code>，把世界上已有的块全部加载，再切回按位置加载时，会先记下之前加载的块，按新需求把多余的排队卸载。</p>
+<p>作者在 README 里警告：加载卸载可能意外删节点，要备份。本次下载了 <code>chunk_manager.gd</code>，没有把批处理器和节点序列化逐函数读完。资产页写的引擎版本是 4.4，插件版本字符串 0.6h。</p>
+<p>源码：<code>owdb_chunk_manager.gd:6-16</code>，<code>owdb_chunk_manager.gd:39-56</code>，<code>owdb_chunk_manager.gd:79-114</code>。</p>
+<h2>动作匹配特征库</h2>
+<p>这一套不播状态机。它把动画库烘成姿态数据库，运行时用角色当前轨迹和速度去库里找最接近的一帧，再把那一帧所在的动画和时间交回 <code>AnimationTree</code>。</p>
+<p><code>MMAnimationLibrary</code> 继承 <code>AnimationLibrary</code>。<code>bake_data</code> 吃角色、<code>AnimationMixer</code> 和 <code>Skeleton3D</code>。烘出来的库存是平行数组：<code>motion_data</code>（浮点特征）、<code>db_anim_index</code>、<code>db_time_index</code>、<code>db_pose_offset</code>，外加 KD 树的 <code>node_indices</code>。采样率字段默认 1。查询有两条路径：<code>_search_naive</code> 和 <code>_search_kd_tree</code>。代价按特征拆开，可选写进 <code>feature_costs</code>。</p>
+<p>查询输入 <code>MMQueryInput</code> 带目标速度、当前朝向、控制器速度和变换、角色变换、未来轨迹、历史轨迹、骨骼状态。<code>is_valid()</code> 要求轨迹非空。输出是姿态下标、动画名、时间、总代价、匹配帧数据。</p>
+<p>README 写集成在 Godot 4.4 的 <code>AnimationTree</code> 上，动画要有根运动，根骨骼在脚的高度。本次核对的是 <code>master</code> 的头文件，没有读 KD 树实现和特征分量的具体公式，所以不写特征维数。另一个仓库 Remi123/MotionMatching 面向 Godot 4.2，作者写明 <code>MMAnimationLibrary</code> 和 MotionFeatures 还不能用，只有惯性过渡播放器相对稳。那一份不应当动作匹配库用。</p>
+<p>源码：<code>mm_animation_library.h:25-37</code>，<code>mm_animation_library.h:41-58</code>，<code>mm_query.h:16-43</code>。</p>
+<h2>Forward+ 延迟光照草稿</h2>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 170" width="960" height="170">
+<rect x="16" y="24" width="200" height="64" fill="none" stroke="#8aa0b8"/>
+<text x="116" y="48" font-size="14" text-anchor="middle" fill="#e8eef4">不透明几何</text>
+<text x="116" y="70" font-size="12" text-anchor="middle" fill="#9eb0c2">跳过前向光照</text>
+<text x="236" y="56" font-size="12" text-anchor="start" fill="#c5d4e4">GBuffer</text>
+<rect x="310" y="24" width="250" height="64" fill="none" stroke="#8aa0b8"/>
+<text x="435" y="48" font-size="14" text-anchor="middle" fill="#e8eef4">反照率 位置 法线 ORM</text>
+<text x="435" y="70" font-size="12" text-anchor="middle" fill="#9eb0c2">环境光仍写颜色缓冲</text>
+<text x="580" y="56" font-size="12" text-anchor="start" fill="#c5d4e4">compute</text>
+<rect x="660" y="24" width="280" height="64" fill="none" stroke="#8aa0b8"/>
+<text x="800" y="48" font-size="14" text-anchor="middle" fill="#e8eef4">光照后处理</text>
+<text x="800" y="70" font-size="12" text-anchor="middle" fill="#9eb0c2">透明物体仍走前向</text>
+<text x="24" y="124" font-size="13" text-anchor="start" fill="#c5d4e4">草稿 PR 106230。点光聚光、编辑器、MSAA、雾、用户 light() 作者列为未完成。</text>
+<text x="24" y="148" font-size="13" text-anchor="start" fill="#c5d4e4">本次没有把 deferred_renderer 分支检出到本地，通道名以 PR 说明为准。</text>
+</svg>
+<p class='cap'>图 3　PR 106230：不透明写 GBuffer，透明仍走前向。</p>
+<p>这一套想在现有 Forward+ 里加一个开关：不透明物体不在几何着色器里算灯，改写成 GBuffer，再由 compute 后处理算光照。透明物体仍走原来的前向。</p>
+<p>依据是 Godot PR 106230 的说明（BastiaanOlij，草稿，2025-05 开，2026-02 仍有更新）。说明里的 GBuffer 是反照率、位置、法线、ORM。环境和 GI 先写进颜色缓冲。光照 compute 读 GBuffer，假装还在场景片元着色器的后半段，套同一套光照代码。作者列出的未完成项：编辑器里采样器报错跑不起来；按是否开启延迟去裁着色器变体；把聚类数据交给光照 pass；层和实例索引还没存，于是除了 unshaded，所有灯照所有几何；点光和聚光的光照代码还没接上。说明里还写：用户 <code>light()</code> 会被忽略；MSAA 当时不能用，可能以后也不能；SSAO、SSR、SSIL 可能是坏的；雾是坏的；<code>shadow_to_opacity</code> 在非 unshaded 下不行；透射、rim、clearcoat 一类逐材质光照项列在不兼容清单里（说明在 “similar settings will” 处截断，后半句本次没看到）。</p>
+<p>多视图说明写了能走，但聚类按眼睛分缓冲的旧办法在延迟路径上不行。本次没有检出 <code>deferred_renderer</code> 分支，通道布局没有本地行号。</p>
+<p>官方架构文档写过以后可能会做聚类延迟。那是方向，不是这个 PR 已经合进 4.8。本机 <code>F:\godot</code> 的主帧颜色 pass 仍然在 <code>scene_forward_clustered.glsl</code> 里直接跑光照。</p>
+<h2>其余扩展</h2>
+<p>下面这些没有逐行下载实现。原理按仓库说明记，不补作者没写的公式。</p>
+<p><strong>Chunx</strong>（SlashScreen/chunx，Godot 4.2+）。给手工摆的开放世界做分块，不是程序生成世界。编辑器里直接放在 <code>WorldStreamer</code> 下的 <code>Node3D</code> 会被分进块，移动时重新分块。只有块节点的直接子节点会跨块重分，避免把一个 NPC 的子层级拆开。块存盘，编辑器相机和游戏主相机都会按半径加载。作者标了 alpha，已知问题包括磁盘文件刷新弹窗、块边界选择错乱、新建块报错。README 写可配置块尺寸和加载半径，并提到 HLOD，本次没看到 HLOD 的网格合并实现。</p>
+<p><strong>godot4-auto-chunk</strong>（DigitallyTailored/godot4-auto-chunk）。一个挂在节点上的工具脚本。<code>chunk_size</code> 定格，<code>chunk_range</code> 定相机周围加载几圈。脚本下的 <code>Node3D</code> 在编辑器里被存进对应块场景，空块不存。<code>chunk_size</code> 在已经有块之后不能改。没有网络同步，也没有按物体尺寸分档。</p>
+<p><strong>Scatter Tool</strong>（资产库，Godot 4.2，CC0）。把植被、带碰撞的物体和场景刷到关卡上，避免一个个从文件系统拖。本次没下载脚本，不知道它最终是生成 MultiMesh 还是生成一堆节点。</p>
+<p><strong>Foliage3D</strong>（caphindsight/Foliage3D）。绑死 Terrain3D。不手刷，按地形贴图名在格子上程序化生成。<code>FoliageLayer</code> 有间距和 <code>terrain_texture_names</code>。LOD 由作者手工配，近处 LOD0 可以异步换成带碰撞的场景实例，远处留 MultiMesh。作者写 GDScript 且多线程。</p>
+<p><strong>Waterways</strong>（Tshmofen/waterways-net）。Godot 4 / .NET 的贝塞尔河面。作者去掉了原版的流动烘焙和高度烘焙，流动顺着曲线走，河床高度用射线打碰撞。测试资源依赖 Zylann 的高度图插件。它不生成海洋。Terrain3D 1.1 预发布说明里另有一份海洋网格和默认着色器，那是 Terrain3D 自己的 extras，不是这个插件。</p>
+<p><strong>动态阴影贴花</strong>（dinazaber/Godot-Dynamic-Shadows-For-Static-Lightmaps）。给已经烘焙光照贴图的场景补动态物体的影子。两种：贴花圆影，和自上而下的正交视口阴影，轮廓来自视口纹理。作者写明只做俯视投影，投射者不能互相投影，剪影阴影会同时投到上下表面。这不是虚拟阴影贴图，也不是方向光阴影缓存。</p>
+<p><strong>Nanite 名目的两个仓库。</strong> AtlerGibby/GodotNanite 作者写明是网格分块流送的学习项目，不建议正式项目使用。限制包括所有物体共用一个材质、不支持光照贴图、闪烁、块生成耗时长。HammerVala/NaniteGodot 的说明书写了层次聚类和 GPU 剔除，本次没有核到可编译发布，不当成能用的实现。Juan Linietsky 的 GPU-driven 笔记（gist）写的是另一条：不透明进 GBuffer，阴影和 GI 用光追，不追求 Nanite 那种无网格层次 LOD。那是笔记，没有对应插件。</p>
+<p><strong>运行时虚拟纹理。</strong> 没有找到给任意网格用的 RVT 插件。引擎 <code>StreamedTexture2D</code> 是 mip 流送，文档标实验。体素示例 shader 引用过 <code>virtual_texturing.gdshaderinc</code>，那是体素地形贴图路径，本次没有读该 inc 文件。</p>
+<h2>对照</h2>
+<table><tr><th>方案</th><th>运行时产物</th><th>谁决定细节</th><th>和引擎几何的关系</th><th>证据</th></tr><tr><td>Terrain3D</td><td>一套重复使用的 clipmap 实例</td><td>顶点着色器读区域高度图</td><td>网格在动，高度在着色器里。导航和碰撞另做</td><td>已下载源码</td></tr><tr><td>HTerrain</td><td>四叉树上的块实例</td><td>距离小于分裂距离就拆成四块</td><td>平网格，高度在着色器里。接缝在索引里</td><td>已下载源码</td></tr><tr><td>Voxel Tools</td><td>体素块网格</td><td>VoxelViewer 视距，默认 128</td><td>网格由体素重算。能挖、能悬空</td><td>头文件，未读流送 cpp</td></tr><tr><td>OWDB</td><td>场景节点的加载和卸载</td><td>位置点需要的尺寸档块</td><td>不改网格。可能误删节点</td><td>已下载 chunk_manager</td></tr><tr><td>Chunx / auto-chunk</td><td>场景块</td><td>相机半径或圈数</td><td>不改网格。作者标不稳定或只是脚本</td><td>仅 README</td></tr><tr><td>动作匹配</td><td>动画名和时间</td><td>KD 树或线性扫描特征</td><td>接 AnimationTree。要根运动</td><td>已下载头文件</td></tr><tr><td>延迟 PR 106230</td><td>GBuffer 加 compute 光照</td><td>不透明走延迟，透明走前向</td><td>要改引擎着色器。草稿未完成</td><td>仅 PR 说明</td></tr></table>
+<p>图 1、图 2、图 3 里的数值都已写进对应章节，没有只出现在图里的数字。</p>
+<h2>参考</h2>
+<ul><li>Terrain3D 架构说明：<a href='https://terrain3d.readthedocs.io/en/latest/docs/system_architecture.html'>https://terrain3d.readthedocs.io/en/latest/docs/system_architecture.html</a></li><li>Terrain3D 导航说明：<a href='https://terrain3d.readthedocs.io/en/latest/docs/navigation.html'>https://terrain3d.readthedocs.io/en/latest/docs/navigation.html</a></li><li>Terrain3D 光照贴图议题：<a href='https://github.com/TokisanGames/Terrain3D/issues/205'>https://github.com/TokisanGames/Terrain3D/issues/205</a></li><li>HTerrain：<a href='https://github.com/Zylann/godot_heightmap_plugin'>https://github.com/Zylann/godot_heightmap_plugin</a></li><li>Voxel Tools：<a href='https://github.com/Zylann/godot_voxel'>https://github.com/Zylann/godot_voxel</a></li><li>GDExtension 跟踪议题：<a href='https://github.com/Zylann/godot_voxel/issues/442'>https://github.com/Zylann/godot_voxel/issues/442</a></li><li>Open World Database：<a href='https://github.com/DigitallyTailored/Godot-Open-World-Database'>https://github.com/DigitallyTailored/Godot-Open-World-Database</a></li><li>Chunx：<a href='https://github.com/SlashScreen/chunx'>https://github.com/SlashScreen/chunx</a></li><li>godot4-auto-chunk：<a href='https://github.com/DigitallyTailored/godot4-auto-chunk'>https://github.com/DigitallyTailored/godot4-auto-chunk</a></li><li>动作匹配：<a href='https://github.com/GuilhermeGSousa/godot-motion-matching'>https://github.com/GuilhermeGSousa/godot-motion-matching</a></li><li>Remi123 MotionMatching：<a href='https://github.com/Remi123/MotionMatching'>https://github.com/Remi123/MotionMatching</a></li><li>延迟草稿 PR：<a href='https://github.com/godotengine/godot/pull/106230'>https://github.com/godotengine/godot/pull/106230</a></li><li>GPU-driven 笔记：<a href='https://gist.github.com/reduz/c5769d0e705d8ab7ac187d63be0099b5'>https://gist.github.com/reduz/c5769d0e705d8ab7ac187d63be0099b5</a></li><li>本地快照目录：<code>E:\AiTemp\godot-ext-survey</code>，对应 GitHub <code>main</code>/<code>master</code>，下载于 2026-10-30。</li></ul></main></body></html>
