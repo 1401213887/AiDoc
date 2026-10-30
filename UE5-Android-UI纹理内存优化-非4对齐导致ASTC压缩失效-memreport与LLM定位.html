@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5 Android UI 纹理内存优化 · 非 4 对齐导致 ASTC 压缩失效</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --ink:#1a1d21; --ink2:#4a5158; --ink3:#7a828a;
+    --line:#e2e6ea; --accent:#2f6feb; --accent-soft:#eaf1fe;
+    --pc:#2f6feb; --mobile:#d9741a; --fork:#8e44ad;
+    --ok:#1f9254; --warn:#c0392b; --note:#8a6d1f;
+    --code-bg:#f2f4f7;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.75; font-size:15px;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:40px 28px 100px}
+  header.top{
+    background:linear-gradient(135deg,#1f3a63 0%,#2f6feb 100%);
+    color:#fff; border-radius:14px; padding:34px 36px; margin-bottom:28px;
+  }
+  header.top h1{margin:0 0 10px; font-size:27px; letter-spacing:.3px}
+  header.top p{margin:0; opacity:.9; font-size:14px}
+  header.top .meta{margin-top:16px; font-size:12.5px; opacity:.82; border-top:1px solid rgba(255,255,255,.22); padding-top:12px}
+  header.top code{background:rgba(255,255,255,.18); color:#fff; padding:1.5px 6px}
+  h2{font-size:21px; margin:44px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--line)}
+  h2 .num{color:var(--accent); font-weight:700; margin-right:8px}
+  h3{font-size:17px; margin:28px 0 10px; color:var(--ink)}
+  h4{font-size:15px; margin:20px 0 8px; color:var(--ink2)}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0; padding-left:24px}
+  li{margin:5px 0}
+  code{
+    background:var(--code-bg); padding:1.5px 5px; border-radius:4px;
+    font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace; font-size:12.8px;
+  }
+  pre{
+    background:#1e232b; color:#dfe6ee; padding:14px 16px; border-radius:8px;
+    overflow-x:auto; font-size:12.5px; line-height:1.6;
+    font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  }
+  /* [fix] <pre> 内嵌 <code> 时不能让 code 自带的浅色底生效，否则浅字压浅底看不见 */
+  pre code{background:none; padding:0; border-radius:0; color:inherit; font-size:inherit; font-family:inherit}
+  pre .c{color:#94a7ba}
+  pre .k{color:#7cc4ff}
+  pre .s{color:#c3e88d}
+  .ref{
+    font-family:"Cascadia Mono",Consolas,monospace; font-size:11.5px;
+    color:var(--ink3); background:#eef1f4; border-radius:3px; padding:0 4px;
+    white-space:nowrap;
+  }
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 22px; margin:16px 0}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:13.4px; background:var(--panel)}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top}
+  th{background:#eef2f7; font-weight:600; font-size:13px}
+  tbody tr:nth-child(even){background:#fafbfc}
+  .tag{display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; font-weight:600; white-space:nowrap}
+  .t-pc{background:#e8f0fe; color:var(--pc)}
+  .t-mob{background:#fdf0e4; color:var(--mobile)}
+  .t-fork{background:#f5ebfa; color:var(--fork)}
+  .t-ok{background:#e6f6ec; color:var(--ok)}
+  .t-bad{background:#fdeaea; color:var(--warn)}
+  .callout{border-left:4px solid var(--accent); background:var(--accent-soft); padding:12px 16px; border-radius:0 8px 8px 0; margin:14px 0}
+  .callout.warn{border-color:var(--warn); background:#fdf0ef}
+  .callout.note{border-color:var(--note); background:#fdf8e8}
+  .callout.ok{border-color:var(--ok); background:#e9f7ef}
+  .callout .h{font-weight:700; margin-bottom:4px; font-size:13.5px}
+  .fig{margin:22px 0; text-align:center}
+  .fig svg{max-width:100%; height:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px}
+  .fig .cap{font-size:12.5px; color:var(--ink3); margin-top:8px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  .toc{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 22px; margin-bottom:26px}
+  .toc ol{margin:6px 0; padding-left:22px; columns:2; column-gap:30px}
+  @media(max-width:700px){.toc ol{columns:1}}
+  .toc a{color:var(--ink2); text-decoration:none}
+  .toc a:hover{color:var(--accent)}
+  .kv{font-size:13px}
+  .kv td:first-child{white-space:nowrap; font-weight:600; width:1%}
+  footer{margin-top:60px; padding-top:20px; border-top:1px solid var(--line); font-size:12.5px; color:var(--ink3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+<h1>UE5 Android UI 纹理内存优化：非 4 对齐导致的压缩失效</h1>
+<p>Unreal Engine 5.5（S1Game / Android Vulkan）大厅运行时内存从 <b>2698.55 MB</b> 收敛到约
+<b>1.6～1.8 GB</b> 的完整排查与实施记录。核心结论：纹理 1955.6 MB 里有 <b>1122.7 MB</b>
+不是"贴图太多"，而是贴图尺寸不是 4 的倍数，导致引擎强制关闭块压缩、以未压缩 32bpp 驻留。
+处理 516 个资产（三个 P4 CL），预估节省 <b>约 1340 MB</b>。</p>
+<p>第 8 章补充了 <b>LLM 实测归因</b>：稳态三项（纹理、UObject、代码段）占 65%；
+峰值高出稳态的 1602 MB 与常驻资源无关，来自纹理解码、GPU 上传、文件读取与 GPU 后备内存四个加载期临时缓冲。</p>
+<p class="meta">工具链：memreport -full · DumpLLM -CSV · stat LLMFULL · rhi.DumpResourceMemory CSV ·
+Unreal MCP（execute_python）· P4 1239353 / 1239799 / 1239904</p>
+</header>
+<h2 id="s1"><span class="num">1</span>结论与关键数据</h2><p class="lead">大厅纹理 1955.6 MB 里有 1122.7 MB 不是"贴图太多"，而是"贴图没被压缩"——因为尺寸不是 4 的倍数。LLM 实测已确认：纹理、UObject、代码段三项占稳态内存 65%，峰值缺口则来自加载期临时缓冲。</p>
+<p>三批资产处理后，纹理口径从约 <b>1955.6 MB</b> 降到约 <b>663 MB</b>；大厅稳态内存理论上限从
+<b>2698.55 MB</b> 降到 <b>1358 MB</b>，考虑口径重叠后实际预期落在 <b>1.6～1.75 GB</b>。</p>
+<table>
+<tr><th>批次</th><th>资产数</th><th>改前</th><th>改后（估算）</th><th>节省</th><th>P4 CL</th></tr>
+<tr><td>HeadFrame 头像框（钳 1024 + 4 对齐）</td><td>244</td><td>1122.7 MB</td><td>42.1 MB</td><td><b>1080.6 MB</b></td><td>1239353</td></tr>
+<tr><td>UI 贴图（仅 4 对齐，不改分辨率）</td><td>268</td><td>240.2 MB</td><td>28.8 MB</td><td><b>211.4 MB</b></td><td>1239799</td></tr>
+<tr><td>Skybox 立方体贴图（512→256）</td><td>4</td><td>64.1 MB</td><td>约 16 MB</td><td><b>约 48 MB</b></td><td>1239904</td></tr>
+<tr><td><b>合计</b></td><td><b>516</b></td><td>—</td><td>—</td><td><b>约 1340 MB</b></td><td>—</td></tr>
+</table>
+<p class="warn"><b>关键限制：</b>改后数值全部来自 bpp 推算（ASTC 6×6 = 3.56 bpp），
+<b>尚未经 cook 与真机验证</b>。真实收益必须重新出包后抓 memreport 才能确认。</p>
+<h3>LLM 实测补充（第 8 章）</h3>
+<p>后续用 Development 包 + <code>-LLM</code> 补采了一轮数据，把此前"1560.5 MB 分配器堆是盲区"这一说法消除了。
+稳态 RSS 2828.07 MB（含 LLM 自身开销 288.7 MB）。LLM Default 合计 <b>4066.4 MB</b> 的分项构成：</p>
+<table>
+<tr><th>项</th><th>大小</th><th>占比</th></tr>
+<tr><td>纹理（<code>VulkanTextures</code> + <code>VulkanRenderTargets</code>）</td><td><b>1967.7 MB</b></td><td>48%</td></tr>
+<tr><td><code>UObject</code></td><td>364.1 MB</td><td>9%</td></tr>
+<tr><td><code>ProgramSize</code>（代码段）</td><td>330.4 MB</td><td>8%</td></tr>
+<tr><td>其余 12 项合计</td><td>约 1404 MB</td><td>35%</td></tr>
+</table>
+<p><b>峰值 4430.36 MB 与常驻资源无关</b>：纹理峰值仅涨 100 MB，缺口来自
+<code>TextureMetaData</code>（峰值 1454.2）、<code>VulkanStagingBuffers</code>（1350.0）、
+<code>FileSystem</code>（1331.1）、<code>VulkanSpareMemoryGPU</code>（1304.0）四个加载期临时缓冲。
+详见 8.4。</p>
+<h3>一句话根因</h3>
+<pre>尺寸 2047x2040  →  2047 % 4 = 3  →  bNoCompression = true  →  PF_B8G8R8A8 32bpp  →  15.98 MB/张
+同规格但 4 对齐的纹理                                     →  PF_ASTC_6x6 3.56bpp →  约 1.8 MB/张</pre>
+<h2 id="s2"><span class="num">2</span>运行时内存怎么量：三层口径</h2><p class="lead">进程 RSS 判预算，LLM 判类别，memreport 与资源 CSV 判具体资产。三者口径互相重叠，不能相加。</p><figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 262" width="100%" role="img"><title>运行时内存的三层统计口径</title><desc>进程 RSS 判断预算，LLM 分类，memreport 与资源 CSV 定位具体资产；三者口径不同不可相加。</desc><defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text x="40" y="30" font-size="14" font-weight="600" fill="#1a1d21">三层口径：先判预算，再找归因</text>
+<rect x="40" y="46" width="600" height="58" rx="12" fill="#eaf1fe" stroke="#2f6feb" stroke-width="1"/>
+<text x="58" y="70" font-size="13" font-weight="600" fill="#1f3a63">① 进程口径 · RSS / 工作集 · 判预算与 OOM</text>
+<text x="58" y="90" font-size="12" fill="#4a5158">2698.55 MB 稳态 / 4303.75 MB 峰值（VmRSS / WorkingSetSize）</text>
+<path d="M340 104 V122" stroke="#7a828a" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+<text x="352" y="117" font-size="12" fill="#4a5158">知道超了，但不知道超在哪</text>
+<rect x="40" y="130" width="290" height="60" rx="10" fill="#f2f4f7" stroke="#7a828a" stroke-width="1"/>
+<text x="58" y="152" font-size="13" font-weight="600" fill="#1a1d21">② LLM 标签分类</text>
+<text x="58" y="172" font-size="12" fill="#4a5158">Textures 1955.6 / UObject / RenderTargets</text>
+<rect x="350" y="130" width="290" height="60" rx="10" fill="#f2f4f7" stroke="#7a828a" stroke-width="1"/>
+<text x="368" y="152" font-size="13" font-weight="600" fill="#1a1d21">③ 资源清单 / 快照</text>
+<text x="368" y="172" font-size="12" fill="#4a5158">memreport -full + rhi.DumpResourceMemory</text>
+<path d="M185 190 V208" stroke="#7a828a" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+<path d="M495 190 V208" stroke="#7a828a" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+<rect x="40" y="214" width="600" height="34" rx="8" fill="#fff" stroke="#e2e6ea" stroke-width="1"/>
+<text x="58" y="236" font-size="12" fill="#4a5158">落到“哪一类在涨”→ 再落到“哪张资产、什么格式、为什么没压缩”</text>
+</svg><figcaption>图 1　三层口径的分工：先知道超了，再知道超在哪一类，最后知道是哪张资产。</figcaption></figure>
+<p class="meta">口径提示：本章示例数字取自<b>未开 LLM</b> 的原始报告（15:33 那次）；第 8 章是开
+<code>-LLM</code> 后的实测（RSS 2828.07 MB，含 LLM 自身开销 288.7 MB）。两批数字<b>不可直接比较</b>。</p>
+<h3>2.1 进程口径（判断预算）</h3>
+<p>Windows 上 <code>FPlatformMemory::GetStats()</code> 的 <code>UsedPhysical</code> 取的是
+<code>WorkingSetSize</code>，<code>UsedVirtual</code> 取的是 <code>PagefileUsage</code>（即 commit charge，
+<b>不是</b>虚拟地址空间大小），见 <code>WindowsPlatformMemory.cpp:466</code>。</p>
+<p>Android 上 <code>UsedPhysical</code> 来自 <code>/proc/self/status</code> 的 <code>VmRSS</code>，
+<code>PeakUsedPhysical</code> 来自 <code>VmHWM</code>，见 <code>AndroidPlatformMemory.cpp:266</code>。
+<code>UsedVirtual</code> 对应 <code>VmSize</code>，<b>不要</b>当实际占用看。</p>
+<pre>Platform Memory Stats for Android
+Process Physical Memory: 2698.55 MB used, 4303.75 MB peak
+Physical Memory: 8640.35 MB used,  2535.75 MB free, 11176.10 MB total</pre>
+<h3>2.2 分配器口径（判断碎片与缓存）</h3>
+<p><code>FMallocBinned2</code> 的报告给出向 OS 的真实申请量：Small Pool 897.9 MB + Large Pool 590.5 MB，
+总计 <b>1560.5 MB</b>，其中 <b>342.9 MB 是空闲缓存页</b>——释放的内存在这里挂着，RSS 不会立刻下降。</p>
+<h3>2.3 资源口径（定位到资产）</h3>
+<p><code>rhi.DumpResourceMemory all -csvfile</code> 输出逐资源 CSV（本次 34941 条，合计 2233.2 MB），
+是唯一能按名字、尺寸、格式、流送标记筛选的清单。</p>
+<p class="warn"><b>口径陷阱：</b>1560.5 MB（分配器）+ 1955.6 MB（纹理）= 3516 MB，超过 RSS 2698.55 MB。
+说明纹理与堆统计<b>存在重叠</b>（部分 RHI 分配经过 UE 分配器）。所以"贴图少 1 GB"不等于"RSS 少 1 GB"。</p>
+<h2 id="s3"><span class="num">3</span>memreport -full 到底列了什么</h2><p class="lead">它不是"一个内存数字"，而是按 ini 脚本执行的一次取证快照：先 GC，再逐条 dump 到文本文件。</p><figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 236" width="100%" role="img"><title>非 4 对齐导致的压缩失效链路</title><desc>尺寸任一维不是 4 的倍数时，引擎强制 bNoCompression，整张纹理以未压缩格式驻留。</desc><defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text x="40" y="30" font-size="14" font-weight="600" fill="#1a1d21">根因链：一个 2 像素的偏差，换来 9 倍内存</text>
+<rect x="40" y="48" width="196" height="56" rx="9" fill="#fff4e6" stroke="#d9741a" stroke-width="1"/>
+<text x="58" y="70" font-size="13" font-weight="600" fill="#8a4a10">尺寸 2047x2040</text>
+<text x="58" y="90" font-size="12" fill="#8a4a10">2047 % 4 = 3</text>
+<path d="M236 76 H268" stroke="#7a828a" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+<rect x="270" y="48" width="196" height="56" rx="9" fill="#fdecea" stroke="#c0392b" stroke-width="1"/>
+<text x="288" y="70" font-size="13" font-weight="600" fill="#8f2a20">bNoCompression = true</text>
+<text x="288" y="90" font-size="12" fill="#8f2a20">Texture.cpp:4130</text>
+<path d="M466 76 H498" stroke="#7a828a" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+<rect x="500" y="48" width="140" height="56" rx="9" fill="#fdecea" stroke="#c0392b" stroke-width="1"/>
+<text x="518" y="70" font-size="13" font-weight="600" fill="#8f2a20">PF_B8G8R8A8</text>
+<text x="518" y="90" font-size="12" fill="#8f2a20">32 bpp 未压缩</text>
+<path d="M570 104 V122" stroke="#7a828a" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+<rect x="420" y="124" width="220" height="62" rx="9" fill="#eaf1fe" stroke="#2f6feb" stroke-width="1"/>
+<text x="436" y="146" font-size="12.5" font-weight="600" fill="#1f3a63">单张 2046x2046 = 15.98 MB</text>
+<text x="436" y="166" font-size="12" fill="#1f3a63">4 对齐后 ASTC 6x6 约 1.8 MB</text>
+<rect x="40" y="124" width="360" height="62" rx="9" fill="#eaf7ee" stroke="#1f9254" stroke-width="1"/>
+<text x="58" y="146" font-size="12.5" font-weight="600" fill="#14663a">对照：compression_settings 完全相同</text>
+<text x="58" y="166" font-size="12" fill="#14663a">4 对齐 34 张 = ASTC_6x6 / 7.5 MB</text>
+<text x="58" y="180" font-size="12" fill="#14663a">非对齐 245 张 = 1117.8 MB</text>
+<text x="40" y="216" font-size="11.5" fill="#7a828a">两者 TC_BC7 设置一致，唯一变量就是“两轴能否被 4 整除”。</text>
+</svg><figcaption>图 2　本次问题的完整因果链。</figcaption></figure>
+<h3>3.1 执行方式</h3>
+<p>命令会先转成延迟命令 <code>MemReportDeferred</code>，在帧末执行，顺序是
+<code>FlushAsyncLoading()</code> → <code>CollectGarbage()</code> → <code>FlushRenderingCommands()</code>
+（<code>UnrealEngine.cpp:8033</code>），因此结果是<b>GC 之后的存活对象</b>，不是峰值。</p>
+<p>输出落在 <code>FPaths::ProfilingDir() + "MemReports/"</code>（<code>UnrealEngine.cpp:8043</code>），
+子目录名由 <code>MapName-Platform-MM.DD-HH.MM.SS</code> 组成（<code>ProfilingHelpers.cpp:166</code>），
+每次执行一个新目录，便于跨场景对比。</p>
+<h3>3.2 内容由 ini 决定</h3>
+<p><code>-full</code> 会把 profile 名置为 <code>FULL</code>，读取 <code>[MemReportFullCommands]</code>
+（<code>UnrealEngine.cpp:8016-8024</code>）；不带参数读 <code>[MemReportCommands]</code>。
+两段的定义分别在 <code>BaseEngine.ini:2264</code> 与 <code>BaseEngine.ini:2301</code>。</p>
+<p>本次执行了 <b>45 条命令</b>、报告 14896 行、2.67 MB，实测耗时约 6 秒：</p>
+<table>
+<tr><th>分组</th><th>命令</th><th>产出</th></tr>
+<tr><td>进程与底层</td><td><code>Mem FromReport</code></td><td>平台内存、Binned2 分配器、FMemStack、FPageAllocator、NameTable、AssetRegistry、全部 memory 类 stat</td></tr>
+<tr><td>RHI 资源</td><td><code>rhi.DumpMemory</code>、<code>rhi.DumpResourceMemory</code> + 19 条 summary</td><td>按类型汇总 + Lumen/Nanite/Shadow/GPUScene/各类 VB·IB 分项</td></tr>
+<tr><td>资产清单</td><td><code>listTextures</code>、<code>listStaticMeshes</code>、<code>obj list</code></td><td>逐资产：尺寸、格式、LODGroup、流送、mips</td></tr>
+<tr><td>其他</td><td><code>LLMSnapshot</code>、<code>r.DumpRenderTargetPoolMemory</code>、<code>Trace.Screenshot</code></td><td>LLM 快照、RT 池、截图</td></tr>
+</table>
+<p class="warn"><b>注意：</b>本次 <code>LLMSnapshot</code> 段落为空。该命令只调
+<code>PublishDataSingleFrame()</code>，且帮助文本明确要求 <code>-llmdisableautopublish</code>
+（<code>LowLevelMemTracker.cpp:974-980</code>）；LLM 未开启时自然没有输出。</p>
+<h2 id="s4"><span class="num">4</span>LLM 是什么、能看什么、Android 上为什么默认没开</h2><p class="lead">LLM = Low-Level Memory Tracker，按"分配来源 + 标签"给内存分类；它不告诉你调用栈，也不等于进程占用。</p>
+```
+LLM 的两级 tracker：
+  Default  ← FMemory::Malloc 的分配（纹理 / UObject / 渲染目标…），子集
+  Platform ← 更底层的 OS 分配（含 Binned2 内部池）           ，超集
+两者有包含关系，不能相加。
+```
+<h3>4.1 控制台命令</h3>
+<pre>stat LLM          分类摘要
+stat LLMFULL      完整标签
+stat LLMPlatform  平台层分配
+stat LLMOverhead  LLM 自身开销
+
+-LLMCSV           逐行写 CSV 到 Saved/Profiling/LLM/（LowLevelMemTracker.cpp:6578）</pre>
+<p>本分支的写盘间隔默认是 <b>1 秒</b>（<code>LowLevelMemTracker.cpp:956</code>），
+比 Epic 文档写的 5 秒更密，短促峰值更容易被采到。</p>
+<h3>4.2 为什么 Android 真机上没开</h3>
+<p>引擎有两处会让 LLM 默认开启的定制，但都带条件：</p>
+<pre>#if UE_BUILD_DEVELOPMENT &amp;&amp; UE_GAME &amp;&amp; PLATFORM_DESKTOP   // LowLevelMemTracker.cpp:2426
+    bShouldDisable = false;   // Windows / Mac 的 Development 游戏包默认开
+#endif</pre>
+<p><code>PLATFORM_DESKTOP</code> 在 Android 上为假，所以真机 Development 包<b>仍然需要显式加 <code>-LLM</code></b>。
+本次包的启动命令行里没有该参数，这就是 <code>LLMSnapshot</code> 为空、<code>stat LLMFULL</code> 无法分类的直接原因。</p>
+<h3>4.3 逐资产标签在本分支不可用</h3>
+<p><code>LLM_ALLOW_ASSETS_TAGS</code> 被固定为 <b>0</b>（<code>LowLevelMemTracker.h:37</code>），
+此时传 <code>-llmtagsets=Assets</code> 只会得到一条警告
+（<code>LowLevelMemTracker.cpp:2526</code>），不会有逐资产统计。要开启必须改这个宏并重新编译引擎。</p>
+<p class="warn"><b>不要</b>手动定义 <code>ENABLE_LOW_LEVEL_MEM_TRACKER</code>：它现在是派生宏
+（<code>LowLevelMemTracker.h:21</code>），直接定义会触发 <code>#error</code>。</p>
+<h2 id="s5"><span class="num">5</span>根因：尺寸非 4 倍数导致块压缩被引擎跳过</h2><p class="lead">块压缩按 4×4 宏块工作，引擎对"任一维不是 4 的倍数"的纹理直接关闭压缩，与纹理组、压缩设置都无关。</p>
+<pre>// Engine/Source/Runtime/Engine/Private/Texture.cpp:4124-4133
+// Also force uncompressed if size of top mip is not a multiple of 4
+if ( (SizeX &lt; 4) || (SizeY &lt; 4) || (SizeX % 4 != 0) || (SizeY % 4 != 0) )
+{
+    bNoCompression = true;
+}</pre>
+<p>注意 <code>Texture.cpp:4121</code> 调的是 <code>Texture->GetBuiltTextureSize(...)</code>，
+即判断用的是<b>构建后的尺寸</b>（已叠加 MaxTextureSize、LODBias、PowerOfTwoMode），不是源图尺寸。</p>
+<h3>5.1 对照实验</h3>
+<p>同一批头像框、<b>压缩设置完全相同</b>（都是 <code>TC_BC7</code>），唯一变量是尺寸能否被 4 整除：</p>
+<table>
+<tr><th>分类</th><th>张数</th><th>合计</th><th>真机格式</th></tr>
+<tr><td>尺寸非 4 倍数</td><td><b>245</b></td><td><b>1117.8 MB</b></td><td><code>PF_B8G8R8A8</code>（未压缩）</td></tr>
+<tr><td>尺寸 4 对齐</td><td>34</td><td>7.5 MB</td><td><code>PF_ASTC_6x6</code>（已压缩）</td></tr>
+</table>
+<p>对照组里包含 <code>2016×1676</code>、<code>1428×1032</code>、<code>1024×968</code> 共 17 张
+<b>不是 2 的幂但 4 对齐</b>的纹理，全部压缩成功——这直接排除了"必须是 2 的幂"这个常见误解。</p>
+<p class="warn"><b>门槛是 4 的倍数，不是 2 的幂。</b> 实战中把目标尺寸定成 1024/512 更省事，
+是因为它同时满足两个条件，而不是因为 2 的幂本身有硬性要求。</p>
+<h2 id="s6"><span class="num">6</span>改尺寸的两种机制：为什么 MaxTextureSize 不可用</h2><p class="lead">MaxTextureSize 的实现是"逐次减半"，会把 2047 变成 1023（仍不是 4 的倍数）；要精确控制必须走 ResizeToSpecificResolution。</p><figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 268" width="100%" role="img"><title>两种改尺寸机制的行为差异</title><desc>MaxTextureSize 逐次减半会留下非 4 倍数尺寸；ResizeToSpecificResolution 可精确指定。</desc><defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text x="40" y="30" font-size="14" font-weight="600" fill="#1a1d21">改尺寸的两条路，只有一条能保证 4 对齐</text>
+<rect x="40" y="46" width="290" height="160" rx="10" fill="#fdecea" stroke="#c0392b" stroke-width="1"/>
+<text x="56" y="68" font-size="12.5" font-weight="600" fill="#8f2a20">A · MaxTextureSize = 1024</text>
+<text x="56" y="90" font-size="11.5" fill="#4a5158">Texture.cpp:4012 循环 SizeX &gt;&gt; 1</text>
+<text x="56" y="110" font-size="11.5" fill="#4a5158">2047x2040 → 1023x1020</text>
+<text x="56" y="130" font-size="11.5" fill="#8f2a20">1023 % 4 = 3 → 仍不压缩</text>
+<text x="56" y="154" font-size="11.5" fill="#4a5158">只适合 2 的幂：512→256 正好</text>
+<text x="56" y="174" font-size="11.5" fill="#4a5158">本次用于 4 张 Skybox 立方体贴图</text>
+<rect x="350" y="46" width="290" height="160" rx="10" fill="#eaf7ee" stroke="#1f9254" stroke-width="1"/>
+<text x="366" y="68" font-size="12.5" font-weight="600" fill="#14663a">B · ResizeToSpecificResolution</text>
+<text x="366" y="90" font-size="11.5" fill="#4a5158">pow2_mode + resize_during_build_x/y</text>
+<text x="366" y="110" font-size="11.5" fill="#4a5158">TextureBuildUtilities.cpp:335-344</text>
+<text x="366" y="130" font-size="11.5" fill="#14663a">精确输出 1024x1020，两轴 % 4 = 0</text>
+<text x="366" y="154" font-size="11.5" fill="#4a5158">本次 512 个 UI 资产全部走这条</text>
+<text x="366" y="174" font-size="11.5" fill="#4a5158">代价：全平台生效，桌面端一起缩小</text>
+<text x="40" y="232" font-size="12" fill="#4a5158">结论：4 对齐是硬门槛（决定能否压缩），1024 只是软目标（决定省多少）；</text>
+<text x="40" y="252" font-size="12" fill="#4a5158">两者冲突时让 1024 让步。</text>
+</svg><figcaption>图 3　两条改尺寸路径的行为差异，只有 B 能保证 4 对齐。</figcaption></figure>
+<pre>// Texture.cpp:4010-4021  —— MaxTextureSize 的实现
+if ( MaxTextureSize != 0 )
+{
+    while( SizeX &gt; MaxTextureSize || SizeY &gt; MaxTextureSize )
+    {
+        SizeX = FMath::Max(SizeX&gt;&gt;1,1);
+        SizeY = FMath::Max(SizeY&gt;&gt;1,1);
+    }
+}</pre>
+<p>代入实测值：<code>2047×2040</code> 设 <code>MaxTextureSize=1024</code> 后得到 <code>1023×1020</code>，
+<b>1023 % 4 = 3</b>，压缩依旧不会生效。这条路只适合本来就是 2 的幂的纹理（512→256 恰好整除）。</p>
+<h3>6.1 精确指定尺寸</h3>
+<pre>// Developer/TextureBuildUtilities/Private/TextureBuildUtilities.cpp:335-344
+case ETexturePowerOfTwoSetting::ResizeToSpecificResolution:
+    if (InResizeDuringBuildX) { TargetTextureSizeX = InResizeDuringBuildX; }
+    if (InResizeDuringBuildY) { TargetTextureSizeY = InResizeDuringBuildY; }
+    break;</pre>
+<p>要生效必须同时设三个属性：<code>power_of_two_mode = RESIZE_TO_SPECIFIC_RESOLUTION</code>、
+<code>resize_during_build_x</code>、<code>resize_during_build_y</code>。只设后两个不会生效。</p>
+<h3>6.2 移动端专用旋钮存在但被关闭</h3>
+<p>本分支在 <code>UTexture</code> 上加了资产级 <code>MoblieMaxTextureSize</code>
+（<code>Texture.h:1347</code>，拼写如此），用于"只影响移动端"的尺寸上限，
+消费点在 <code>TextureLODSettings.cpp:152</code> 与 <code>Texture2D.cpp:1589</code>。</p>
+<p>但它受 <code>UsesMobileMaxTextureSize</code> 门控，而项目所有 device profile 都把它设为
+<b>False</b>（<code>DefaultDeviceProfiles.ini:1775</code>），所以现在给资产填该值<b>不生效</b>。
+开启开关本身是安全的（全项目该值当前均为 0），随后逐资产填值即可只压移动端。</p>
+<p class="warn"><b>代价提示：</b><code>MaxTextureSize</code> 与 <code>ResizeToSpecificResolution</code>
+都是<b>全平台</b>构建设置，桌面端会一起缩小。</p>
+<h2 id="s7"><span class="num">7</span>三批资产的实际改动与收益</h2><p class="lead">统一规则：等比缩放到长边上限 → 两轴就近/向下取整到 4 的倍数；任一维 <64 的资产不动。</p><figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 300" width="100%" role="img"><title>优化前后纹理构成对比</title><desc>UI 从 1434.4 MB 降到约 142 MB，剩余大头是 Bink 视频帧、Skybox 与 World 纹理。</desc><defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text x="40" y="30" font-size="14" font-weight="600" fill="#1a1d21">纹理 1955.6 MB 的构成变化（单位 MB）</text>
+<text x="40" y="52" font-size="12" fill="#7a828a">深色：优化前　浅色/标注：优化后（估算，未 cook 验证）</text>
+<text x="40" y="88" font-size="12.5" fill="#4a5158">UI 贴图</text>
+<rect x="170" y="72" width="340" height="20" rx="4" fill="#2f6feb"/>
+<text x="518" y="87" font-size="12" fill="#1f3a63">1434.4</text>
+<rect x="170" y="96" width="34" height="14" rx="3" fill="#9dc0f5"/>
+<text x="212" y="107" font-size="11.5" fill="#4a5158">142.3</text>
+<text x="40" y="136" font-size="12.5" fill="#4a5158">Bink 视频帧</text>
+<rect x="170" y="122" width="37" height="20" rx="4" fill="#d9741a"/>
+<text x="215" y="137" font-size="12" fill="#8a4a10">154（未动）</text>
+<text x="40" y="184" font-size="12.5" fill="#4a5158">Skybox / IBL</text>
+<rect x="170" y="170" width="24" height="20" rx="4" fill="#8e44ad"/>
+<text x="202" y="185" font-size="12" fill="#6a3480">101.8 → 约 54</text>
+<text x="40" y="232" font-size="12.5" fill="#4a5158">世界/角色/特效</text>
+<rect x="170" y="218" width="23" height="20" rx="4" fill="#1f9254"/>
+<text x="201" y="233" font-size="12" fill="#14663a">96（未动）</text>
+<text x="40" y="270" font-size="12.5" fill="#4a5158">非资产纹理</text>
+<rect x="170" y="256" width="41" height="20" rx="4" fill="#7a828a"/>
+<text x="219" y="271" font-size="12" fill="#4a5158">171（未动）</text>
+<text x="40" y="292" font-size="11.5" fill="#7a828a">标尺：满格 340 px 对应 1434.4 MB，其余按同比例。</text>
+</svg><figcaption>图 4　优化前后纹理构成；UI 从 1434.4 MB 降到约 142 MB。</figcaption></figure>
+<h3>7.1 统一规则</h3>
+<pre>目标尺寸 = 等比缩放到长边上限(1024 或原尺寸) → 两轴取整到 4 的倍数 → 上限 1024、下限 4
+豁免条件 = 任一维 &lt; 64 直接跳过（不为了凑 4 而牺牲小图）
+不修改源图，只改 build setting</pre>
+<h3>7.2 HeadFrame 头像框（CL 1239353）</h3>
+<table>
+<tr><th>项</th><th>数据</th></tr>
+<tr><td>原始占用</td><td>279 张 / 1125.3 MB，其中 274 张 <code>TEXTUREGROUP_UI</code>、5 张 <code>World</code> 占位（0 MB）</td></tr>
+<tr><td>流送 / mip</td><td>100% 非流送；100% <code>NumMips=1</code>（无 mip 链，运行时无 mip 可裁）</td></tr>
+<tr><td>单张极值</td><td>2046×2046 无压缩 = 15.98 MB</td></tr>
+<tr><td>处理</td><td>244 张（3 张 &lt;64 豁免），钳到长边 1024 + 4 对齐，改后像素总量 99.30 Mpx</td></tr>
+<tr><td>收益</td><td>1122.7 → 42.1 MB，省 <b>1080.6 MB（96.3%）</b></td></tr>
+</table>
+<h3>7.3 UI 贴图仅对齐（CL 1239799）</h3>
+<p>范围：<code>/Game/Arts/UI/**</code> 与 <code>/Game/__Mobile__/Arts/UI/**</code> 中未压缩、非 4 对齐、
+≥64×64 的 268 张（<b>排除已处理的 HeadFrame</b>）。</p>
+<table>
+<tr><th>项</th><th>数据</th></tr>
+<tr><td>命中</td><td>268 张 / 240.2 MB，覆盖 27 个 UI 子目录</td></tr>
+<tr><td>主要来源</td><td><code>Icon</code> 156.8 MB（164 张）、<code>VXSpriteSheets</code> 19.6 MB、<code>Shop</code> 17.1 MB、<code>Login</code> 11.4 MB、<code>VX2DTexture</code> 9.9 MB、<code>Common</code> 5.7 MB</td></tr>
+<tr><td>处理</td><td>向下取整到 4 的倍数，<b>不改分辨率</b>（最大像素改动 3px）</td></tr>
+<tr><td>收益</td><td>240.2 → 28.8 MB，省 <b>211.4 MB</b></td></tr>
+</table>
+<p>典型尺寸 <code>468×854</code>（63 张）与 <code>548×818</code>（24 张）——宽度合规、<b>高度差 2 像素</b>，
+就把整张 1.6～1.75 MB 的图标变成未压缩。</p>
+<h3>7.4 Skybox 立方体贴图（CL 1239904）</h3>
+<table>
+<tr><th>项</th><th>数据</th></tr>
+<tr><td>资产</td><td>4 张 <code>TextureCube</code>，512×512，压缩设置已是 <code>TC_HDR_COMPRESSED</code></td></tr>
+<tr><td>真机格式</td><td><code>PF_FloatRGBA</code>（<b>未压缩浮点</b>）——Android cook 未映射成 ASTC HDR</td></tr>
+<tr><td>处理</td><td><code>max_texture_size=256</code>（512→256 是一次减半，无重采样）</td></tr>
+<tr><td>收益</td><td>16.03 → 约 4.0 MB/张，合计 64.1 → 约 16 MB，省 <b>约 48 MB</b></td></tr>
+</table>
+<h2 id="s8"><span class="num">8</span>LLM 实测：2828 MB 到底分给了谁</h2><p class="lead">按开发包 + `-LLM` 实测补齐归因。纹理 1967.7 MB、UObject 364.1 MB、代码段 330.4 MB 三项占 65%；峰值缺口 1602 MB 与常驻无关，来自四个加载期临时缓冲。</p>
+<h3>8.1 采集条件（数字口径必须先说清）</h3>
+<table>
+<tr><th>项</th><th>值</th></tr>
+<tr><td>构建</td><td><code>Config: Development</code>，设备描述 <code>Android_Adreno73x_Vulkan</code></td></tr>
+<tr><td>启动参数</td><td><code>-LLM</code>（经 <code>setprop debug.ue.commandline</code> 追加，无需重新出包）</td></tr>
+<tr><td>采集顺序</td><td>20:10:13 <code>memreport -full</code>（内部先 FlushAsyncLoading + GC）→ 20:11:03 <code>DumpLLM -CSV</code></td></tr>
+<tr><td>进程 RSS</td><td>稳态 <b>2828.07 MB</b>，峰值 <b>4430.36 MB</b></td></tr>
+<tr><td>LLM Default 合计</td><td>4066.4 MB（峰值 5238.9）</td></tr>
+<tr><td>LLM 自身开销</td><td><code>LLMOverhead</code> <b>288.7 MB</b>（峰值 360.1）——与历史数字比较时必须扣除</td></tr>
+</table>
+<p class="warn"><b>三条口径红线：</b>① 这是 Development 包，含控制台相关开销，不等于线上包；
+② <code>LLM Default Total</code> 4066.4 大于 RSS 2828.07，因为 LLM 也统计 GPU 侧分配，<b>两者不能互相当成对方</b>；
+③ 开启 LLM 后 <code>DumpLLM</code> 才是唯一有分类数据的时刻，关掉即静默返回。</p>
+
+<h3>8.2 稳态构成：三项占 65%</h3>
+<table>
+<tr><th>LLM 标签</th><th>当前</th><th>峰值</th><th>说明</th></tr>
+<tr><td><code>VulkanTextures</code></td><td><b>1656.1</b></td><td>1756.1</td><td>纹理（与下项合并对账见 8.3）</td></tr>
+<tr><td><code>UObject</code></td><td><b>364.1</b></td><td>407.8</td><td>UClass / CDO / UPackage / 组件</td></tr>
+<tr><td><code>ProgramSize</code></td><td><b>330.4</b></td><td>330.4</td><td>代码段，结构性不可削</td></tr>
+<tr><td><code>VulkanRenderTargets</code></td><td>311.6</td><td>311.6</td><td>含 Bink 视频帧 151 MB、TAA.History 29.6</td></tr>
+<tr><td><code>VulkanBuffers</code></td><td>285.3</td><td>288.0</td><td>顶点 / 蒙皮 / 索引，5222 个无单点大户</td></tr>
+<tr><td><code>VulkanSpareMemoryGPU</code></td><td>161.6</td><td><b>1304.0</b></td><td>GPU 后备内存，见 8.4</td></tr>
+<tr><td><code>CustomName</code></td><td>152.5</td><td>285.7</td><td>项目自定义 BYTAG（技能数据资产为主）</td></tr>
+<tr><td><code>FMallocUnused</code></td><td>131.7</td><td>242.7</td><td>分配器已申请未分配</td></tr>
+<tr><td><code>Shaders</code></td><td>124.4</td><td>146.7</td><td>shader 代码</td></tr>
+<tr><td><code>Audio</code> / Wwise</td><td>123.1</td><td>123.1</td><td>其中 SoundBanks <b>104.0</b></td></tr>
+<tr><td><code>EngineMisc</code></td><td>116.8</td><td>116.9</td><td>其中 ConsoleCommandsBuildList <b>107.9</b></td></tr>
+<tr><td><code>FileSystem</code></td><td>76.6</td><td><b>1331.1</b></td><td>文件读取缓存，见 8.4</td></tr>
+<tr><td><code>ConfigSystem</code></td><td>75.6</td><td>75.6</td><td>配置项，偏大但稳定</td></tr>
+<tr><td><code>Physics</code></td><td>59.8</td><td>59.8</td><td>—</td></tr>
+</table>
+<p>分配器侧交叉：<code>FMallocBinned2</code> 向 OS 共申请 <b>1557.74 MB</b>
+（Small Pool 968.5 + Large Pool 586.0），其中 <b>323.3 MB 是空闲缓存页</b>，可用于后续分配、不算泄漏。</p>
+
+<h3>8.3 三套纹理口径的对账</h3>
+<table>
+<tr><th>口径</th><th>数值</th><th>性质</th></tr>
+<tr><td><code>listTextures</code>（UTexture 资产）</td><td>1627.4 MB / 3628 条</td><td>只含挂在 <code>UTexture</code> 上的纹理</td></tr>
+<tr><td><code>rhi.DumpResourceMemory</code> CSV</td><td><b>1987.6 MB / 5358 张</b></td><td>全部 <code>Resident=Yes</code>，含 Bink / RT 等非资产纹理</td></tr>
+<tr><td>LLM <code>VulkanTextures</code> + <code>VulkanRenderTargets</code></td><td>1656.1 + 311.6 = <b>1967.7</b></td><td>GPU 实际分配</td></tr>
+</table>
+<p>后两者相差 <b>19.9 MB（1%）</b>，说明口径一致、可以互相印证；<code>listTextures</code> 少的 360 MB 是
+Bink 视频帧（154.4 MB / 61 张）与 TAA.History、CaptureCube 这类不挂资产的对象。
+<b>三个数都对，但只有 CSV 是"逐张可点名"的。</b></p>
+<p>纹理内部（本次尚未 cook，反映的是优化前状态）：</p>
+<table>
+<tr><th>分组</th><th>大小</th><th>张数</th></tr>
+<tr><td>HeadFrame（已改资产，待 cook）</td><td><b>1125.1 MB</b></td><td>269</td></tr>
+<tr><td>UI/2DTexture/Icon（已改，待 cook）</td><td>164.1 MB</td><td>460</td></tr>
+<tr><td>其他 UI</td><td>139.1 MB</td><td>707</td></tr>
+<tr><td>Skybox / IBL</td><td>101.8 MB</td><td>24</td></tr>
+<tr><td>Hall 场景</td><td>45.2 MB</td><td>327</td></tr>
+<tr><td>Character</td><td>14.5 MB</td><td>566</td></tr>
+</table>
+<p>仍有 <b>743 张 / 1372.5 MB</b> 尺寸非 4 对齐，即压缩失效存量——这正好是待 cook 的那三批。</p>
+
+<h3>8.4 峰值缺口：与常驻资源无关</h3>
+<figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 412" width="100%" role="img"><title>峰值比稳态高 1602 MB 的来源</title><desc>缺口来自纹理解码、GPU 上传、文件读取和 GPU 后备内存四个加载期临时缓冲，而纹理本身峰值只涨 100 MB。</desc><defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text x="40" y="30" font-size="14" font-weight="600" fill="#1a1d21">峰值缺口与常驻资源无关</text>
+<rect x="40" y="46" width="252" height="32" rx="9" fill="#f2f4f7" stroke="#7a828a" stroke-width="1"/>
+<text x="166" y="67" font-size="13" font-weight="600" fill="#1a1d21" text-anchor="middle">稳态 RSS 2828 MB</text>
+<path d="M300 62 H340" stroke="#7a828a" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+<text x="320" y="52" font-size="11.5" fill="#b3261e" text-anchor="middle">+1602</text>
+<rect x="348" y="46" width="252" height="32" rx="9" fill="#fdecea" stroke="#b3261e" stroke-width="1"/>
+<text x="474" y="67" font-size="13" font-weight="600" fill="#6b1a13" text-anchor="middle">峰值 RSS 4430 MB</text>
+<line x1="40" y1="98" x2="640" y2="98" stroke="#e2e6ea" stroke-width="1"/>
+<text x="40" y="122" font-size="12" fill="#7a828a">四项各自独立峰值，不可累加</text>
+
+<text x="40" y="150" font-size="12.5" font-weight="600" fill="#1a1d21">TextureMetaData</text>
+<text x="40" y="167" font-size="11.5" fill="#7a828a">纹理解码中间数据</text>
+<rect x="200" y="140" width="368" height="15" rx="4" fill="#f0a04b"/>
+<rect x="200" y="159" width="2" height="7" rx="2" fill="#7a828a"/>
+<text x="580" y="151" font-size="11.5" fill="#8a4a10">1454</text>
+<text x="580" y="168" font-size="11" fill="#7a828a">2.8 起</text>
+
+<text x="40" y="208" font-size="12.5" font-weight="600" fill="#1a1d21">VulkanStagingBuffers</text>
+<text x="40" y="225" font-size="11.5" fill="#7a828a">GPU 上传中转</text>
+<rect x="200" y="198" width="342" height="15" rx="4" fill="#f0a04b"/>
+<rect x="200" y="217" width="3" height="7" rx="2" fill="#7a828a"/>
+<text x="580" y="209" font-size="11.5" fill="#8a4a10">1350</text>
+<text x="580" y="226" font-size="11" fill="#7a828a">4.1 起</text>
+
+<text x="40" y="266" font-size="12.5" font-weight="600" fill="#1a1d21">FileSystem</text>
+<text x="40" y="283" font-size="11.5" fill="#7a828a">文件读取缓存</text>
+<rect x="200" y="256" width="337" height="15" rx="4" fill="#f0a04b"/>
+<rect x="200" y="275" width="19" height="7" rx="2" fill="#7a828a"/>
+<text x="580" y="267" font-size="11.5" fill="#8a4a10">1331</text>
+<text x="580" y="284" font-size="11" fill="#7a828a">76.6 起</text>
+
+<text x="40" y="324" font-size="12.5" font-weight="600" fill="#1a1d21">VulkanSpareMemoryGPU</text>
+<text x="40" y="341" font-size="11.5" fill="#7a828a">GPU 后备内存</text>
+<rect x="200" y="314" width="330" height="15" rx="4" fill="#f0a04b"/>
+<rect x="200" y="333" width="41" height="7" rx="2" fill="#7a828a"/>
+<text x="580" y="325" font-size="11.5" fill="#8a4a10">1304</text>
+<text x="580" y="342" font-size="11" fill="#7a828a">161 起</text>
+
+<line x1="40" y1="362" x2="640" y2="362" stroke="#e2e6ea" stroke-width="1"/>
+<text x="40" y="382" font-size="11.5" fill="#4a5158">纹理本身峰值只涨 100 MB（1656 → 1756）；四项都发生在加载与上传阶段，</text>
+<text x="40" y="399" font-size="11.5" fill="#4a5158">所以降低纹理体积会同时压低这些临时缓冲。</text>
+</svg><figcaption>图 6　峰值高出稳态的 1602 MB 来自四个加载期临时缓冲，纹理本身只涨 100 MB。</figcaption></figure>
+<p>RSS 稳态 2828.07 MB、峰值 4430.36 MB，而纹理峰值仅从 1656.1 涨到 1756.1。
+真正的缺口是这四项（各自独立峰值，<b>不可累加</b>）：</p>
+<table>
+<tr><th>标签</th><th>稳态</th><th>峰值</th><th>性质</th></tr>
+<tr><td><code>TextureMetaData</code></td><td>2.8</td><td><b>1454.2</b></td><td>纹理解码 / 构建中间数据</td></tr>
+<tr><td><code>VulkanStagingBuffers</code></td><td>4.1</td><td><b>1350.0</b></td><td>GPU 上传中转</td></tr>
+<tr><td><code>FileSystem</code></td><td>76.6</td><td><b>1331.1</b></td><td>文件读取缓存</td></tr>
+<tr><td><code>VulkanSpareMemoryGPU</code></td><td>161.6</td><td><b>1304.0</b></td><td>GPU 后备内存</td></tr>
+<tr><td><code>Untracked</code></td><td>0.0</td><td>477.8</td><td>未打点分配</td></tr>
+</table>
+<p>结论：<b>低内存机型上真正触发 OOM 的是加载瞬间，不是大厅里坐着的时候。</b>
+好消息是这四项都与"上传多少纹理数据"成正比，所以降低纹理体积会同时压低峰值——
+这比单纯看稳态更有价值。</p>
+
+<h3>8.5 四个此前看不见的开销</h3>
+<ol>
+<li><b>Bink 视频纹理 154.4 MB / 61 张</b>，其中 3 张就占 151.1 MB：
+<code>MT_SelectMode_Hero09</code> 63.38、<code>Hero02</code> 63.38、<code>BR_BG</code> 24.38，全部 <code>streaming=No</code>。
+这是选人界面视频，若大厅不需要可按需加载。</li>
+<li><b><code>ConsoleCommandsBuildList</code> 107.9 MB</b>：控制台自动补全列表，
+<code>Engine/Private/UserInterface/Console.cpp</code> 构建后其字符串仍被持有。
+<b>仅 Development 包存在</b>，线上包不受影响，但它解释了开发包为何比线上高。</li>
+<li><b>Wwise SoundBanks 104.0 MB</b>：sound bank 常驻，需音频侧确认大厅是否要加载这么多。</li>
+<li><b><code>CustomName</code> 152.5 MB（峰值 285.7）</b>：项目 <code>LLM_SCOPE_BYTAG</code> 打点，
+从源码看集中在技能数据资产（<code>Animation_S1*Data</code> 系列）。</li>
+</ol>
+
+<h3>8.6 优化空间与残留风险</h3>
+<table>
+<tr><th>项</th><th>当前</th><th>预期</th><th>状态</th></tr>
+<tr><td>HeadFrame 244 张</td><td>1125.1 MB</td><td>约 42 MB</td><td>已改，待 cook</td></tr>
+<tr><td>UI 对齐 268 张</td><td>约 164 MB</td><td>约 29 MB</td><td>已改，待 cook</td></tr>
+<tr><td>Skybox 4 张</td><td>64.1 MB</td><td>约 16 MB</td><td>已改，待 cook</td></tr>
+<tr><td><b>小计</b></td><td><b>约 1353 MB</b></td><td><b>约 87 MB</b></td><td>省约 1266 MB</td></tr>
+<tr><td>Bink 3 张视频</td><td>151.1 MB</td><td>待评估</td><td>未动</td></tr>
+<tr><td>ConsoleCommandsBuildList</td><td>107.9 MB</td><td>线上无此项</td><td>不需处理</td></tr>
+</table>
+<p>若 1266 MB 全部兑现，稳态理论上限约 <b>1.56 GB</b>；受 GPU 与 RSS 不完全重合影响，
+实际更可能落在 <b>1.6～1.8 GB</b>。峰值会随纹理数据量同步下降，但幅度需 cook 后实测。</p>
+<h2 id="s9"><span class="num">9</span>Skybox 立方体贴图为什么进包</h2><p class="lead">不是"没用到"，而是被 38 个 UI 材质硬引用，外加一个 PrimaryAssetLabel 把它们标进 chunk。</p><figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 250" width="100%" role="img"><title>Skybox 立方体贴图的引用与进包链路</title><desc>三个 cube 被 38 个 UI 材质硬引用，另有 PrimaryAssetLabel 把它们标进 chunk。</desc><defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text x="40" y="30" font-size="14" font-weight="600" fill="#1a1d21">为什么“看起来没用到”却进了包还常驻</text>
+<rect x="40" y="50" width="188" height="60" rx="9" fill="#eaf1fe" stroke="#2f6feb" stroke-width="1"/>
+<text x="56" y="72" font-size="12.5" font-weight="600" fill="#1f3a63">38 个 *_UI 材质实例</text>
+<text x="56" y="92" font-size="11.5" fill="#4a5158">角色 / 载具展示界面</text>
+<path d="M228 80 H262" stroke="#7a828a" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+<text x="230" y="72" font-size="11" fill="#7a828a">硬引用</text>
+<rect x="264" y="50" width="176" height="60" rx="9" fill="#fff4e6" stroke="#d9741a" stroke-width="1"/>
+<text x="280" y="72" font-size="12.5" font-weight="600" fill="#8a4a10">TextureCube 512²</text>
+<text x="280" y="92" font-size="11.5" fill="#8a4a10">FloatRGBA 16 MB/张</text>
+<path d="M440 80 H474" stroke="#7a828a" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+<rect x="476" y="50" width="164" height="60" rx="9" fill="#fdecea" stroke="#c0392b" stroke-width="1"/>
+<text x="492" y="72" font-size="12.5" font-weight="600" fill="#8f2a20">非流送 → 整张驻留</text>
+<text x="492" y="92" font-size="11.5" fill="#8f2a20">流送系统无法回收</text>
+<rect x="40" y="130" width="280" height="60" rx="9" fill="#f2f4f7" stroke="#7a828a" stroke-width="1"/>
+<text x="56" y="152" font-size="12.5" font-weight="600" fill="#1a1d21">Chunk1_Content</text>
+<text x="56" y="172" font-size="11.5" fill="#4a5158">PrimaryAssetLabel：强制作进 chunk</text>
+<path d="M320 160 H352" stroke="#7a828a" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+<text x="322" y="152" font-size="11" fill="#7a828a">标记</text>
+<rect x="354" y="130" width="286" height="60" rx="9" fill="#fff" stroke="#e2e6ea" stroke-width="1"/>
+<text x="370" y="152" font-size="12.5" font-weight="600" fill="#1a1d21">即使某次运行不需要也会进包</text>
+<text x="370" y="172" font-size="11.5" fill="#4a5158">cook 阶段按 chunk 规则强制包含</text>
+<text x="40" y="214" font-size="11.5" fill="#7a828a">实测引用数：T_Vehicle_03_Cube 41 个，T_ShanningCube 19 个，</text>
+<text x="40" y="232" font-size="11.5" fill="#7a828a">T_ShanningCube_02 16 个，T_BossSKY_Cube_02 3 个。</text>
+</svg><figcaption>图 5　引用链与进包链：材质硬引用负责"会加载"，PrimaryAssetLabel 负责"必进包"。</figcaption></figure>
+<table>
+<tr><th>资产</th><th>直接引用者</th><th>典型引用者</th></tr>
+<tr><td><code>T_Vehicle_03_Cube</code></td><td><b>41</b></td><td><code>MI_Vehicle_Paint_UI</code>、<code>MIC_s12k_NPR_OP_UI</code></td></tr>
+<tr><td><code>T_ShanningCube</code></td><td><b>19</b></td><td><code>MI_Weapon_Remapping_*</code>、<code>MIC_buttstock</code></td></tr>
+<tr><td><code>T_ShanningCube_02</code></td><td><b>16</b></td><td><code>MI_Weapon_1p</code>、<code>MI_Weapon_Heirlooms_*</code></td></tr>
+<tr><td><code>T_BossSKY_Cube_02</code></td><td><b>3</b></td><td><code>BP_Rush02_ParentEnvLight_Boss_02_New</code> 等环境光蓝图</td></tr>
+</table>
+<p>前三个合计被 <b>38 个 <code>*_UI</code> 材质</b>引用——它们做的是角色/载具展示界面的环境反射。
+大厅只要有 UI 预览，材质一加载，cube 就跟着进来。</p>
+<h3>9.1 进包为什么和"用不用"无关</h3>
+<p><code>/Game/AssetDatas/GeneratePatch/Chunk1_Content</code> 的类名是 <code>PrimaryAssetLabel</code>：
+它把资产标签化并框进指定 chunk，cook 阶段按规则强制包含，<b>不看运行时是否需要</b>。
+<code>T_BossSKY_Cube_02</code> 只被 2 个环境光蓝图引用却也在包里，原因就在这里。</p>
+<h3>9.2 为什么一进来就不释放</h3>
+<p>这 4 张在 <code>TEXTUREGROUP_Skybox</code> 下 <code>Streaming=NO</code>，整张 mip 链常驻，流送系统不会回收。
+所以"引用链一旦被拉起"就等于 16 MB/张的固定占用。</p>
+<h3>9.3 可做的三件事</h3>
+<ol>
+<li>UI 材质改用共享低精度 cube：38 个材质不需要 512² 的 HDR 环境精度，128² 足够。</li>
+<li>检查 <code>Chunk1_Content</code> 是否必须包含这些资产，能移出则同时减包体与无谓 cook。</li>
+<li><code>T_BossSKY_Cube_02</code> 的蓝图默认值改 soft reference，运行时按需加载。</li>
+</ol>
+<p class="warn"><b>边界：</b>以上是静态引用图，只能证明"可能被加载"。要确定大厅里具体是哪条链拉起，
+需要 LLM 的加载记录或 Memory Insights 的加载栈。</p>
+<h2 id="s10"><span class="num">10</span>已验证、未验证与已知坑</h2><p class="lead">资产侧改动已验证到属性与文件层；cooked 结果与真实内存收益尚未验证。</p>
+<h3>10.1 已验证</h3>
+<ul>
+<li>516 个资产全部写入成功，0 失败、0 跳过；每个资产在保存前读回
+<code>resize_during_build_x/y</code> 与 <code>power_of_two_mode</code> 校验。</li>
+<li>文件级：全部 <code>.uasset</code> 的 mtime 落在对应批次窗口内，0 缺失；豁免资产未被触碰。</li>
+<li>属性抽查（MCP 实读）：<code>shengdanjie</code> → 1024×1020、<code>T_Sleepcoat_Frame1</code> → 1024×1024、
+<code>LKLS/Blue/kuang</code> → 1024×1024、<code>kuang_2</code> → 1024×852、11×11 豁免项仍为 <code>mode=NONE</code>。</li>
+<li>全部目标尺寸 <code>%4==0</code> 且 <code>≤1024</code>（Skybox 为 256）。</li>
+</ul>
+<h3>10.2 未验证</h3>
+<ul>
+<li><b>cooked 后的真实格式与尺寸</b>：所有"改后 MB"都是按 ASTC 6×6 的 bpp 推算，未经 cook。</li>
+<li><b>RSS 的真实下降幅度</b>：受口径重叠、分配器缓存、LODBias 共同影响，预期 1.6～1.8 GB 而非理论 1358 MB。</li>
+<li><b>第 8 章的 LLM 数据是"优化前"状态</b>：那三批资产尚未 cook，所以 1125.1 MB 的 HeadFrame 仍原样在报告里。
+LLM 数据验证的是"结构"，不是"收益"。</li>
+</ul>
+<h3>10.3 已知坑（已写进脚本）</h3>
+<ol>
+<li><code>blueprint_get_texture_source_disk_and_memory_size()</code> 返回 <code>(disk, mem)</code>：
+源是压缩格式时 <code>disk ≠ mem</code>，反推尺寸必须用 <code>mem</code>（= W×H×4）。</li>
+<li>尺寸反推的搜索中心不能取 <code>isqrt(px)</code>（只适用近方形），要取 <code>sqrt(px × aspect)</code>；
+1:2.85 的窄条纹理，真实边长离 <code>sqrt(px)</code> 很远。</li>
+<li><code>execute_python</code> 单批 30 个资产会响应超时（活干完了但拿不到回执），20 个/批稳定。</li>
+<li><code>rhi.DumpMemory</code> 的 stat 行在本包<b>不可信</b>：报 Vertex Buffer 26853 MB（26 GB），
+远超设备 11 GB 总量；同次逐资源 CSV 合计仅 2233.2 MB。<b>以 CSV 为准。</b></li>
+<li>部分资产的运行尺寸被 LODBias 减半（源 1143×3260、运行时 571×1630）。这类按<b>真实源尺寸</b>对齐，
+保持运行时分辨率不变，避免误降画质。</li>
+<li><b><code>DumpLLM</code> 必须写 <code>-CSV</code></b>（带横杠）：引擎用 <code>FParse::Param</code> 解析，
+写 <code>DumpLLM CSV</code> 只输出 PlainText，没有逗号分隔，脚本无法解析。</li>
+<li><b>Android 上 LLM 不会自动开启</b>：引擎里的"Development 默认开 LLM"定制带
+<code>PLATFORM_DESKTOP</code> 条件（<code>LowLevelMemTracker.cpp:2426</code>），Android 不适用。
+真机必须在启动命令行加 <code>-LLM</code>。</li>
+<li><b>加 <code>-LLM</code> 优先用 <code>setprop debug.ue.commandline</code></b>（追加语义，
+<code>LaunchAndroid.cpp:520</code>，仅非 Shipping）。<b>不要用 <code>UECommandLine.txt</code></b>：
+它在 <code>LaunchAndroid.cpp:505-508</code> 先 <code>FCommandLine::Set(TEXT(""))</code> 清空原命令行，
+文件里没写全 <code>-project</code> / <code>-dpcvars</code> 就会丢掉现场参数。</li>
+<li><b><code>LLMOverhead</code> 必须扣除</b>：本次实测 288.7 MB。开 LLM 前后的两批数字不可直接比较。</li>
+<li><b><code>LLM Default Total</code> ≠ RSS</b>：本次 4066.4 vs 2828.07。LLM 也统计 GPU 侧分配，
+两者互为补充而非等价。</li>
+<li><b><code>-llmtagsets=Assets</code> 无效</b>：本分支 <code>LLM_ALLOW_ASSETS_TAGS=0</code>
+（<code>LowLevelMemTracker.h:37</code>），加了只有一条警告，看不到逐资产 LLM 排行。</li>
+</ol>
+<h2 id="s11"><span class="num">11</span>附录：复现命令与脚本</h2><p class="lead">从抓数据到批量改资产的最小可复现路径。</p>
+<h3>11.1 采集</h3>
+<pre># 真机抓完整报告（注意 -full 这类带横线参数要用 -- 分隔）
+python send_cvar.py com.sarosgame.S1Game S1Game -- memreport -full
+# 判据看日志，不看脚本退出码（memreport 不是 CVar，必报 UNVERIFIED）
+adb shell "grep -a 'MemReportDeferred' .../Saved/Logs/S1Game.log"
+# 顺带产出逐资源 CSV
+Saved/Profiling/rhiDumpResourceMemory-&lt;time&gt;.csv</pre>
+<h3>11.2 采集 LLM（分类归因，无需重新出包）</h3>
+<pre># 1) 追加 -LLM 到已装包的命令行（setprop 是追加语义，仅非 Shipping 生效）
+adb shell setprop debug.ue.commandline "-LLM"; adb shell getprop debug.ue.commandline
+# 2) 冷启（LLM 只在进程启动时初始化）
+adb shell am force-stop com.sarosgame.S1Game
+adb shell am start -n com.sarosgame.S1Game/com.epicgames.unreal.SplashActivity
+# 3) 验证：日志出现 LLM enabled
+adb shell "grep -a 'LLM enabled' .../Saved/Logs/S1Game.log"
+# 4) 稳定后按顺序：memreport -full（内部先 GC）→ DumpLLM -CSV（必须带横杠）
+python send_cvar.py com.sarosgame.S1Game S1Game -- memreport -full
+python send_cvar.py com.sarosgame.S1Game S1Game -- DumpLLM -CSV
+# 5) 取数：表头 '[time][frame],TagName,SizeMB,PeakMB,Tracker,PathName'
+adb shell "grep -an 'PeakMB,Tracker' .../Saved/Logs/S1Game.log"
+# 6) 采完必须清掉，否则后续性能测试一直背着 LLM 开销
+adb shell setprop debug.ue.commandline ""</pre>
+<h3>11.3 批量改资产</h3>
+<pre>import unreal
+t = unreal.EditorAssetLibrary.load_asset(path)
+t.set_editor_property('power_of_two_mode',
+    unreal.TexturePowerOfTwoSetting.RESIZE_TO_SPECIFIC_RESOLUTION)
+t.set_editor_property('resize_during_build_x', 1024)
+t.set_editor_property('resize_during_build_y', 1020)
+t.set_editor_property('max_texture_size', 0)
+unreal.EditorAssetLibrary.save_loaded_asset(t, False)</pre>
+<h3>11.4 本轮脚本与产物</h3>
+<table>
+<tr><th>文件</th><th>用途</th></tr>
+<tr><td><code>headframe_resize.py</code> / <code>_todo.json</code> / <code>_done.json</code></td><td>HeadFrame 批处理（幂等，可反复续跑）</td></tr>
+<tr><td><code>ui_align.py</code> / <code>_todo.json</code> / <code>_exempt.json</code></td><td>UI 对齐批处理</td></tr>
+<tr><td><code>headframe_resize_result.csv</code> / <code>ui_align_result.csv</code></td><td>逐资产前后对比清单</td></tr>
+<tr><td><code>parse_llm.py</code> / <code>llm_drill.py</code></td><td>解析 <code>DumpLLM -CSV</code> 输出：按 tag 排序、子树过滤、峰值-稳态差排序</td></tr>
+</table>
+<h3>11.5 参考</h3>
+<ul>
+<li>Memory Insights（UE 5.5 文档）：https://dev.epicgames.com/documentation/en-us/unreal-engine/memory-insights-in-unreal-engine</li>
+<li>Low-Level Memory Tracker（UE 5.5 文档）：https://dev.epicgames.com/documentation/en-us/unreal-engine/using-the-low-level-memory-tracker-in-unreal-engine</li>
+</ul>
+
+</div>
+</body>
+</html>
