@@ -4,7 +4,7 @@
 >
 > - **互链约定**：全部相对路径，文件不移动，与 git 自动备份兼容。
 > - **本页由 `generate_index.py` 自动生成**，新增文档后重跑脚本即可刷新。
-> - 文档总数：**216** · 更新：2026-10-29
+> - 文档总数：**220** · 更新：2026-10-30
 
 ---
 
@@ -16,10 +16,10 @@
 | 02 | [02 · 头部手游案例库](#02-头部手游案例库) | 23 | 单款手游移动端渲染拆解（html）。方法论的具体落地参照 |
 | 03 | [03 · 专题横向汇总](#03-专题横向汇总) | 11 | 跨游戏横向对比：半透明 / 遮挡剔除 / DrawCall / FPS 全景 |
 | 04 | [04 · 引擎源码级分析](#04-引擎源码级分析) | 22 | PVS、视锥剔除、WorldPartition、TaskGraph、线程池、RDG 等源码深挖 |
-| 05 | [05 · 崩溃与稳定性](#05-崩溃与稳定性) | 10 | 崩溃定位与修复：VT / SkeletalMesh / UseAfterFree、帧率掉档排查 |
+| 05 | [05 · 崩溃与稳定性](#05-崩溃与稳定性) | 6 | 崩溃定位与修复：VT / SkeletalMesh / UseAfterFree、帧率掉档排查 |
 | 06 | [06 · Profiling 工具与教程](#06-Profiling-工具与教程) | 11 | 高通 SDP / Adreno / Snapdragon Profiler、UE Insights、CPU Trace 工具链 |
 | 07 | [07 · 项目专项分析](#07-项目专项分析) | 2 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
-| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 106 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
+| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 114 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
 
 ---
 
@@ -144,10 +144,6 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
-| [UE5-RVT烘焙OOM全量排查-本地12GB显存-SVT内存峰值-VHM-GPU卡死-失败假设复盘](./UE5-RVT烘焙OOM全量排查-本地12GB显存-SVT内存峰值-VHM-GPU卡死-失败假设复盘.html) | HTML | 10-29 |
-| [UE5-RVT烘焙OOM全量排查-本地12GB显存-SVT内存峰值-VHM-GPU卡死-失败假设复盘](./UE5-RVT烘焙OOM全量排查-本地12GB显存-SVT内存峰值-VHM-GPU卡死-失败假设复盘.md) | MD | 10-29 |
-| [UE5-RVT烘焙OOM排查-SVT-mip链内存峰值-VHM-GPU卡死-根因与修复](./UE5-RVT烘焙OOM排查-SVT-mip链内存峰值-VHM-GPU卡死-根因与修复.html)（简版，已被全量版取代） | HTML | 10-29 |
-| [UE5-RVT烘焙OOM排查-SVT-mip链内存峰值-VHM-GPU卡死-根因与修复](./UE5-RVT烘焙OOM排查-SVT-mip链内存峰值-VHM-GPU卡死-根因与修复.md)（简版，已被全量版取代） | MD | 10-29 |
 | [UE5 TaskGraph 限流死锁 — 让出 Worker 无唤醒路径 · 有界让出修复 · GC 增量可达性接管](./UE5-TaskGraph限流死锁-让出Worker无唤醒路径-有界让出修复与GC增量可达性接管.md) | MD | 10-18 |
 | [UE5-TaskGraph限流死锁-让出Worker无唤醒路径-有界让出修复与GC增量可达性接管](./UE5-TaskGraph限流死锁-让出Worker无唤醒路径-有界让出修复与GC增量可达性接管.html) | HTML | 10-18 |
 | [UE Android 帧率自动降至30fps 排查与修复指南](./UE-Android-帧率自动降至30fps-Swappy-FramePacing排查修复指南.md) | MD | 06-19 |
@@ -188,6 +184,14 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [Claude Desktop + TClaude 本机部署说明（2026-10-29）](./部署说明-Claude桌面端-TClaude.md) | MD | 10-30 |
+| [UE5 RVT 烘焙 OOM 排查 — SVT 合并缓冲内存峰值 · VHM GPU 卡死 · 根因与修复](./UE5-RVT烘焙OOM排查-SVT-mip链内存峰值-VHM-GPU卡死-根因与修复.md) | MD | 10-30 |
+| [工作日志](./工作日志.md) | MD | 10-30 |
+| [UE5-RVT烘焙OOM排查-SVT-mip链内存峰值-VHM-GPU卡死-根因与修复](./UE5-RVT烘焙OOM排查-SVT-mip链内存峰值-VHM-GPU卡死-根因与修复.html) | HTML | 10-30 |
+| [UE5-RVT烘焙OOM全量排查-本地12GB显存-SVT内存峰值-VHM-GPU卡死-失败假设复盘](./UE5-RVT烘焙OOM全量排查-本地12GB显存-SVT内存峰值-VHM-GPU卡死-失败假设复盘.html) | HTML | 10-30 |
+| [UE5 RVT 烘焙 OOM 全量排查 — 本地 12 GB 显存 · 构建机 SVT 内存峰值 · VHM GPU 卡死 · 失败假设复盘](./UE5-RVT烘焙OOM全量排查-本地12GB显存-SVT内存峰值-VHM-GPU卡死-失败假设复盘.md) | MD | 10-30 |
+| [Godot 扩展方案调研：Clipmap 地形、四叉树 LOD、体素流送、分块加载、动作匹配、延迟光照](./Godot扩展方案调研-Clipmap地形-四叉树LOD-体素流送-分块加载-动作匹配-延迟光照.md) | MD | 10-30 |
+| [Godot扩展方案调研-Clipmap地形-四叉树LOD-体素流送-分块加载-动作匹配-延迟光照](./Godot扩展方案调研-Clipmap地形-四叉树LOD-体素流送-分块加载-动作匹配-延迟光照.html) | HTML | 10-30 |
 | [1060 机型夜间核验与发掘报告（2026-10-25 16:20 ~ 10-26 08:10）](./1060-夜间优化核验报告-2026-10-26.md) | MD | 10-27 |
 | [2060 / 1060 真机 CPU 使用率 AI 自动化优化过程结果报告](./2060-1060真机CPU使用率AI自动化优化过程结果报告-2026-10-25.md) | MD | 10-26 |
 | [UE5-MaterialInstance父代理空指针-父材质先于子FinishDestroy-父销毁断开子链接修复](./UE5-MaterialInstance父代理空指针-父材质先于子FinishDestroy-父销毁断开子链接修复.html) | HTML | 10-25 |
