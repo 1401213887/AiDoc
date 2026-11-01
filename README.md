@@ -4,7 +4,7 @@
 >
 > - **互链约定**：全部相对路径，文件不移动，与 git 自动备份兼容。
 > - **本页由 `generate_index.py` 自动生成**，新增文档后重跑脚本即可刷新。
-> - 文档总数：**220** · 更新：2026-10-31
+> - 文档总数：**224** · 更新：2026-11-01
 
 ---
 
@@ -19,7 +19,7 @@
 | 05 | [05 · 崩溃与稳定性](#05-崩溃与稳定性) | 6 | 崩溃定位与修复：VT / SkeletalMesh / UseAfterFree、帧率掉档排查 |
 | 06 | [06 · Profiling 工具与教程](#06-Profiling-工具与教程) | 11 | 高通 SDP / Adreno / Snapdragon Profiler、UE Insights、CPU Trace 工具链 |
 | 07 | [07 · 项目专项分析](#07-项目专项分析) | 2 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
-| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 114 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
+| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 118 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
 
 ---
 
@@ -184,6 +184,10 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [UE5-Android-UI纹理内存优化-非4对齐导致ASTC压缩失效-memreport与LLM定位](./UE5-Android-UI纹理内存优化-非4对齐导致ASTC压缩失效-memreport与LLM定位.html) | HTML | 10-31 |
+| [UE5 Android UI 纹理内存优化：非 4 对齐导致的压缩失效](./UE5-Android-UI纹理内存优化-非4对齐导致ASTC压缩失效-memreport与LLM定位.md) | MD | 10-31 |
+| [S1Game Android 机型分档：DeviceProfile CVar 生效层级与覆盖分析](./S1Game-Android机型分档-DeviceProfile-CVar生效层级与覆盖分析.md) | MD | 10-31 |
+| [S1Game-Android机型分档-DeviceProfile-CVar生效层级与覆盖分析](./S1Game-Android机型分档-DeviceProfile-CVar生效层级与覆盖分析.html) | HTML | 10-31 |
 | [Claude Desktop + TClaude 本机部署说明（2026-10-29）](./部署说明-Claude桌面端-TClaude.md) | MD | 10-30 |
 | [UE5 RVT 烘焙 OOM 排查 — SVT 合并缓冲内存峰值 · VHM GPU 卡死 · 根因与修复](./UE5-RVT烘焙OOM排查-SVT-mip链内存峰值-VHM-GPU卡死-根因与修复.md) | MD | 10-30 |
 | [工作日志](./工作日志.md) | MD | 10-30 |
