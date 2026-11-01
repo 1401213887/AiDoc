@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Godot 引擎 Runtime Virtual Texture 实现：页表 · 物理池 · 视点驱动</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --ink:#1a1d21; --ink2:#4a5158; --ink3:#7a828a;
+    --line:#e2e6ea; --accent:#2f6feb; --accent-soft:#eaf1fe;
+    --ok:#1f9254; --warn:#c0392b; --note:#8a6d1f; --code-bg:#f2f4f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.75;font-size:15px}
+  .wrap{max-width:1180px;margin:0 auto;padding:40px 28px 100px}
+  header.top{background:linear-gradient(135deg,#1f3a63 0%,#2f6feb 100%);color:#fff;border-radius:14px;
+    padding:34px 36px;margin-bottom:28px}
+  header.top h1{margin:0 0 10px;font-size:27px;letter-spacing:.3px}
+  header.top p{margin:0 0 8px;opacity:.92;font-size:14.5px}
+  header.top .meta{margin-top:16px;font-size:12.5px;opacity:.82;border-top:1px solid rgba(255,255,255,.22);padding-top:12px}
+  header.top code{background:rgba(255,255,255,.18);color:#fff;padding:1.5px 6px}
+  h2{font-size:21px;margin:44px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h2 .num{color:var(--accent);font-weight:700;margin-right:8px}
+  h3{font-size:16.5px;margin:26px 0 10px}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0;padding-left:24px}
+  li{margin:5px 0}
+  code{background:var(--code-bg);padding:1.5px 5px;border-radius:4px;
+    font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;font-size:12.8px}
+  pre{background:#1e232b;color:#dfe6ee;padding:14px 16px;border-radius:8px;overflow-x:auto;
+    font-size:12.5px;line-height:1.6;font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace}
+  pre code{background:none;padding:0;color:inherit;font-size:inherit;font-family:inherit}
+  .lead{color:var(--ink2);font-size:14.5px;background:var(--accent-soft);border-left:4px solid var(--accent);
+    padding:10px 14px;border-radius:0 8px 8px 0;margin:10px 0 16px}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.4px;background:var(--panel)}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:#eef2f7;font-weight:600;font-size:13px}
+  tbody tr:nth-child(even){background:#fafbfc}
+  .kv td:first-child{white-space:nowrap;font-weight:600}
+  .callout{border-left:4px solid var(--accent);background:var(--accent-soft);padding:12px 16px;
+    border-radius:0 8px 8px 0;margin:14px 0}
+  .callout.warn{border-color:var(--warn);background:#fdf0ef}
+  .callout.note{border-color:var(--note);background:#fdf8e8}
+  .callout .h{font-weight:700;margin-bottom:4px;font-size:13.5px}
+  .fig{margin:22px 0;text-align:center}
+  .fig svg{max-width:100%;height:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+  .fig .cap{font-size:12.5px;color:var(--ink3);margin-top:8px}
+  footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+<h1>Godot 引擎 Runtime Virtual Texture 实现</h1>
+<p>在 Godot 4.8（Forward+ / Mobile）里仿 UE RVT 落地的一套可用实现：<b>页表 + 物理页池 + 视点驱动请求</b>，
+页的渲染复用引擎已有的「深度 + 材质」pass，材质侧用一份 <code>gdshaderinc</code> 采样。</p>
+<p>自测（Vulkan Forward+ / Vulkan Mobile / D3D12）逐像素对比：远景平均差 <b>0.0020</b>、近景 <b>0.0086</b>；
+全量 doctest <b>1439</b> 例、<b>425756</b> 条断言通过。</p>
+<p class="meta">代码基线：godot master cafc17a192 · 新增 13 文件 / 修改 14 文件 ·
+自测工程 misc/rvt_demo · 单元测试 tests/servers/rendering/test_runtime_virtual_texture_page_manager.cpp</p>
+</header>
+<h2 id="s1"><span class="num">1</span>结论与全貌</h2>
+<p class="lead">这套 RVT 不新增任何材质管线：页由引擎现成的材质 pass 画出来，CPU 侧只负责三件事——页表、物理页池、以及「这一帧该画哪些页」。</p>
+<p>实现分成四层，层与层之间只通过 RID 和小的数据结构耦合：</p>
+<table class="kv">
+<tr><th>层</th><th>位置</th><th>职责</th></tr>
+<tr><td>资源 / 节点</td><td><code>scene/resources/runtime_virtual_texture.cpp</code>、<code>scene/3d/runtime_virtual_texture_volume.cpp</code></td><td>对外的 <code>RuntimeVirtualTexture</code> 资源与 <code>RuntimeVirtualTextureVolume</code> 节点；把 uniform 写进材质</td></tr>
+<tr><td>服务器接口</td><td><code>servers/rendering/rendering_server.h:793-805</code>（新增段）</td><td><code>runtime_virtual_texture_*</code> 一组接口，跨线程安全</td></tr>
+<tr><td>场景剔除 / 调度</td><td><code>servers/rendering/renderer_scene_cull_rvt.cpp</code>、<code>servers/rendering/runtime_virtual_texture_page_manager.cpp</code></td><td>视点收集、页请求、LRU 分槽、逐页剔除几何体、失效传播</td></tr>
+<tr><td>RD 后端</td><td><code>servers/rendering/renderer_rd/runtime_virtual_texture_rd.cpp</code></td><td>物理池 / 页表纹理 / scratch 帧缓冲 / compose compute</td></tr>
+</table>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 620" width="1080" height="620" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1080" height="620" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">RVT 一帧的数据流：请求在 CPU 决策，页在 GPU 生成，材质只读</text>
+<rect x="30" y="44" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="44" y="77.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">1 相机</text>
+<text x="44" y="93.25" font-size="12" text-anchor="start" fill="#4a5158">上一帧渲染过的视口</text>
+<text x="44" y="110.75" font-size="12" text-anchor="start" fill="#4a5158">位姿 / 投影 / 内部尺寸</text>
+<rect x="400" y="44" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="414" y="77.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">2 视点请求</text>
+<text x="414" y="93.25" font-size="12" text-anchor="start" fill="#4a5158">像素足迹 → LOD</text>
+<text x="414" y="110.75" font-size="12" text-anchor="start" fill="#4a5158">视锥 → 可见页</text>
+<rect x="770" y="44" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="784" y="86" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">3 页管理</text>
+<text x="784" y="102" font-size="12" text-anchor="start" fill="#4a5158">页表 mip + 物理池 + LRU</text>
+<rect x="770" y="204" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="784" y="246" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">4 取页</text>
+<text x="784" y="262" font-size="12" text-anchor="start" fill="#4a5158">粗层优先，≤ N 页 / 帧</text>
+<rect x="400" y="204" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="414" y="237.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">5 页渲染</text>
+<text x="414" y="253.25" font-size="12" text-anchor="start" fill="#4a5158">正交相机（页矩形 + 边框）</text>
+<text x="414" y="270.75" font-size="12" text-anchor="start" fill="#4a5158">＋引擎材质 pass</text>
+<rect x="30" y="204" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="44" y="237.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">6 compose</text>
+<text x="44" y="253.25" font-size="12" text-anchor="start" fill="#4a5158">sRGB 回编码 / 高度</text>
+<text x="44" y="270.75" font-size="12" text-anchor="start" fill="#4a5158">上下翻转</text>
+<rect x="30" y="364" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="44" y="397.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">7 物理池</text>
+<text x="44" y="413.25" font-size="12" text-anchor="start" fill="#4a5158">tile = (128 + 2×4)²</text>
+<text x="44" y="430.75" font-size="12" text-anchor="start" fill="#4a5158">RGBA8 / R32F</text>
+<rect x="400" y="364" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="414" y="406" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">8 页表</text>
+<text x="414" y="422" font-size="12" text-anchor="start" fill="#4a5158">RGBA8 + 每层一个 mip</text>
+<rect x="770" y="364" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="784" y="397.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">9 材质采样</text>
+<text x="784" y="413.25" font-size="12" text-anchor="start" fill="#4a5158">rvt_sample()</text>
+<text x="784" y="430.75" font-size="12" text-anchor="start" fill="#4a5158">页表间接 + 三线性</text>
+<line x1="280" y1="92" x2="400" y2="92" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="340" y="84" font-size="11.5" text-anchor="middle" fill="#4a5158">位姿/投影</text>
+<line x1="650" y1="92" x2="770" y2="92" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="710" y="84" font-size="11.5" text-anchor="middle" fill="#4a5158">请求集</text>
+<line x1="895" y1="140" x2="895" y2="204" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="830" y="176" font-size="11.5" text-anchor="middle" fill="#4a5158">take_pending</text>
+<line x1="770" y1="252" x2="650" y2="252" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="710" y="244" font-size="11.5" text-anchor="middle" fill="#4a5158">本页几何</text>
+<line x1="400" y1="252" x2="280" y2="252" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="340" y="244" font-size="11.5" text-anchor="middle" fill="#4a5158">5 张 scratch</text>
+<line x1="155" y1="300" x2="155" y2="364" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="196" y="336" font-size="11.5" text-anchor="middle" fill="#4a5158">写池层</text>
+<line x1="280" y1="412" x2="400" y2="412" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="340" y="404" font-size="11.5" text-anchor="middle" fill="#4a5158">页表 texel</text>
+<line x1="650" y1="412" x2="770" y2="412" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="710" y="404" font-size="11.5" text-anchor="middle" fill="#4a5158">页表 / 池纹理</text>
+<polyline points="895,460 895,560 155,560 155,140" fill="none" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)" stroke-dasharray="6 4"/>
+<text x="525" y="552" font-size="11.5" text-anchor="middle" fill="#4a5158">下一帧：视点一动，页集合就重算</text>
+<text x="30" y="596" font-size="12" text-anchor="start" fill="#7a828a">实线＝同一帧内；虚线＝跨帧。页表与池是 CPU 与 GPU 的共同真相，材质永远只读它们。</text>
+
+</svg>
+<div class="cap">RVT 一帧的数据流。请求在 CPU 决策，页在 GPU 生成，材质只读页表与池。</div>
+</div>
+<p>demo 工程（<code>misc/rvt_demo</code>）跑出来的关键数字，后文反复用到：</p>
+<table class="kv">
+<tr><th>参数</th><th>取值</th><th>含义</th></tr>
+<tr><td>体积</td><td>64 × 8 × 64 m</td><td><code>RuntimeVirtualTextureVolume.size</code>，Y 是渲染高度范围</td></tr>
+<tr><td>页数（level 0）</td><td>32 × 32 = 1024 页</td><td><code>log2_tile_count = 5</code></td></tr>
+<tr><td>页尺寸</td><td>128 × 128 texel，边框 4</td><td>实际 tile stride = 136 px</td></tr>
+<tr><td>虚拟分辨率</td><td>4096 × 4096 texel</td><td>32 × 128，level0 texel = 15.6 mm</td></tr>
+<tr><td>物理池</td><td>24 × 24 = 576 页，3264 × 3264 px</td><td>RGBA8 / R32F</td></tr>
+<tr><td>页表</td><td>32 × 32，6 个 mip</td><td>RGBA8，mip 数 = log2 + 1</td></tr>
+<tr><td>每帧页预算</td><td>16</td><td><code>max_pages_per_frame</code></td></tr>
+</table>
+<h3>三条设计取舍</h3>
+<p><b>① 页渲染复用引擎材质 pass</b>（<code>RendererSceneRender::render_material</code>）。</p>
+<ul>
+<li>换来了什么：零新增 shader / pipeline，输出与场景里材质完全一致；VoxelGI 已经验证过这条路径能拿到 albedo / normal / orm / depth。</li>
+<li>付出了什么：输出集合被引擎写死为 5 个附件，不能像 UE 那样在材质里加「RVT 输出」节点自定义通道；也没有压缩。</li>
+<li>什么时候失效：需要额外通道（单独的 AO、自定义 mask、世界高度由材质自己写）时不适用；高度只能由深度反推。</li>
+</ul>
+<p><b>② 用视点推导代替 GPU feedback。</b></p>
+<ul>
+<li>换来了什么：纯 CPU、无回读延迟、结果确定（同一相机轨迹每帧请求集一致，便于回归测试）。</li>
+<li>付出了什么：只能保守过请求——按距离和像素足迹推算「大概需要哪几层」，比真实采样到的页多。</li>
+<li>什么时候失效：相机高速平移或超远距离看细节时，池容量会先于画质成为瓶颈，表现为细层被截断。</li>
+</ul>
+<p><b>③ 页表带 mip、缺页回退到祖先。</b></p>
+<ul>
+<li>换来了什么：采样端用一条 <code>texelFetch(page_table, page, level)</code> 就拿到「这一格现在能读到哪一层」，零分支、不出现空洞。</li>
+<li>付出了什么：缺页时画质是「突然变糊」而不是平滑过渡；页表多出约 1/3 的 mip 链内存（本例 4 KB → 5.5 KB，可忽略）。</li>
+<li>什么时候失效：冷启动第一帧，连最粗层都还没画出来时 <code>valid = 0</code>，采样返回黑；常驻层策略（每帧无条件请求最粗两层）把这段窗口压到 1～2 帧。</li>
+</ul>
+<h2 id="s2"><span class="num">2</span>数据流：从相机到页请求</h2>
+<p class="lead">没有 feedback 就从相机反推：每个视点按「像素足迹」算出需要哪一层，按视锥裁掉看不见的页。</p>
+<p>UE 的 RVT 由 GPU feedback 决定画哪些页：材质采样时写页号，回读后只画真正被采样的页。Godot 的 spatial shader 没有可写的 feedback buffer（存储缓冲在各类材质里的支持不一致），所以这里换成解析式推导：<b>用上一帧渲染过的相机位姿、投影和视口高度，算每个页的像素足迹</b>。</p>
+<p>核心公式（<code>servers/rendering/runtime_virtual_texture_page_manager.cpp:218-222</code>）：</p>
+<pre><code>world_per_pixel = 2 / (|P[1][1]| * viewport_height)      # P 是相机投影矩阵
+pixel(d)        = world_per_pixel * d                     # 透视；正交相机直接用常数
+lod(d)          = clamp(log2(pixel(d) / texel0) + bias, 0, max_level)</code></pre>
+<p>代入 demo 数字：体积 64 m 宽、32 页 × 128 texel → <code>texel0 = 64 / 4096 = 0.0156 m</code>。相机距 50 m、fov 60°、720 p 时 <code>world_per_pixel = 2 / (1.732 × 720) ≈ 0.0016 m</code>，该距离下每像素覆盖 <code>0.08 m</code>，于是 <code>lod = log2(0.08 / 0.0156) ≈ 2.36</code>——取 mip 2 与 3 混合。这个数值与材质里 <code>dFdx/dFdy</code> 算出的 LOD 是同一个量纲，所以 CPU 的页请求和 GPU 的采样能对上。</p>
+<p>页的选择走四叉树（<code>servers/rendering/runtime_virtual_texture_page_manager.cpp:224-266</code>）：</p>
+<ol>
+<li>从最粗层（level = max）开始，每次把节点拆成 4 个子页。</li>
+<li>对当前页求最近点 <code>dmin</code> 与最远点 <code>dmax</code>（8 个角点），得到 <code>lf_min</code>、<code>lf_max</code> 两个 LOD。</li>
+<li><code>lf_min &lt;= level &lt;= lf_max + 2</code> 时把这一页加进请求集（<code>+2</code> 是给斜视角留的余量）。</li>
+<li>只有 <code>lf_min &lt; level</code> 时才继续往下一层拆——远处的大块整块保留，不会无谓细分。</li>
+<li>视锥剔除在本地空间做：<code>frustum</code> 由相机平面乘 <code>to_local</code> 传入，页盒先向外膨胀半页，避免相机微微一动的边缘抖动。</li>
+</ol>
+<p>另外每帧无条件请求最粗的 <code>resident_levels = 2</code> 层（本例 2×2 + 1×1 = 5 页），保证任何视角下页表里都有东西可读，冷启动不会看到整片黑。</p>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 630" width="1040" height="630" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1040" height="630" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">页表是间接层：texel 记住「这一格里到底驻留着哪一层的内容」</text>
+<text x="60" y="82" font-size="12.5" text-anchor="start" fill="#4a5158" font-weight="600">level 0 页表（示意 8×8，实际 32×32）</text>
+<rect x="60" y="96" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="98" y="96" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="136" y="96" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="174" y="96" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="212" y="96" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="250" y="96" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="288" y="96" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="326" y="96" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="60" y="134" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="98" y="134" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="136" y="134" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="174" y="134" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="212" y="134" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="250" y="134" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="288" y="134" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="326" y="134" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="60" y="172" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="98" y="172" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="136" y="172" width="36.5" height="36.5" fill="#fdeccb" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="174" y="172" width="36.5" height="36.5" fill="#fdeccb" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="212" y="172" width="36.5" height="36.5" fill="#fdeccb" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="250" y="172" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="288" y="172" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="326" y="172" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="60" y="210" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="98" y="210" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="136" y="210" width="36.5" height="36.5" fill="#fdeccb" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="174" y="210" width="36.5" height="36.5" fill="#d7f0d9" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="212" y="210" width="36.5" height="36.5" fill="#d7f0d9" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="250" y="210" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="288" y="210" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="326" y="210" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="60" y="248" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="98" y="248" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="136" y="248" width="36.5" height="36.5" fill="#fdeccb" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="174" y="248" width="36.5" height="36.5" fill="#d7f0d9" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="212" y="248" width="36.5" height="36.5" fill="#cfe3ff" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="250" y="248" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="288" y="248" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="326" y="248" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="60" y="286" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="98" y="286" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="136" y="286" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="174" y="286" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="212" y="286" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="250" y="286" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="288" y="286" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="326" y="286" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="60" y="324" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="98" y="324" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="136" y="324" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="174" y="324" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="212" y="324" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="250" y="324" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="288" y="324" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="326" y="324" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="60" y="362" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="98" y="362" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="136" y="362" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="174" y="362" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="212" y="362" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="250" y="362" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="288" y="362" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<rect x="326" y="362" width="36.5" height="36.5" fill="#f0dcf5" stroke="#b9c2cc" stroke-width="0.8"/>
+<text x="212" y="420" font-size="11.5" text-anchor="middle" fill="#7a828a">每格 = 一个 level 0 页（128² texel）</text>
+<rect x="45" y="486" width="18" height="18" rx="3" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="71" y="499.5" font-size="11.5" text-anchor="start" fill="#4a5158">L0 最细：每页 128² texel</text>
+<rect x="260" y="486" width="18" height="18" rx="3" fill="#d7f0d9" stroke="#b9c2cc"/>
+<text x="286" y="499.5" font-size="11.5" text-anchor="start" fill="#4a5158">L1：每页 256² texel</text>
+<rect x="45" y="520" width="18" height="18" rx="3" fill="#fdeccb" stroke="#b9c2cc"/>
+<text x="71" y="533.5" font-size="11.5" text-anchor="start" fill="#4a5158">L2：每页 512² texel</text>
+<rect x="260" y="520" width="18" height="18" rx="3" fill="#f0dcf5" stroke="#b9c2cc"/>
+<text x="286" y="533.5" font-size="11.5" text-anchor="start" fill="#4a5158">L3：每页 1024² texel</text>
+<text x="560" y="82" font-size="12.5" text-anchor="start" fill="#4a5158" font-weight="600">物理池（示意 4×4，实际 24×24 = 576 页）</text>
+<rect x="560" y="96" width="84" height="84" fill="#eef2f7" stroke="#c6ced8"/>
+<rect x="646" y="96" width="84" height="84" fill="#ffffff" stroke="#c6ced8"/>
+<rect x="732" y="96" width="84" height="84" fill="#eef2f7" stroke="#c6ced8"/>
+<rect x="818" y="96" width="84" height="84" fill="#ffffff" stroke="#c6ced8"/>
+<rect x="560" y="182" width="84" height="84" fill="#ffffff" stroke="#c6ced8"/>
+<rect x="646" y="182" width="84" height="84" fill="#eef2f7" stroke="#c6ced8"/>
+<rect x="732" y="182" width="84" height="84" fill="#fdeccb" stroke="#c6ced8"/>
+<rect x="818" y="182" width="84" height="84" fill="#eef2f7" stroke="#c6ced8"/>
+<rect x="560" y="268" width="84" height="84" fill="#eef2f7" stroke="#c6ced8"/>
+<rect x="646" y="268" width="84" height="84" fill="#ffffff" stroke="#c6ced8"/>
+<rect x="732" y="268" width="84" height="84" fill="#eef2f7" stroke="#c6ced8"/>
+<rect x="818" y="268" width="84" height="84" fill="#ffffff" stroke="#c6ced8"/>
+<rect x="560" y="354" width="84" height="84" fill="#ffffff" stroke="#c6ced8"/>
+<rect x="646" y="354" width="84" height="84" fill="#eef2f7" stroke="#c6ced8"/>
+<rect x="732" y="354" width="84" height="84" fill="#ffffff" stroke="#c6ced8"/>
+<rect x="818" y="354" width="84" height="84" fill="#eef2f7" stroke="#c6ced8"/>
+<text x="775" y="230" font-size="11.5" text-anchor="middle" fill="#1a1d21">tile(2,1)</text>
+<text x="560" y="462" font-size="11.5" text-anchor="start" fill="#7a828a">每格 136×136 px（128 + 2×4 边框）</text>
+<text x="560" y="500" font-size="12.5" text-anchor="start" fill="#4a5158" font-weight="600">一个页表 texel（RGBA8，4 字节）</text>
+<rect x="560" y="514" width="104" height="46" rx="4" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="568" y="534" font-size="14" text-anchor="start" fill="#1a1d21" font-weight="600">R</text>
+<text x="568" y="551" font-size="10.5" text-anchor="start" fill="#4a5158">poolX 0..255</text>
+<rect x="668" y="514" width="104" height="46" rx="4" fill="#d7f0d9" stroke="#b9c2cc"/>
+<text x="676" y="534" font-size="14" text-anchor="start" fill="#1a1d21" font-weight="600">G</text>
+<text x="676" y="551" font-size="10.5" text-anchor="start" fill="#4a5158">poolY 0..255</text>
+<rect x="776" y="514" width="104" height="46" rx="4" fill="#fdeccb" stroke="#b9c2cc"/>
+<text x="784" y="534" font-size="14" text-anchor="start" fill="#1a1d21" font-weight="600">B</text>
+<text x="784" y="551" font-size="10.5" text-anchor="start" fill="#4a5158">驻留层 level</text>
+<rect x="884" y="514" width="104" height="46" rx="4" fill="#f0dcf5" stroke="#b9c2cc"/>
+<text x="892" y="534" font-size="14" text-anchor="start" fill="#1a1d21" font-weight="600">A</text>
+<text x="892" y="551" font-size="10.5" text-anchor="start" fill="#4a5158">valid = 255</text>
+<text x="30" y="600" font-size="12" text-anchor="start" fill="#7a828a">关键：texel 不存「这一格画过没有」，而存「这一格当前能拿到哪一层的内容」——缺页因此不会出现空洞。</text>
+
+</svg>
+<div class="cap">页表与物理池。页表 texel 记录「池坐标 + 驻留层 + 是否有效」，缺页时读到的仍是祖先页。</div>
+</div>
+<div class="callout note"><div class="h">为什么请求集要截断</div><p>请求数可能远大于池容量。<code>take_pending</code>（<code>servers/rendering/runtime_virtual_texture_page_manager.cpp:285-348</code>）先按「层由粗到细、同层距离近优先」排序，再截到池容量；每帧只提交 <code>max_pages_per_frame</code> 页去渲染。被截掉的请求下一帧还在（相机没动），所以表现为「慢慢变清晰」，而不是随机抖动。</p></div>
+<h2 id="s3"><span class="num">3</span>页的渲染：复用材质 pass 与 compose</h2>
+<p class="lead">一个页就是一次正交投影下的材质绘制，外加一个 compute 把 5 张附件转成池里的两个层。</p>
+<p>引擎里已经有现成的入口：<code>RendererSceneRender::render_material</code>（<code>servers/rendering/renderer_scene_render.h:328</code>，实现见 <code>servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp:3061</code>）。它以 <code>PASS_MODE_DEPTH_MATERIAL</code>（<code>servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.h:208</code>）绘制，shader 侧把材质结果写进 5 个附件（<code>servers/rendering/renderer_rd/shaders/forward_clustered/scene_forward_clustered.glsl:3094-3110</code>）。VoxelGI 的动态物体就是走这条路（<code>servers/rendering/renderer_rd/environment/gi.cpp:3281</code>），帧缓冲布局也照抄（<code>servers/rendering/renderer_rd/environment/gi.cpp:2805-2812</code>）。</p>
+<table class="kv">
+<tr><th>附件</th><th>格式</th><th>内容</th></tr>
+<tr><td>albedo</td><td>R8G8B8A8_SRGB</td><td>线性 albedo（写入时自动编码为 sRGB），alpha = 覆盖</td></tr>
+<tr><td>normal</td><td>R8G8B8A8_UNORM</td><td><code>encode24(视空间法线) * 0.5 + 0.5</code></td></tr>
+<tr><td>orm</td><td>R8G8B8A8_UNORM</td><td>ao / roughness / metallic / sss</td></tr>
+<tr><td>emission</td><td>R16G16B16A16_SFLOAT</td><td>自发光（本实现未落进池）</td></tr>
+<tr><td>depth</td><td>R32_SFLOAT</td><td><code>-vertex.z</code>，视空间线性距离</td></tr>
+<tr><td>depth-stencil</td><td>D16 / D24</td><td>深度测试用</td></tr>
+</table>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 640" width="1040" height="640" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1040" height="640" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">页的渲染：借用引擎已有的材质 pass，再用一个 compute 落进池</text>
+<rect x="30" y="52" width="240" height="92" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="44" y="83.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">正交相机</text>
+<text x="44" y="99.25" font-size="12" text-anchor="start" fill="#4a5158">中心 = 页矩形中心（含边框）</text>
+<text x="44" y="116.75" font-size="12" text-anchor="start" fill="#4a5158">视口 = 136×136 px</text>
+<rect x="330" y="52" width="220" height="92" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="344" y="83.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">页矩形 + 边框</text>
+<text x="344" y="99.25" font-size="12" text-anchor="start" fill="#4a5158">uv 各向外扩</text>
+<text x="344" y="116.75" font-size="12" text-anchor="start" fill="#4a5158">border / (tile × tiles)</text>
+<rect x="610" y="52" width="400" height="92" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="624" y="83.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">引擎材质 pass</text>
+<text x="624" y="99.25" font-size="12" text-anchor="start" fill="#4a5158">PASS_MODE_DEPTH_MATERIAL</text>
+<text x="624" y="116.75" font-size="12" text-anchor="start" fill="#4a5158">与 VoxelGI 动态物体同一个 pass</text>
+<line x1="270" y1="98" x2="330" y2="98" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="550" y1="98" x2="610" y2="98" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="15" y="224" width="192" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="29" y="266" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">albedo（sRGB）</text>
+<text x="29" y="282" font-size="10.5" text-anchor="start" fill="#4a5158">RGBA8_SRGB · 颜色 + alpha</text>
+<rect x="221" y="224" width="192" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="235" y="266" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">normal</text>
+<text x="235" y="282" font-size="10.5" text-anchor="start" fill="#4a5158">RGBA8 · encode24 法线</text>
+<rect x="427" y="224" width="192" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="441" y="266" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">orm</text>
+<text x="441" y="282" font-size="10.5" text-anchor="start" fill="#4a5158">RGBA8 · ao/rough/metal</text>
+<rect x="633" y="224" width="192" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="647" y="266" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">emission</text>
+<text x="647" y="282" font-size="10.5" text-anchor="start" fill="#4a5158">R16G16B16A16_SFLOAT</text>
+<rect x="839" y="224" width="192" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="853" y="266" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">depth</text>
+<text x="853" y="282" font-size="10.5" text-anchor="start" fill="#4a5158">R32F · -vertex.z</text>
+<polyline points="810,144 810,196" fill="none" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="111" y1="196" x2="1005" y2="196" stroke="#5b6470" stroke-width="1.6"/>
+<line x1="111" y1="196" x2="111" y2="224" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="317" y1="196" x2="317" y2="224" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="523" y1="196" x2="523" y2="224" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="729" y1="196" x2="729" y2="224" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="935" y1="196" x2="935" y2="224" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="560" y="188" font-size="11.5" text-anchor="start" fill="#4a5158">5 个颜色附件 + 1 个深度附件（D16）同一次绘制</text>
+<rect x="30" y="388" width="430" height="160" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="44" y="453.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">compose CS</text>
+<text x="44" y="469.25" font-size="12" text-anchor="start" fill="#4a5158">每线程一个 texel：flip_y、线性→sRGB</text>
+<text x="44" y="486.75" font-size="12" text-anchor="start" fill="#4a5158">高度 = 1 - depth / 体积高</text>
+<polyline points="520,320 520,352 245,352 245,388" fill="none" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="300" y="346" font-size="11.5" text-anchor="start" fill="#4a5158">texelFetch（最近邻）</text>
+<rect x="560" y="388" width="210" height="110" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="574" y="428.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">池层 0</text>
+<text x="574" y="444.25" font-size="12" text-anchor="start" fill="#4a5158">RGBA8：sRGB + 覆盖</text>
+<text x="574" y="461.75" font-size="12" text-anchor="start" fill="#4a5158">或 R32F：高度</text>
+<rect x="800" y="470" width="210" height="110" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="814" y="510.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">池层 1</text>
+<text x="814" y="526.25" font-size="12" text-anchor="start" fill="#4a5158">RGBA8：法线 xz、</text>
+<text x="814" y="543.75" font-size="12" text-anchor="start" fill="#4a5158">粗糙度、金属度</text>
+<line x1="460" y1="412" x2="560" y2="412" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="510" y="380" font-size="11.5" text-anchor="middle" fill="#4a5158">imageStore</text>
+<line x1="460" y1="540" x2="800" y2="540" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="630" y="560" font-size="11.5" text-anchor="middle" fill="#4a5158">layer1（仅 BC+NR）</text>
+<text x="30" y="616" font-size="12" text-anchor="start" fill="#7a828a">复用意味着零新增材质管线，代价是输出集合固定（不能自定义 RVT 输出通道），也没有压缩。</text>
+
+</svg>
+<div class="cap">页渲染管线：正交相机 → 材质 pass 的 5 个附件 → compose compute 写进池层。</div>
+</div>
+<p>compose 由 <code>RuntimeVirtualTextureRD::render_page</code> 发起（<code>servers/rendering/renderer_rd/runtime_virtual_texture_rd.cpp:220-243</code>）：先调 <code>render_material</code> 画进 136×136 的 scratch 帧缓冲，再对整张 136×136 派发 compute，写目标池 tile 的对应位置。shader 在 <code>servers/rendering/renderer_rd/shaders/runtime_virtual_texture_compose.glsl</code>，三件事：</p>
+<ul>
+<li><b>sRGB 回编码</b>：池是 <code>R8G8B8A8_UNORM</code>（<code>servers/rendering/renderer_rd/runtime_virtual_texture_rd.cpp:90</code>），没有自动 sRGB 语义；附件是 sRGB，<code>texelFetch</code> 拿到的是线性值，所以 compose 里手动 <code>linear_to_srgb</code> 再存（<code>servers/rendering/renderer_rd/shaders/runtime_virtual_texture_compose.glsl:44-46</code>）。</li>
+<li><b>上下翻转</b>：材质 pass 的输出相对相机 up 向量是翻的，<code>flip_y = 1</code>（<code>servers/rendering/renderer_rd/runtime_virtual_texture_rd.cpp:233</code>）。这一条是靠截图对比发现的——不翻转时整张 RVT 上下颠倒。</li>
+<li><b>法线映射</b>：材质写的是页相机视空间法线，compose 转成体积本地空间 <code>(n.x, -n.y)</code> 存进层 1 的 RG（<code>servers/rendering/renderer_rd/shaders/runtime_virtual_texture_compose.glsl:68-73</code>），&quot;朝上&quot;的那个分量不存，材质侧用 <code>sqrt(1 - x² - z²)</code> 还原。</li>
+</ul>
+<div class="callout warn"><div class="h">法线只能还原「朝上」的一半</div><p>层 1 只存 x、z 两个分量，材质用 <code>max(1 - x² - z², 0)</code> 取正的 y。对地形、路面、贴花这类朝上的表面完全够用；对悬垂、倒角侧面会丢符号。这正是 UE RVT 的同类限制——它默认也是俯视投影。</p></div>
+<h2 id="s4"><span class="num">4</span>一个页的一生</h2>
+<p class="lead">页的生命周期只有六个状态；关键不变量是「任何时刻页表 texel 要么命中，要么回退，绝不指向一个正在渲染的空槽」。</p>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 560" width="1080" height="560" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1080" height="560" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">一个页的一生：从请求到常驻，再到失效或淘汰</text>
+<rect x="25" y="74" width="145" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="39" y="124.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">① 请求</text>
+<rect x="200" y="74" width="145" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="214" y="124.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">② 分槽</text>
+<rect x="375" y="74" width="145" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="389" y="124.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">③ 渲染中</text>
+<rect x="550" y="74" width="145" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="564" y="124.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">④ 落盘</text>
+<rect x="725" y="74" width="145" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="739" y="124.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">⑤ 常驻</text>
+<rect x="900" y="74" width="145" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="914" y="124.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">⑥ 失效/淘汰</text>
+<text x="27" y="196" font-size="11.5" text-anchor="start" fill="#4a5158">request_page：同页取</text>
+<text x="27" y="213" font-size="11.5" text-anchor="start" fill="#4a5158">更小的优先级值</text>
+<text x="202" y="196" font-size="11.5" text-anchor="start" fill="#4a5158">先空槽；否则 LRU</text>
+<text x="202" y="213" font-size="11.5" text-anchor="start" fill="#4a5158">本帧请求过的页不淘汰</text>
+<text x="377" y="196" font-size="11.5" text-anchor="start" fill="#4a5158">页表仍指祖先 →</text>
+<text x="377" y="213" font-size="11.5" text-anchor="start" fill="#4a5158">采样不出现空洞</text>
+<text x="552" y="196" font-size="11.5" text-anchor="start" fill="#4a5158">mark_rendered：写本级</text>
+<text x="552" y="213" font-size="11.5" text-anchor="start" fill="#4a5158">entry，并刷新更粗后代</text>
+<text x="727" y="196" font-size="11.5" text-anchor="start" fill="#4a5158">texelFetch 命中，</text>
+<text x="727" y="213" font-size="11.5" text-anchor="start" fill="#4a5158">三线性取 l0 / l0+1</text>
+<text x="902" y="196" font-size="11.5" text-anchor="start" fill="#4a5158">dirty → 下帧重渲</text>
+<text x="902" y="213" font-size="11.5" text-anchor="start" fill="#4a5158">淘汰 → 后代回退</text>
+<polyline points="972,170 972,252 12,252 12,122 25,122" fill="none" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)" stroke-dasharray="6 4"/>
+<text x="520" y="244" font-size="11.5" text-anchor="middle" fill="#4a5158">③ 之后才可能被读到；⑥ 之后重新回到 ①</text>
+<rect x="30" y="310" width="1020" height="132" rx="9" fill="#eaf1fe" stroke="#b9cdf5" stroke-width="1.4"/>
+<text x="43" y="330" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">三条不变量（单测逐条覆盖）</text>
+<text x="43" y="347" font-size="12.5" text-anchor="start" fill="#4a5158">1. 页表 texel 要么命中本级，要么回退到更粗的驻留页；valid=0 只出现在从未渲染过的最粗层之上。</text>
+<text x="43" y="364" font-size="12.5" text-anchor="start" fill="#4a5158">2. 已淘汰的页立刻从「页 → 槽」映射里移除，所有指向它的后代 texel 重算为祖先值。</text>
+<text x="43" y="381" font-size="12.5" text-anchor="start" fill="#4a5158">3. 本帧被请求过的页不会被本帧淘汰，最坏情况是请求被截断（池满），页集合保持稳定不抖动。</text>
+<text x="30" y="486" font-size="11.5" text-anchor="start" fill="#7a828a">测试：tests/servers/rendering/test_runtime_virtual_texture_page_manager.cpp:58-86（祖先回退）</text>
+<text x="30" y="510" font-size="11.5" text-anchor="start" fill="#7a828a">tests/servers/rendering/test_runtime_virtual_texture_page_manager.cpp:88-99（粗层优先、预算）</text>
+<text x="30" y="534" font-size="11.5" text-anchor="start" fill="#7a828a">tests/servers/rendering/test_runtime_virtual_texture_page_manager.cpp:101-127（LRU 不淘汰本帧页）</text>
+
+</svg>
+<div class="cap">页的六个状态。③ 渲染中页表仍指向祖先，④ 落盘时才原子地替换本级条目。</div>
+</div>
+<ol>
+<li><b>请求</b>（<code>servers/rendering/runtime_virtual_texture_page_manager.cpp:205-216</code>）：同一页多次请求取最小优先级值（距离），不重复入队。</li>
+<li><b>分槽</b>（<code>servers/rendering/runtime_virtual_texture_page_manager.cpp:167-190</code>）：先取空闲槽；没有就 LRU 淘汰，但<b>本帧被请求过的页不淘汰</b>，避免刚渲染完又被换出去。</li>
+<li><b>渲染中</b>：槽已占，但页表还没改——所有指向这一格的 texel 仍读祖先页，所以采样端看不到空洞。</li>
+<li><b>落盘</b>（<code>servers/rendering/runtime_virtual_texture_page_manager.cpp:350-363</code>）：<code>mark_rendered</code> 写本级 entry，并把「比它粗」的后代 texel 全部刷成它；<code>valid = 255</code>。</li>
+<li><b>常驻</b>：材质 <code>texelFetch</code> 命中，<code>res</code> 就是这一层。</li>
+<li><b>失效 / 淘汰</b>：dirty 的页下一帧重新渲染（复用原槽）；被淘汰的页从映射里移除，后代 texel 重算为祖先值（<code>servers/rendering/runtime_virtual_texture_page_manager.cpp:136-152</code>）。</li>
+</ol>
+<p>单测直接把这三条不变量钉住（<code>tests/servers/rendering/test_runtime_virtual_texture_page_manager.cpp:58-127</code>）：祖先回退、粗层优先与预算、LRU 不淘汰本帧页、失效后原位重渲、视点请求近处更细、视锥剔除。</p>
+<h2 id="s5"><span class="num">5</span>材质侧采样：页表间接与祖先回退</h2>
+<p class="lead">采样端只有一次页表 texelFetch，加两次池采样；缺页不报错，只是更糊。</p>
+<p>材质通过 <code>rvt.apply_to_material(mat)</code> 拿到 6 组 uniform（<code>scene/resources/runtime_virtual_texture.cpp:170-183</code>）：</p>
+<table class="kv">
+<tr><th>uniform</th><th>类型</th><th>含义</th></tr>
+<tr><td><code>rvt_page_table</code></td><td>sampler2D（最近邻）</td><td>页表，按 mip 取驻留层</td></tr>
+<tr><td><code>rvt_physical0</code></td><td>sampler2D（线性）</td><td>池层 0：sRGB 颜色 + 覆盖，或归一化高度</td></tr>
+<tr><td><code>rvt_physical1</code></td><td>sampler2D（线性）</td><td>池层 1：法线 xz、粗糙度、金属度</td></tr>
+<tr><td><code>rvt_params0</code></td><td>vec4</td><td>level0 页数、最大层、tile 像素、边框像素</td></tr>
+<tr><td><code>rvt_params1</code></td><td>vec4</td><td>池宽高像素、体积高、材质类型</td></tr>
+<tr><td><code>rvt_world_to_uv</code></td><td>mat4</td><td>世界坐标 → 体积 0..1 空间（x→u，z→v，y→高度）</td></tr>
+<tr><td><code>rvt_normal_basis</code></td><td>mat4</td><td>体积本地 → 世界旋转（法线用）</td></tr>
+</table>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 600" width="1040" height="600" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1040" height="600" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">材质侧采样：两次 texelFetch 决定「读哪一页」，再按 fract(lod) 混合</text>
+<rect x="30" y="54" width="520" height="52" rx="8" fill="#ffffff" stroke="#d5dbe2"/>
+<text x="44" y="75" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">1  world_pos</text>
+<text x="44" y="93" font-size="11" text-anchor="start" fill="#4a5158">顶点着色器传下来的世界坐标</text>
+<line x1="290" y1="106" x2="290" y2="116" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="30" y="116" width="520" height="52" rx="8" fill="#ffffff" stroke="#d5dbe2"/>
+<text x="44" y="137" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">2  uv = (M·p).xz</text>
+<text x="44" y="155" font-size="11" text-anchor="start" fill="#4a5158">M = world_to_uv，覆盖 −0.5..0.5 的盒体</text>
+<line x1="290" y1="168" x2="290" y2="178" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="30" y="178" width="520" height="52" rx="8" fill="#ffffff" stroke="#d5dbe2"/>
+<text x="44" y="199" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">3  lod = 0.5·log2(max(dFdx², dFdy²))</text>
+<text x="44" y="217" font-size="11" text-anchor="start" fill="#4a5158">texels = 32 × 128 = 4096</text>
+<line x1="290" y1="230" x2="290" y2="240" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="30" y="240" width="520" height="52" rx="8" fill="#ffffff" stroke="#d5dbe2"/>
+<text x="44" y="261" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">4  page = floor(uv × tiles(level))</text>
+<text x="44" y="279" font-size="11" text-anchor="start" fill="#4a5158">按目标层取页号</text>
+<line x1="290" y1="292" x2="290" y2="302" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="30" y="302" width="520" height="52" rx="8" fill="#ffffff" stroke="#d5dbe2"/>
+<text x="44" y="323" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">5  entry = texelFetch(page_table, page, level)</text>
+<text x="44" y="341" font-size="11" text-anchor="start" fill="#4a5158">取到的是「驻留层 res」，未必等于 level</text>
+<line x1="290" y1="354" x2="290" y2="364" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="30" y="364" width="520" height="52" rx="8" fill="#ffffff" stroke="#d5dbe2"/>
+<text x="44" y="385" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">6  img = frac(uv × 2^res)</text>
+<text x="44" y="403" font-size="11" text-anchor="start" fill="#4a5158">回到该页自身的像素空间</text>
+<line x1="290" y1="416" x2="290" y2="426" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="30" y="426" width="520" height="52" rx="8" fill="#ffffff" stroke="#d5dbe2"/>
+<text x="44" y="447" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">7  phys = (poolTile × 136 + 4 + img × 128) / 3264</text>
+<text x="44" y="465" font-size="11" text-anchor="start" fill="#4a5158">换算成池纹理 UV</text>
+<line x1="290" y1="478" x2="290" y2="488" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="30" y="488" width="520" height="52" rx="8" fill="#ffffff" stroke="#d5dbe2"/>
+<text x="44" y="509" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">8  mix(层 l0, 层 l0+1, fract(lod))</text>
+<text x="44" y="527" font-size="11" text-anchor="start" fill="#4a5158">两层的 res 可以不同，混合仍然成立</text>
+<rect x="590" y="54" width="420" height="176" rx="9" fill="#e9f7ef" stroke="#bfe3cc" stroke-width="1.4"/>
+<text x="603" y="74" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">示例（demo 参数）</text>
+<text x="603" y="91" font-size="12.5" text-anchor="start" fill="#4a5158">体积 64×8×64 m，32×32 页，128 px/页</text>
+<text x="603" y="108" font-size="12.5" text-anchor="start" fill="#4a5158">→ level0 texel = 64 / 4096 = 15.6 mm</text>
+<text x="603" y="125" font-size="12.5" text-anchor="start" fill="#4a5158">相机距 50 m、fov 60°、720 p</text>
+<text x="603" y="142" font-size="12.5" text-anchor="start" fill="#4a5158">→ 每像素 0.08 m → lod = log2(0.08/0.0156) ≈ 2.36</text>
+<text x="603" y="159" font-size="12.5" text-anchor="start" fill="#4a5158">→ 取 mip 2 与 3，按 0.36 混合</text>
+<rect x="590" y="258" width="420" height="190" rx="9" fill="#eaf1fe" stroke="#b9cdf5" stroke-width="1.4"/>
+<text x="603" y="278" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">entry 的数值语义（RGBA8）</text>
+<text x="603" y="295" font-size="12.5" text-anchor="start" fill="#4a5158">R,G = 池内 tile 坐标（0..255）</text>
+<text x="603" y="312" font-size="12.5" text-anchor="start" fill="#4a5158">B  = 实际驻留层 res（0..max）</text>
+<text x="603" y="329" font-size="12.5" text-anchor="start" fill="#4a5158">A  = 255 表示有效</text>
+<text x="603" y="346" font-size="12.5" text-anchor="start" fill="#4a5158">例：(6, 9, 3, 255) → 池 tile(6,9)</text>
+<text x="603" y="363" font-size="12.5" text-anchor="start" fill="#4a5158">            的第 3 层内容，128² texel</text>
+<text x="30" y="574" font-size="12" text-anchor="start" fill="#7a828a">缺页不是错误路径：entry 的 res 永远 ≤ 请求层，采样端没有任何分支，画面上只是更糊。</text>
+
+</svg>
+<div class="cap">采样路径。两次 texelFetch 分别取 mip l0 与 l0+1，各自解析出自己的驻留层，再混合。</div>
+</div>
+<pre><code>shader_type spatial;
+#include &quot;res://rvt.gdshaderinc&quot;
+
+varying vec3 world_pos;
+void vertex() { world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
+
+void fragment() {
+    vec4 color; vec3 n; float rough; float metal; bool inside;
+    rvt_sample(world_pos, color, n, rough, metal, inside);
+    ALBEDO   = color.rgb;
+    NORMAL   = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);
+    ROUGHNESS = rough;
+    METALLIC  = metal;
+}</code></pre>
+<p>入口在 <code>misc/rvt_demo/rvt.gdshaderinc</code>。核心是 <code>rvt_physical_uv</code>（<code>misc/rvt_demo/rvt.gdshaderinc:13-28</code>）：按目标层算出页号 → <code>texelFetch</code> 取 entry → entry 的 B 通道给出<b>实际驻留层</b> → 用它在页内定位 → 换算成池 UV。两次调用分别取 <code>l0</code> 和 <code>l0+1</code>，按 <code>fract(lod)</code> 混合（<code>misc/rvt_demo/rvt.gdshaderinc:51-74</code>）。两层的 <code>res</code> 可以不同（一层命中、一层回退），混合依然成立。</p>
+<p>entry 是一颗 RGBA8：R、G 是池内 tile 坐标（0..255），B 是驻留层，A = 255 表示有效。所以池每边最多 255 页；demo 的 24 页远低于上限。</p>
+<div class="callout note"><div class="h">为什么把回退信息放在纹理 mip 里，而不是传到材质里算</div><p>如果由材质自己按 <code>res</code> 做分支或循环，采样端会变成动态分支，移动端代价高且不好向量化。把「这一格现在能读到谁」预先写进页表的每一级 mip，采样端就退化成一条固定路径的 texelFetch；代价是每次落盘/淘汰要在 CPU 侧刷新受影响的后代 texel（页表很小，这点开销可忽略）。</p></div>
+<h2 id="s6"><span class="num">6</span>资源、调度与失效语义</h2>
+<p class="lead">谁改动了画面，谁就要负责让页失效；能自动判断的交给场景剔除，判断不了的留给用户显式调用。</p>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 540" width="1040" height="540" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1040" height="540" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">每帧时序：建/换池必须早于材质重绑，画页晚于视点收集</text>
+<text x="190" y="58" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">RenderingServer 帧</text>
+<line x1="182" y1="72" x2="182" y2="520" stroke="#d5dbe2" stroke-width="1.2" stroke-dasharray="4 4"/>
+<text x="470" y="58" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">RendererSceneCull（RVT）</text>
+<line x1="462" y1="72" x2="462" y2="520" stroke="#d5dbe2" stroke-width="1.2" stroke-dasharray="4 4"/>
+<text x="780" y="58" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">空间材质</text>
+<line x1="772" y1="72" x2="772" y2="520" stroke="#d5dbe2" stroke-width="1.2" stroke-dasharray="4 4"/>
+<line x1="20" y1="100" x2="1000" y2="100" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="91" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">RSG::scene-&gt;update()</text>
+<text x="300" y="91" font-size="11.5" text-anchor="start" fill="#4a5158">update_runtime_virtual_texture_objects()：首次或配置变更时建 GPU、换纹理</text>
+<line x1="20" y1="174" x2="1000" y2="174" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="165" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">update_dirty_instances()</text>
+<text x="300" y="165" font-size="11.5" text-anchor="start" fill="#4a5158">材质在这里重新绑定页表 / 池的纹理 RID（同一帧生效）</text>
+<line x1="20" y1="248" x2="1000" y2="248" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="239" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">draw_viewports → _render_scene()</text>
+<text x="300" y="239" font-size="11.5" text-anchor="start" fill="#4a5158">收集本帧相机：位姿、投影、视口高度 → 存成下一帧的视点</text>
+<line x1="20" y1="322" x2="1000" y2="322" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="313" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">render_probes()</text>
+<text x="300" y="313" font-size="11.5" text-anchor="start" fill="#4a5158">失效 → 请求 → take_pending ≤N → 逐页渲染 → 上传页表</text>
+<line x1="20" y1="420" x2="1000" y2="420" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="411" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">下一帧</text>
+<text x="800" y="411" font-size="11.5" text-anchor="start" fill="#4a5158">材质采样上一帧的页表与池（无回写）</text>
+<rect x="180" y="72" width="810" height="114" rx="8" fill="none" stroke="#c0392b" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="186" y="208" font-size="11.5" text-anchor="start" fill="#c0392b">顺序红线：纹理替换若发生在 update_dirty_instances() 之后，材质整帧拿着失效的 uniform set 绘制。</text>
+<text x="30" y="480" font-size="11.5" text-anchor="start" fill="#7a828a">页渲染放在 render_probes()（同 VoxelGI），此时实例已更新、视口尚未绘制，材质随后即可采样到本帧新页。</text>
+<text x="30" y="504" font-size="10.5" text-anchor="start" fill="#7a828a">对应代码：servers/rendering/renderer_scene_cull.cpp:4434（update 内建池）</text>
+<text x="30" y="524" font-size="10.5" text-anchor="start" fill="#7a828a">　　　　　servers/rendering/renderer_scene_cull.cpp:3906（画页）／servers/rendering/renderer_scene_cull.cpp:3354（收集视点）</text>
+
+</svg>
+<div class="cap">每帧时序。建池必须早于材质重绑；画页晚于视点收集。</div>
+</div>
+<p>时序上只有两个挂点（<code>servers/rendering/renderer_scene_cull.cpp</code>）：<code>update()</code> 里的 <code>servers/rendering/renderer_scene_cull.cpp:4434</code> 负责建/换池，<code>render_probes()</code> 里的 <code>servers/rendering/renderer_scene_cull.cpp:3906</code> 负责画页；视点在 <code>_render_scene()</code> 的 <code>servers/rendering/renderer_scene_cull.cpp:3354</code> 收集。</p>
+<div class="callout warn"><div class="h">顺序红线（真实踩过的坑）</div><p>最初把「建 GPU / 替换纹理」放在 <code>render_runtime_virtual_textures()</code> 里（即 <code>render_probes()</code>），结果材质的 uniform set 指向已释放的 RID：日志里是 <code>Uniforms supplied ... are not the same format</code> 与 <code>Uniforms were never supplied</code>，画面整帧不刷新。原因是 <code>texture_replace</code> 会重建材质依赖，而 <code>update_dirty_instances()</code> 已经在同一帧更早跑完了。把建池前移到 <code>update()</code> 开头、<code>update_dirty_instances()</code> 之前，材质才能在同一帧拿到新纹理。</p></div>
+<table class="kv">
+<tr><th>改动</th><th>是否自动失效</th><th>入口</th></tr>
+<tr><td>实例 transform / AABB 变化</td><td>是</td><td><code>servers/rendering/renderer_scene_cull.cpp:1754</code></td></tr>
+<tr><td>实例可见性切换</td><td>是</td><td><code>servers/rendering/renderer_scene_cull.cpp:1098</code></td></tr>
+<tr><td>实例 layer_mask 变化</td><td>是（只失效受影响的层）</td><td><code>servers/rendering/renderer_scene_cull.cpp:984</code></td></tr>
+<tr><td>实例移出场景</td><td>是</td><td><code>servers/rendering/renderer_scene_cull.cpp:863</code></td></tr>
+<tr><td>体积节点移动 / 改尺寸</td><td>是（全量失效）</td><td><code>scene/3d/runtime_virtual_texture_volume.cpp:45-57</code></td></tr>
+<tr><td>改 cull_mask / scenario / 类型 / tile 参数</td><td>是（全量失效或重建池）</td><td><code>servers/rendering/renderer_scene_cull_rvt.cpp:63-100</code></td></tr>
+<tr><td>材质参数（颜色、贴图）变化</td><td>否</td><td>需手动 <code>rvt.invalidate(aabb)</code> 或 <code>invalidate_all()</code></td></tr>
+</table>
+<p>材质参数这一项是设计上的取舍：引擎没有「材质参数变了」的通知回调，逐材质轮询代价大于收益。demo 里的重着色用例就是显式调用 <code>invalidate</code> 后通过的（像素从原色变成 <code>(0.80, 0, 0.80)</code>）。</p>
+<h2 id="s7"><span class="num">7</span>与 UE RVT 的对照</h2>
+<p class="lead">同构的是骨架，分叉只发生在「页请求从哪来」和「材质能输出什么」。</p>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 568" width="1040" height="568" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1040" height="568" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">与 UE RVT 的对照：同构的是「页表 + 池 + 按需渲染」，分叉在反馈与材质输出</text>
+<rect x="30" y="52" width="470" height="44" rx="9" fill="#f3eefb" stroke="#d9c9ef" stroke-width="1.4"/>
+<text x="44" y="76.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">Unreal Engine 5（RuntimeVirtualTexture）</text>
+<rect x="520" y="52" width="490" height="44" rx="9" fill="#eaf1fe" stroke="#b9cdf5" stroke-width="1.4"/>
+<text x="534" y="76.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">Godot（本次实现）</text>
+<rect x="30" y="112" width="980" height="66" fill="#fafbfc" stroke="#d5dbe2" stroke-width="0.8"/>
+<text x="40" y="138" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">页请求来源</text>
+<text x="150" y="138" font-size="11" text-anchor="start" fill="#4a5158">GPU feedback：材质采样时写页号，</text>
+<text x="150" y="155" font-size="11" text-anchor="start" fill="#4a5158">回读后只画真正被采样的页</text>
+<text x="560" y="138" font-size="11" text-anchor="start" fill="#4a5158">上一帧相机的位姿与像素足迹解析式推导</text>
+<text x="560" y="155" font-size="11" text-anchor="start" fill="#4a5158">（spatial shader 无法写 feedback buffer）</text>
+<line x1="520" y1="112" x2="520" y2="178" stroke="#d5dbe2"/>
+<rect x="30" y="178" width="980" height="66" fill="#ffffff" stroke="#d5dbe2" stroke-width="0.8"/>
+<text x="40" y="204" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">页表</text>
+<text x="150" y="204" font-size="11" text-anchor="start" fill="#4a5158">显式页表纹理，编码池坐标与层</text>
+<text x="560" y="204" font-size="11" text-anchor="start" fill="#4a5158">显式页表纹理 + 每层一个 mip，</text>
+<text x="560" y="221" font-size="11" text-anchor="start" fill="#4a5158">texelFetch 直接回退</text>
+<line x1="520" y1="178" x2="520" y2="244" stroke="#d5dbe2"/>
+<rect x="30" y="244" width="980" height="66" fill="#fafbfc" stroke="#d5dbe2" stroke-width="0.8"/>
+<text x="40" y="270" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">物理池</text>
+<text x="150" y="270" font-size="11" text-anchor="start" fill="#4a5158">多层，支持 BC 压缩</text>
+<text x="560" y="270" font-size="11" text-anchor="start" fill="#4a5158">两层 RGBA8（或一层 R32F），无压缩</text>
+<line x1="520" y1="244" x2="520" y2="310" stroke="#d5dbe2"/>
+<rect x="30" y="310" width="980" height="66" fill="#ffffff" stroke="#d5dbe2" stroke-width="0.8"/>
+<text x="40" y="336" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">页渲染</text>
+<text x="150" y="336" font-size="11" text-anchor="start" fill="#4a5158">专用 RVT pass + 材质 RVT 输出节点</text>
+<text x="560" y="336" font-size="11" text-anchor="start" fill="#4a5158">复用 PASS_MODE_DEPTH_MATERIAL（同 VoxelGI）</text>
+<text x="560" y="353" font-size="11" text-anchor="start" fill="#4a5158">输出集合固定，不支持自定义通道</text>
+<line x1="520" y1="310" x2="520" y2="376" stroke="#d5dbe2"/>
+<rect x="30" y="376" width="980" height="66" fill="#fafbfc" stroke="#d5dbe2" stroke-width="0.8"/>
+<text x="40" y="402" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">材质取用</text>
+<text x="150" y="402" font-size="11" text-anchor="start" fill="#4a5158">材质节点 / RVT 采样节点</text>
+<text x="560" y="402" font-size="11" text-anchor="start" fill="#4a5158">gdshaderinc + 6 个 uniform</text>
+<line x1="520" y1="376" x2="520" y2="442" stroke="#d5dbe2"/>
+<rect x="30" y="442" width="980" height="66" fill="#ffffff" stroke="#d5dbe2" stroke-width="0.8"/>
+<text x="40" y="468" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">缺页表现</text>
+<text x="150" y="468" font-size="11" text-anchor="start" fill="#4a5158">回退更粗的页</text>
+<text x="560" y="468" font-size="11" text-anchor="start" fill="#4a5158">回退更粗的页（回退由页表编码承载）</text>
+<line x1="520" y1="442" x2="520" y2="508" stroke="#d5dbe2"/>
+<text x="30" y="540" font-size="12" text-anchor="start" fill="#7a828a">差异的根因只有一条：Godot 的 spatial shader 不能写 feedback buffer，所以「哪些页要」只能由 CPU 从相机反推。</text>
+
+</svg>
+<div class="cap">UE 与 Godot 实现的逐项对照。</div>
+</div>
+<p>把两条实现放在一起看，页表、物理池、按需渲染、缺页回退都是同一套思路；真正不同的是：</p>
+<ul>
+<li><b>页请求来源</b>：UE 走 GPU feedback，采样到什么就画什么；Godot 走相机解析式推导，会多画。</li>
+<li><b>页渲染</b>：UE 是专用 pass + 材质里的 RVT 输出节点；Godot 直接复用 VoxelGI 那条材质 pass，输出集合固定。</li>
+<li><b>压缩</b>：UE 的物理池支持 BC；Godot 这里是裸 RGBA8，换来的是「任何平台、任何材质都能跑」。</li>
+</ul>
+<h2 id="s8"><span class="num">8</span>验证矩阵与实测</h2>
+<p class="lead">所有数字来自 <code>misc/rvt_demo</code> 的自测脚本，退出码即结论。</p>
+<p>自测的做法：画面左半直接渲染，右半由一块采样 RVT 的接收面覆盖；两块区域用不同 layer 控制可见性，相机 <code>cull_mask</code> 在「只看左半 + 接收面」与「只看左右两半直渲」之间切换，两张截图逐像素比对。所有源物体都在 <code>cull_mask</code> 里，所以 RVT 始终是完整内容。</p>
+<table class="kv">
+<tr><th>配置</th><th>结果</th><th>远景平均差</th><th>近景平均差</th></tr>
+<tr><td>Vulkan Forward+</td><td>PASS</td><td>0.0020</td><td>0.0086</td></tr>
+<tr><td>Vulkan Mobile</td><td>PASS</td><td>0.0019</td><td>0.0050</td></tr>
+<tr><td>D3D12</td><td>PASS</td><td>0.0020</td><td>0.0086</td></tr>
+<tr><td>Forward+，池 8×8（64 页）</td><td>PASS（淘汰 17 页）</td><td>0.0020</td><td>0.0086</td></tr>
+<tr><td>Forward+，池 12×12（144 页）</td><td>PASS（淘汰 17 页）</td><td>0.0020</td><td>0.0088</td></tr>
+<tr><td>运行时改 tile 128→64、池 24→40、边框 4→2</td><td>PASS</td><td>—</td><td>0.0019</td></tr>
+</table>
+<p>其它分支：</p>
+<ul>
+<li><b>WORLD_HEIGHT</b>：塔顶读回 0.753（期望 0.75），地面 0.503（期望 0.5）。</li>
+<li><b>重着色</b>：改材质颜色后 <code>invalidate</code>，对应像素变为洋红 <code>(0.80, 0, 0.80)</code>。</li>
+<li><b>移动物体</b>：绿盘从 <code>(20, 0, 20)</code> 移到 <code>(20, 0, -20)</code>，旧位置恢复地面色、新位置为 <code>(0, 1, 0)</code>。</li>
+<li><b>单元测试</b>：<code>RVTPageManager</code> 6 个用例；全量 doctest 1439 例 / 425756 条断言通过。</li>
+</ul>
+<pre><code># 自测（退出码 0 = PASS）
+godot --path misc/rvt_demo -- --rvt-test
+godot --path misc/rvt_demo -- --rvt-test --pool=8        # 小池，压淘汰
+godot --path misc/rvt_demo -- --rvt-height               # 高度类型
+godot --path misc/rvt_demo --rendering-method mobile -- --rvt-test
+godot --path misc/rvt_demo --rendering-driver d3d12 -- --rvt-test
+
+# 单元测试
+godot --headless --test --test-case=&quot;*RVTPageManager*&quot;</code></pre>
+<h2 id="s9"><span class="num">9</span>已知限制与约束</h2>
+<p class="lead">能力边界都是取舍的直接结果，不是遗漏。</p>
+<ul>
+<li><b>过请求</b>：没有 feedback，按视点推算会多画页。池容量要按「最坏视角」而不是「典型视角」估算。</li>
+<li><b>无压缩</b>：demo 池 3264²，两层 RGBA8 合计约 85 MB。大世界要么缩池、要么换 R32F 高度层单独存。</li>
+<li><b>输出固定</b>：只能拿 albedo / normal / roughness / metallic / 高度；自定义通道（AO、mask）不支持。</li>
+<li><b>只俯视</b>：投影沿节点 −Y；法线按「朝上」还原，悬垂面会丢符号。</li>
+<li><b>材质参数不自知</b>：改颜色/贴图后必须手动 <code>invalidate</code>。</li>
+<li><b>上限</b>：<code>pool_size ≤ 255</code>（entry 用 8 bit 编码 tile 坐标）、<code>log2_tile_count ≤ 10</code>、<code>tile_size ≤ 1024</code>。</li>
+<li><b>后端</b>：仅 RD（Forward+ / Mobile）；GL Compatibility 与 dummy 后端走空实现。</li>
+<li><b>内容范围</b>：页里画的是不透明与 alpha 面；天空、粒子、贴花不进 RVT。</li>
+<li><b>跨帧延迟</b>：页在 <code>render_probes()</code> 生成，材质当帧就能读到；但页请求基于上一帧相机，相机瞬移时会有一两帧的粗页。</li>
+</ul>
+<h2 id="s10"><span class="num">10</span>源码索引</h2>
+<p class="lead">新增 13 个引擎源文件与 3 份类文档、改动 14 个既有文件；下表按职责索引。</p>
+<table class="kv">
+<tr><th>文件</th><th>职责</th><th>关键位置</th></tr>
+<tr><td><code>servers/rendering/runtime_virtual_texture_page_manager.h/.cpp</code></td><td>页表 / 池 / LRU / 四叉树请求（纯 CPU，可单测）</td><td><code>configure:40</code>、<code>_resolve:95</code>、<code>_allocate_slot:167</code>、<code>_visit:224</code>、<code>take_pending:285</code>、<code>mark_rendered:350</code></td></tr>
+<tr><td><code>servers/rendering/renderer_scene_cull_rvt.cpp</code></td><td>RS 接口实现、视点收集、每页剔除与调度</td><td><code>_register_viewer:164</code>、<code>_render_page:237</code>、<code>update_objects:302</code>、<code>render:319</code></td></tr>
+<tr><td><code>servers/rendering/renderer_rd/runtime_virtual_texture_rd.cpp</code></td><td>池 / 页表纹理 / scratch FB / compose</td><td><code>create:78</code>、<code>update_page_table:210</code>、<code>render_page:220</code></td></tr>
+<tr><td><code>servers/rendering/renderer_rd/shaders/runtime_virtual_texture_compose.glsl</code></td><td>附件 → 池层的转换</td><td><code>main:51-75</code></td></tr>
+<tr><td><code>scene/resources/runtime_virtual_texture.cpp</code></td><td>资源、uniform 绑定、失效 API</td><td><code>_apply_to_material:170</code>、<code>apply_to_material:184</code></td></tr>
+<tr><td><code>scene/3d/runtime_virtual_texture_volume.cpp</code></td><td>节点，把 <code>size</code> + 变换推给服务器</td><td><code>_update_world:45</code>、<code>set_size:82</code></td></tr>
+<tr><td><code>editor/scene/3d/gizmos/runtime_virtual_texture_volume_gizmo_plugin.cpp</code></td><td>编辑器框线与缩放手柄</td><td><code>redraw</code></td></tr>
+<tr><td><code>tests/servers/rendering/test_runtime_virtual_texture_page_manager.cpp</code></td><td>页管理 6 个单测</td><td><code>58-197</code></td></tr>
+<tr><td><code>misc/rvt_demo/</code></td><td>自测工程、采样 include、接收 shader</td><td><code>demo.gd</code>、<code>rvt.gdshaderinc</code></td></tr>
+</table>
+<p>引擎侧接入点：<code>servers/rendering/rendering_server.h:793-805</code>、<code>rendering_server_default.h</code>（转发宏）、<code>servers/rendering/renderer_scene_cull.cpp:3354</code>、<code>servers/rendering/renderer_scene_cull.cpp:3906</code>、<code>servers/rendering/renderer_scene_cull.cpp:4434</code>、<code>servers/rendering/renderer_rd/renderer_scene_render_rd.cpp:1566-1588</code>（GPU 后端转发）、<code>scene/register_scene_types.cpp</code>（类注册）。文档：<code>doc/classes/RuntimeVirtualTexture.xml</code>、<code>RuntimeVirtualTextureVolume.xml</code>、<code>RuntimeVirtualTextureProxy.xml</code>。</p>
+<footer>Godot Engine · Runtime Virtual Texture · 2026-11-01 · 配套自测工程 misc/rvt_demo，HTML 与 Markdown 两版由同一份内容生成。</footer>
+</div>
+</body>
+</html>
