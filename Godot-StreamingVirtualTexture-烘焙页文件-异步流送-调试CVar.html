@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Godot Streaming Virtual Texture：.svt 烘焙 · 异步流送 · 调试</title>
+<style>
+  :root{--bg:#f7f8fa;--panel:#fff;--ink:#1a1d21;--ink2:#4a5158;--ink3:#7a828a;--line:#e2e6ea;
+    --accent:#2f6feb;--accent-soft:#eaf1fe;--ok:#1f9254;--warn:#c0392b;--note:#8a6d1f;--code-bg:#f2f4f7}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;line-height:1.75;font-size:15px}
+  .wrap{max-width:1180px;margin:0 auto;padding:40px 28px 100px}
+  header.top{background:linear-gradient(135deg,#1f3a63 0%,#2f6feb 100%);color:#fff;border-radius:14px;padding:34px 36px;margin-bottom:28px}
+  header.top h1{margin:0 0 10px;font-size:27px;letter-spacing:.3px}
+  header.top p{margin:0 0 8px;opacity:.92;font-size:14.5px}
+  header.top .meta{margin-top:16px;font-size:12.5px;opacity:.82;border-top:1px solid rgba(255,255,255,.22);padding-top:12px}
+  header.top code{background:rgba(255,255,255,.18);color:#fff;padding:1.5px 6px}
+  h2{font-size:21px;margin:44px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h2 .num{color:var(--accent);font-weight:700;margin-right:8px}
+  h3{font-size:16.5px;margin:26px 0 10px}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0;padding-left:24px} li{margin:5px 0}
+  code{background:var(--code-bg);padding:1.5px 5px;border-radius:4px;font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;font-size:12.8px}
+  pre{background:#1e232b;color:#dfe6ee;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:12.5px;line-height:1.6;font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace}
+  pre code{background:none;padding:0;color:inherit;font-size:inherit;font-family:inherit}
+  .lead{color:var(--ink2);font-size:14.5px;background:var(--accent-soft);border-left:4px solid var(--accent);padding:10px 14px;border-radius:0 8px 8px 0;margin:10px 0 16px}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.4px;background:var(--panel)}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:#eef2f7;font-weight:600;font-size:13px}
+  tbody tr:nth-child(even){background:#fafbfc}
+  .kv td:first-child{white-space:nowrap;font-weight:600}
+  .callout{border-left:4px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0}
+  .callout.warn{border-color:var(--warn);background:#fdf0ef}
+  .callout.note{border-color:var(--note);background:#fdf8e8}
+  .callout .h{font-weight:700;margin-bottom:4px;font-size:13.5px}
+  .fig{margin:22px 0;text-align:center}
+  .fig svg{max-width:100%;height:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+  .fig .cap{font-size:12.5px;color:var(--ink3);margin-top:8px}
+  footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+<h1>Godot Streaming Virtual Texture 实现</h1>
+<p>在已有 RVT 之上增加一条「页从磁盘来」的来源：<b>离线烘焙 .svt 页文件 + 异步流送 + 区域上传</b>，
+与 RVT 共用页表、祖先回退与采样 include。</p>
+<p>1024² 源烘焙成 85 页：RGBA8 <b>6.00 MB</b> / BC1 <b>0.75 MB</b>（8×）；Vulkan Forward+ / Mobile / D3D12
+三套后端自测 PASS，近景与直贴图差 <b>0.0016</b>；全量 doctest <b>1447</b> 例通过。</p>
+<p class="meta">代码基线 godot master cafc17a192 · misc/svt_demo 自测工程 · 调试视图与选页锁定见第 6 章 · 交接见 HANDOFF-RVT-SVT.md</p>
+</header>
+<h2 id="s1"><span class="num">1</span>结论与全貌</h2>
+<p class="lead">SVT 只替换「页从哪来」：页表、祖先回退、采样 include 与 RVT 完全一致，所以它是在已有 RVT 上加的一条页来源，而不是第二套虚拟纹理。</p>
+<p>Godot 没有 UE 那种 GPU feedback，也没有流式虚拟纹理。这套实现在已有的 RVT 之上增加了 <b>离线烘焙 + 磁盘流送</b>：把一张大图切成分层页文件（<code>.svt</code>），运行时按相机算出要哪几页，在 worker 线程读盘、在渲染线程把 tile 拷进物理池，页表照旧负责「缺页回退到祖先」。</p>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 540" width="1080" height="540" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1080" height="540" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">SVT 全景：离线烘焙出页文件，运行时按视点把页读进与 RVT 共用的页表/池</text>
+<rect x="30" y="44" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="44" y="77.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">1 源图</text>
+<text x="44" y="93.25" font-size="12" text-anchor="start" fill="#4a5158">1024² RGBA8</text>
+<text x="44" y="110.75" font-size="12" text-anchor="start" fill="#4a5158">（或图层组）</text>
+<rect x="400" y="44" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="414" y="77.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">2 烘焙</text>
+<text x="414" y="93.25" font-size="12" text-anchor="start" fill="#4a5158">切页 + 边缘钳制补边框</text>
+<text x="414" y="110.75" font-size="12" text-anchor="start" fill="#4a5158">压缩 BC1 / BC7</text>
+<rect x="770" y="44" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="784" y="77.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">3 .svt 文件</text>
+<text x="784" y="93.25" font-size="12" text-anchor="start" fill="#4a5158">48 B 头 + 索引 + 85 个 tile</text>
+<text x="784" y="110.75" font-size="12" text-anchor="start" fill="#4a5158">6.00 MB / BC1 0.75 MB</text>
+<rect x="770" y="204" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="784" y="237.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">4 异步读页</text>
+<text x="784" y="253.25" font-size="12" text-anchor="start" fill="#4a5158">WorkerThreadPool</text>
+<text x="784" y="270.75" font-size="12" text-anchor="start" fill="#4a5158">索引只在 configure 时解析</text>
+<rect x="400" y="204" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="414" y="237.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">5 上传</text>
+<text x="414" y="253.25" font-size="12" text-anchor="start" fill="#4a5158">staging 136²</text>
+<text x="414" y="270.75" font-size="12" text-anchor="start" fill="#4a5158">region texture_copy</text>
+<rect x="30" y="204" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="44" y="246" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">6 池 + 页表</text>
+<text x="44" y="262" font-size="12" text-anchor="start" fill="#4a5158">RVT/SVT 共用的间接层</text>
+<rect x="400" y="364" width="250" height="96" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="414" y="397.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">7 采样</text>
+<text x="414" y="413.25" font-size="12" text-anchor="start" fill="#4a5158">rvt.gdshaderinc</text>
+<text x="414" y="430.75" font-size="12" text-anchor="start" fill="#4a5158">页表回退 + 三线性</text>
+<rect x="770" y="364" width="250" height="96" rx="9" fill="#f3eefb" stroke="#d9c9ef" stroke-width="1.4"/>
+<text x="784" y="397.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">RVT 的另一条路</text>
+<text x="784" y="413.25" font-size="12" text-anchor="start" fill="#4a5158">材质 pass → compose</text>
+<text x="784" y="430.75" font-size="12" text-anchor="start" fill="#4a5158">落到同一个池/页表</text>
+<line x1="280" y1="92" x2="400" y2="92" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="340" y="84" font-size="11.5" text-anchor="middle" fill="#4a5158">像素 + 参数</text>
+<line x1="650" y1="92" x2="770" y2="92" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="710" y="84" font-size="11.5" text-anchor="middle" fill="#4a5158">每页字节</text>
+<line x1="895" y1="140" x2="895" y2="204" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="830" y="176" font-size="11.5" text-anchor="middle" fill="#4a5158">offset/size</text>
+<line x1="770" y1="252" x2="650" y2="252" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="710" y="244" font-size="11.5" text-anchor="middle" fill="#4a5158">tile bytes</text>
+<line x1="400" y1="252" x2="280" y2="252" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="340" y="244" font-size="11.5" text-anchor="middle" fill="#4a5158">texture_copy 136²</text>
+<polyline points="155,300 155,420 400,420" fill="none" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="262" y="412" font-size="11.5" text-anchor="middle" fill="#4a5158">读池</text>
+<polyline points="770,412 650,412" fill="none" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)" stroke-dasharray="6 4"/>
+<text x="30" y="500" font-size="12" text-anchor="start" fill="#7a828a">SVT 与 RVT 的差别只在「页从哪来」：一个从磁盘读，一个用材质 pass 画；页表、回退、采样完全一致。</text>
+
+</svg>
+<div class="cap">SVT 全景：源图离线烘焙成页文件，运行时异步读页并上传到与 RVT 共用的页表/池。</div>
+</div>
+<p>demo 的关键数字（后文反复引用）：</p>
+<table class="kv">
+<tr><th>参数</th><th>取值</th><th>含义</th></tr>
+<tr><td>源图</td><td>1024 × 1024 RGBA8</td><td>demo 程序化生成，带 mipmap 与缓存 PNG</td></tr>
+<tr><td>页数</td><td>8 × 8 起步，共 85 页</td><td><code>log2_tile_count = 3</code>，4 个 mip 层：64 + 16 + 4 + 1</td></tr>
+<tr><td>页尺寸</td><td>128 texel + 4 边框 = 136</td><td>BC 以 4×4 为块，136/4 = 34 块</td></tr>
+<tr><td>页文件</td><td>RGBA8 6,289,740 B / BC1 787,180 B</td><td>48 B 头 + 1,052 B 索引 + 85 页数据</td></tr>
+<tr><td>物理池</td><td>6 × 6 = 36 页（demo）</td><td>RGBA8 2.66 MB / BC1 0.33 MB（单层）</td></tr>
+<tr><td>每批加载</td><td>≤ 24 页</td><td><code>max_pages_per_frame</code>，读与上传各占一帧</td></tr>
+</table>
+<h3>三条设计取舍</h3>
+<p><b>① 页内容离线烘焙、运行时只读。</b></p>
+<ul>
+<li>换来了什么：运行时零材质 pass、零 compose，读盘即可；页可以做 BC 压缩，磁盘与显存都小 8 倍（RGBA8 6.00 MB → BC1 0.75 MB）。</li>
+<li>付出了什么：内容是静态的；改源图必须重新烘焙；页文件是新的资产格式，要自己管导入与版本。</li>
+<li>什么时候失效：需要每帧变化的内容（动态贴花、角色足迹）只能用 RVT，不能烘。</li>
+</ul>
+<p><b>② 物理池用 BC 压缩，采样端统一「UNORM + 手动解码」。</b></p>
+<ul>
+<li>换来了什么：同页数下显存约为 RGBA8 的 1/4（BC7）到 1/8（BC1）；与 RVT 的池共用同一套采样公式。</li>
+<li>付出了什么：BC1 无 alpha、块噪点；<code>TextureStorage</code> 只映射了 BC1_RGB，所以池格式只能取 <code>BC1_RGB_*</code>。</li>
+<li>什么时候失效：需要精确法线/高度时 BC1 不够，要 BC5/BC7 或 R32F。</li>
+</ul>
+<p><b>③ 异步读盘，接受两帧延迟。</b></p>
+<ul>
+<li>换来了什么：读盘不阻塞渲染线程；单帧 GPU 工作只有「一页一次 <code>texture_update</code> + 一次 <code>texture_copy</code>」。</li>
+<li>付出了什么：本帧提交的请求下一帧才可见；相机快速移动时新旧页会短暂共存。</li>
+<li>什么时候失效：磁盘极慢或池远小于请求集时，会先淘汰、再回读，形成抖动。</li>
+</ul>
+<h2 id="s2"><span class="num">2</span>.svt 文件格式与烘焙</h2>
+<p class="lead">格式只有三段：48 字节头、每层一段索引、按索引顺序排列的 tile 字节；读取端只做边界校验，不做解码之外的推断。</p>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 510" width="1040" height="510" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1040" height="510" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">.svt 文件布局：48 字节头 + 每层索引 + tile 数据，全部小端</text>
+<rect x="40" y="70" width="79" height="38" fill="#fdeccb" stroke="#b9c2cc"/>
+<text x="80" y="86" font-size="10.5" text-anchor="middle" fill="#1a1d21" font-weight="600">magic</text>
+<text x="80" y="100" font-size="9.5" text-anchor="middle" fill="#4a5158">GSVT</text>
+<rect x="120" y="70" width="79" height="38" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="160" y="86" font-size="10.5" text-anchor="middle" fill="#1a1d21" font-weight="600">ver</text>
+<text x="160" y="100" font-size="9.5" text-anchor="middle" fill="#4a5158">1</text>
+<rect x="200" y="70" width="79" height="38" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="240" y="86" font-size="10.5" text-anchor="middle" fill="#1a1d21" font-weight="600">flags</text>
+<text x="240" y="100" font-size="9.5" text-anchor="middle" fill="#4a5158">sRGB</text>
+<rect x="280" y="70" width="79" height="38" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="320" y="86" font-size="10.5" text-anchor="middle" fill="#1a1d21" font-weight="600">fmt</text>
+<text x="320" y="100" font-size="9.5" text-anchor="middle" fill="#4a5158">0..3</text>
+<rect x="360" y="70" width="79" height="38" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="400" y="86" font-size="10.5" text-anchor="middle" fill="#1a1d21" font-weight="600">log2</text>
+<text x="400" y="100" font-size="9.5" text-anchor="middle" fill="#4a5158">3</text>
+<rect x="440" y="70" width="79" height="38" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="480" y="86" font-size="10.5" text-anchor="middle" fill="#1a1d21" font-weight="600">tile</text>
+<text x="480" y="100" font-size="9.5" text-anchor="middle" fill="#4a5158">128</text>
+<rect x="520" y="70" width="79" height="38" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="560" y="86" font-size="10.5" text-anchor="middle" fill="#1a1d21" font-weight="600">bord</text>
+<text x="560" y="100" font-size="9.5" text-anchor="middle" fill="#4a5158">4</text>
+<rect x="600" y="70" width="79" height="38" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="640" y="86" font-size="10.5" text-anchor="middle" fill="#1a1d21" font-weight="600">layers</text>
+<text x="640" y="100" font-size="9.5" text-anchor="middle" fill="#4a5158">1</text>
+<rect x="680" y="70" width="79" height="38" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="720" y="86" font-size="10.5" text-anchor="middle" fill="#1a1d21" font-weight="600">levels</text>
+<text x="720" y="100" font-size="9.5" text-anchor="middle" fill="#4a5158">4</text>
+<rect x="760" y="70" width="239" height="38" fill="#e6e9ee" stroke="#b9c2cc"/>
+<text x="880" y="86" font-size="10.5" text-anchor="middle" fill="#1a1d21" font-weight="600">reserved × 3</text>
+<text x="880" y="100" font-size="9.5" text-anchor="middle" fill="#4a5158">u32 × 3</text>
+<text x="40" y="60" font-size="12" text-anchor="start" fill="#4a5158" font-weight="600">header（48 B）</text>
+<text x="1000" y="60" font-size="10.5" text-anchor="end" fill="#7a828a">字节偏移 0 … 48</text>
+<text x="40" y="150" font-size="12" text-anchor="start" fill="#4a5158" font-weight="600">index（每层一段，层 0 在最前）</text>
+<rect x="40" y="160" width="79" height="34" fill="#d7f0d9" stroke="#b9c2cc"/>
+<text x="80" y="181" font-size="10.5" text-anchor="middle" fill="#1a1d21">tiles_x</text>
+<rect x="120" y="160" width="79" height="34" fill="#d7f0d9" stroke="#b9c2cc"/>
+<text x="160" y="181" font-size="10.5" text-anchor="middle" fill="#1a1d21">tiles_y</text>
+<rect x="200" y="160" width="159" height="34" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="280" y="181" font-size="9.5" text-anchor="middle" fill="#1a1d21">offset u64</text>
+<rect x="360" y="160" width="79" height="34" fill="#f0dcf5" stroke="#b9c2cc"/>
+<text x="400" y="181" font-size="9.5" text-anchor="middle" fill="#1a1d21">size</text>
+<rect x="440" y="160" width="159" height="34" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="520" y="181" font-size="9.5" text-anchor="middle" fill="#1a1d21">offset u64</text>
+<rect x="600" y="160" width="79" height="34" fill="#f0dcf5" stroke="#b9c2cc"/>
+<text x="640" y="181" font-size="9.5" text-anchor="middle" fill="#1a1d21">size</text>
+<rect x="680" y="160" width="159" height="34" fill="#cfe3ff" stroke="#b9c2cc"/>
+<text x="760" y="181" font-size="9.5" text-anchor="middle" fill="#1a1d21">offset u64</text>
+<rect x="840" y="160" width="79" height="34" fill="#f0dcf5" stroke="#b9c2cc"/>
+<text x="880" y="181" font-size="9.5" text-anchor="middle" fill="#1a1d21">size</text>
+<text x="40" y="212" font-size="10.5" text-anchor="start" fill="#7a828a">… 共 tiles_x × tiles_y 项，每项 12 B（offset 8 B + size 4 B）；层 0 的项最多</text>
+<text x="40" y="230" font-size="12" text-anchor="start" fill="#4a5158" font-weight="600">payload（tile 数据，按索引顺序）</text>
+<rect x="40" y="240" width="150" height="62" fill="#eef2f7" stroke="#c6ced8"/>
+<text x="50" y="260" font-size="10" text-anchor="start" fill="#1a1d21">tile L0 (x=0,y=3)</text>
+<text x="50" y="276" font-size="9.5" text-anchor="start" fill="#4a5158">136 × 136 texel</text>
+<text x="50" y="291" font-size="9.5" text-anchor="start" fill="#4a5158">含 4 px 边框</text>
+<rect x="202" y="240" width="150" height="62" fill="#ffffff" stroke="#c6ced8"/>
+<text x="212" y="260" font-size="10" text-anchor="start" fill="#1a1d21">tile L0 (x=1,y=3)</text>
+<text x="212" y="276" font-size="9.5" text-anchor="start" fill="#4a5158">136 × 136 texel</text>
+<text x="212" y="291" font-size="9.5" text-anchor="start" fill="#4a5158">含 4 px 边框</text>
+<rect x="364" y="240" width="150" height="62" fill="#eef2f7" stroke="#c6ced8"/>
+<text x="374" y="260" font-size="10" text-anchor="start" fill="#1a1d21">tile L0 (x=2,y=3)</text>
+<text x="374" y="276" font-size="9.5" text-anchor="start" fill="#4a5158">136 × 136 texel</text>
+<text x="374" y="291" font-size="9.5" text-anchor="start" fill="#4a5158">含 4 px 边框</text>
+<rect x="526" y="240" width="150" height="62" fill="#ffffff" stroke="#c6ced8"/>
+<text x="536" y="260" font-size="10" text-anchor="start" fill="#1a1d21">tile L0 (x=3,y=3)</text>
+<text x="536" y="276" font-size="9.5" text-anchor="start" fill="#4a5158">136 × 136 texel</text>
+<text x="536" y="291" font-size="9.5" text-anchor="start" fill="#4a5158">含 4 px 边框</text>
+<text x="40" y="360" font-size="12" text-anchor="start" fill="#4a5158" font-weight="600">一页（136²，含边框）的字节数</text>
+<rect x="40" y="370" width="48.1" height="19" rx="9" fill="#cfe3ff"/>
+<text x="47" y="383.5" font-size="11" text-anchor="start" fill="#1a1d21" font-weight="600">RGBA8</text>
+<text x="120" y="384" font-size="11.5" text-anchor="start" fill="#4a5158">136² × 4 = 73,984 B</text>
+<rect x="520" y="370" width="34.46" height="19" rx="9" fill="#d7f0d9"/>
+<text x="527" y="383.5" font-size="11" text-anchor="start" fill="#1a1d21" font-weight="600">BC1</text>
+<text x="600" y="384" font-size="11.5" text-anchor="start" fill="#4a5158">34² × 8 = 9,248 B</text>
+<rect x="40" y="404" width="34.46" height="19" rx="9" fill="#fdeccb"/>
+<text x="47" y="417.5" font-size="11" text-anchor="start" fill="#1a1d21" font-weight="600">BC7</text>
+<text x="120" y="418" font-size="11.5" text-anchor="start" fill="#4a5158">34² × 16 = 18,496 B</text>
+<rect x="520" y="404" width="41.28" height="19" rx="9" fill="#f0dcf5"/>
+<text x="527" y="417.5" font-size="11" text-anchor="start" fill="#1a1d21" font-weight="600">R32F</text>
+<text x="600" y="418" font-size="11.5" text-anchor="start" fill="#4a5158">136² × 4 = 73,984 B</text>
+<text x="30" y="480" font-size="12" text-anchor="start" fill="#7a828a">索引里每项的 size 用于截断读取；open() 会校验 offset+size 落在文件内、size ≤ 一页字节数（防损坏文件）。</text>
+
+</svg>
+<div class="cap">.svt 布局：48 字节头 + 每层索引（tiles_x / tiles_y / 每项 12 B）+ tile 数据。</div>
+</div>
+<p>头部字段（<code>servers/rendering/streaming_virtual_texture_file.cpp:205-215</code>）：</p>
+<table class="kv">
+<tr><th>字段</th><th>字节</th><th>含义</th></tr>
+<tr><td>magic</td><td>4</td><td><code>GSVT</code>（0x54565347）</td></tr>
+<tr><td>version</td><td>4</td><td>当前 1，不匹配直接 <code>ERR_FILE_UNRECOGNIZED</code></td></tr>
+<tr><td>flags</td><td>4</td><td>bit0 = sRGB 源；当前只用于记录，池格式由着色器契约决定</td></tr>
+<tr><td>format</td><td>4</td><td>0 RGBA8 / 1 BC1 / 2 BC7 / 3 R32F</td></tr>
+<tr><td>log2_tile_count</td><td>4</td><td>层数 = 该值 + 1；每边页数 = 1 &lt;&lt; 该值</td></tr>
+<tr><td>tile_size / tile_border</td><td>8</td><td>页尺寸与边框，BC 格式要求都是 4 的倍数</td></tr>
+<tr><td>layer_count / level_count</td><td>8</td><td>本实现恒为 1 层；level_count 必须等于 log2 + 1</td></tr>
+<tr><td>reserved</td><td>12</td><td>保留</td></tr>
+</table>
+<p>索引按层顺序排列：<code>u32 tiles_x</code>、<code>u32 tiles_y</code>，随后 <code>tiles_x × tiles_y</code> 个 <code>{u64 offset, u32 size}</code>（12 B）。读取端在 <code>open()</code> 里做三道校验（<code>servers/rendering/streaming_virtual_texture_file.cpp:102-128</code>）：每层页数与 <code>1 &lt;&lt; (log2 - level)</code> 一致、每项 <code>size ≤ 一页字节数</code>、所有 <code>offset + size</code> 落在文件内。任何一条不满足返回 <code>ERR_FILE_CORRUPT</code>，而不是运行时读到垃圾。</p>
+<p>一页的字节数只取决于格式与 <code>tile_size + 2 × border</code>（<code>servers/rendering/streaming_virtual_texture_file.cpp:46-60</code>）：</p>
+<table class="kv">
+<tr><th>格式</th><th>一页（136²）字节</th><th>算式</th></tr>
+<tr><td>RGBA8</td><td>73,984</td><td>136 × 136 × 4</td></tr>
+<tr><td>BC1</td><td>9,248</td><td>(136/4)² × 8</td></tr>
+<tr><td>BC7</td><td>18,496</td><td>(136/4)² × 16</td></tr>
+<tr><td>R32F</td><td>73,984</td><td>136 × 136 × 4</td></tr>
+</table>
+<p>代入 demo：85 页 RGBA8 = 85 × 73,984 + 48 + 1,052 = <b>6,289,740 B</b>；BC1 = 85 × 9,248 + 1,100 = <b>787,180 B</b>。两个数字与 <code>ls -l</code> 一致，说明索引偏移没有算错。</p>
+<h3>烘焙：先拼边框，再压缩</h3>
+<p><code>bake_image</code>（<code>servers/rendering/streaming_virtual_texture_file.cpp:174</code>）对每一层、每一页做：</p>
+<ol>
+<li>把源图缩放到该层尺寸（level 0 = 虚拟纹理边长，逐层减半）。</li>
+<li>逐像素从层像素取 <code>clamp(sx0 + tx, 0, size-1)</code>——<b>边框是复制边缘像素</b>，不是透明或重复相邻页。</li>
+<li>得到一个 136×136 的 tile 图；BC1/BC7 时对这一整张 tile 做块压缩（<code>compress_from_channels</code> / <code>compress</code>）。</li>
+<li>把字节写到 payload 末尾，并把 <code>offset/size</code> 记进内存里的索引，最后统一写回头部之后。</li>
+</ol>
+<div class="callout warn"><div class="h">为什么不能压完 128 再拼 4 像素</div><p>BC 以 4×4 块为单位。先把 128×128 压成块、再把相邻页拼起来，页缝两侧的块各自由单边数据决定，双线性过滤跨页时会看到亮线或色块。必须在源图层面把边框像素拼好，整块 136×136 一起压。</p></div>
+<p>内存上，烘焙按层拿一份源像素做 clamped 采样（<code>servers/rendering/streaming_virtual_texture_file.cpp:272-276</code>），峰值约为源图的 2 倍；虚拟边长超过 32768 直接拒绝，避免 1M² 图把进程打爆。</p>
+<h2 id="s3"><span class="num">3</span>流送运行时：异步读与分区上传</h2>
+<p class="lead">读页在 worker，上传在渲染线程；一页两条 RD 命令，批大小与两帧延迟是全部节奏。</p>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 570" width="1040" height="570" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1040" height="570" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">流送时序：请求与分槽在渲染线程，读盘在 worker，上传回到渲染线程</text>
+<text x="200" y="58" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">渲染线程</text>
+<line x1="192" y1="72" x2="192" y2="520" stroke="#d5dbe2" stroke-width="1.2" stroke-dasharray="4 4"/>
+<text x="560" y="58" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">WorkerThreadPool</text>
+<line x1="552" y1="72" x2="552" y2="520" stroke="#d5dbe2" stroke-width="1.2" stroke-dasharray="4 4"/>
+<text x="860" y="58" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">GPU</text>
+<line x1="852" y1="72" x2="852" y2="520" stroke="#d5dbe2" stroke-width="1.2" stroke-dasharray="4 4"/>
+<line x1="20" y1="100" x2="1000" y2="100" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="91" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">① take_pending → 分槽</text>
+<text x="330" y="91" font-size="11.5" text-anchor="start" fill="#4a5158">STATE_RENDERING，页表仍指祖先</text>
+<line x1="20" y1="160" x2="1000" y2="160" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="151" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">② 记 in_flight，submit(batch)</text>
+<text x="330" y="151" font-size="11.5" text-anchor="start" fill="#4a5158">id = level/x/y，≤ 24 页/批</text>
+<line x1="20" y1="230" x2="1000" y2="230" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="221" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">③ 按 offset/size 读 tile</text>
+<text x="330" y="221" font-size="11.5" text-anchor="start" fill="#4a5158">自己的 FileAccess；索引已缓存</text>
+<line x1="20" y1="300" x2="1000" y2="300" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="291" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">④ 完成队列（mutex）</text>
+<text x="330" y="291" font-size="11.5" text-anchor="start" fill="#4a5158">id + 字节（74 KB / 9.2 KB）</text>
+<line x1="20" y1="380" x2="1000" y2="380" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="371" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">⑤ 下一帧 poll → upload</text>
+<text x="330" y="371" font-size="11.5" text-anchor="start" fill="#4a5158">get_slot → texture_update(staging)</text>
+<line x1="20" y1="450" x2="1000" y2="450" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="441" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">⑥ texture_copy 136² 区域</text>
+<text x="330" y="441" font-size="11.5" text-anchor="start" fill="#4a5158">staging → 池 tile（pool_x, pool_y）</text>
+<line x1="20" y1="500" x2="1000" y2="500" stroke="#d5dbe2" stroke-width="1"/>
+<text x="28" y="491" font-size="12" text-anchor="start" fill="#1a1d21" font-weight="600">⑦ mark_rendered + 页表上传</text>
+<text x="330" y="491" font-size="11.5" text-anchor="start" fill="#4a5158">entry = (pool_x, pool_y, level, 255)</text>
+<rect x="180" y="72" width="300" height="98" rx="8" fill="none" stroke="#1f9254" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="186" y="186" font-size="11.5" text-anchor="start" fill="#7a828a">两帧延迟：本帧提交的读请求，下一帧才上传</text>
+<text x="30" y="545" font-size="11.5" text-anchor="start" fill="#7a828a">读盘与 GPU 上传不重叠；若要更快，可把多页合并进一个 staging buffer（当前每页 2 条 RD 命令）。</text>
+
+</svg>
+<div class="cap">流送时序：渲染线程分槽并提交，worker 读 tile，下一帧回渲染线程上传并写页表。</div>
+</div>
+<p>为什么需要 staging：<code>RD::texture_update</code> 只能整层更新（<code>servers/rendering/rendering_device.h:473</code>），没有 buffer→texture 的区域拷贝；而 <code>texture_copy</code> 支持带偏移的 texture→texture 区域拷贝（<code>servers/rendering/rendering_device.h:486</code>）。所以先建一张 136×136 的 staging（<code>servers/rendering/renderer_rd/runtime_virtual_texture_rd.cpp:151-157</code>），每页 <code>texture_update(staging)</code> 后 <code>texture_copy</code> 到池的 <code>(pool_x × 136, pool_y × 136)</code>（<code>servers/rendering/renderer_rd/runtime_virtual_texture_rd.cpp:287-300</code>）。这样池保持 2D，采样 shader 一行都不用改。</p>
+<p>池格式在创建时按文件头的 format 选（<code>servers/rendering/renderer_rd/runtime_virtual_texture_rd.cpp:92-105</code>）：</p>
+<table class="kv">
+<tr><th>format</th><th>池 RD 格式</th><th>说明</th></tr>
+<tr><td>RGBA8</td><td>R8G8B8A8_UNORM</td><td>不用 SRGB 变体，见第 5 章契约</td></tr>
+<tr><td>BC1</td><td>BC1_RGB_UNORM_BLOCK</td><td><code>TextureStorage</code> 只映射 BC1_RGB，BC1_RGBA 会 publish 失败</td></tr>
+<tr><td>BC7</td><td>BC7_UNORM_BLOCK</td><td><code>Image::FORMAT_BPTC_RGBA</code> 映射</td></tr>
+<tr><td>R32F</td><td>R32F</td><td>高度图，单层</td></tr>
+</table>
+<p>调度侧（<code>servers/rendering/renderer_scene_cull_rvt.cpp:539-588</code>）：</p>
+<ol>
+<li>每帧先 <code>poll</code> 已完成结果，逐页 <code>get_slot</code> → <code>upload_page</code> → <code>mark_rendered</code>（<code>servers/rendering/renderer_scene_cull_rvt.cpp:542-564</code>）。</li>
+<li>只有 loader 空闲且没有待处理请求时，才 <code>take_pending(max_pages_per_frame)</code> 并提交新请求（<code>servers/rendering/renderer_scene_cull_rvt.cpp:566-580</code>）；否则先等待，避免把池塞满「正在读」的槽。</li>
+<li>每页记进 <code>stream_in_flight</code>，防止同一页在一批里重复请求；结果回来时清掉（<code>servers/rendering/renderer_scene_cull_rvt.cpp:549-558</code>、<code>servers/rendering/renderer_scene_cull_rvt.cpp:578</code>）。</li>
+<li>一批结束调用 <code>submit()</code>，由 <code>WorkerThreadPool::add_native_task</code> 起任务（<code>servers/rendering/streaming_virtual_texture_loader.cpp:76-86</code>）。</li>
+</ol>
+<p>loader 只在 <code>configure()</code> 时解析一次文件头与索引（<code>servers/rendering/streaming_virtual_texture_loader.cpp:41-58</code>），worker 每个批次只按偏移读字节；早先每批重新解析整份索引，页数上千时是 O(index)/批的浪费，已修。</p>
+<div class="callout note"><div class="h">预算怎么算</div><p>每页字节数固定：RGBA8 73,984 B、BC1 9,248 B。demo 每批 24 页 → 一批最多 1.78 MB（RGBA8）或 222 KB（BC1）；两帧延迟意味着吞吐约为「批大小 / 2 帧」。池 36 页、85 个 tile 时，请求集会被截断（<code>take_pending</code> 只保留前 36 个候选），所以远处页会等近处淘汰后才进来——这正是实测里「移动相机后淘汰 8–18 页」的来源。</p></div>
+<h2 id="s4"><span class="num">4</span>一个页的一生（SVT）</h2>
+<p class="lead">状态机与 RVT 相同，唯一新增的是「读失败」分支：重试 3 次后拉黑，采样回退祖先。</p>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 540" width="1040" height="540" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1040" height="540" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">SVT 页的一生：与 RVT 同一套状态机，只多了「读失败」分支</text>
+<rect x="25" y="74" width="150" height="92" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="39" y="122.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">① 请求</text>
+<rect x="200" y="74" width="150" height="92" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="214" y="122.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">② 分槽</text>
+<rect x="375" y="74" width="150" height="92" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="389" y="122.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">③ 加载中</text>
+<rect x="550" y="74" width="150" height="92" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="564" y="122.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">④ 完成</text>
+<rect x="725" y="74" width="150" height="92" rx="9" fill="#ffffff" stroke="#d5dbe2" stroke-width="1.4"/>
+<text x="739" y="122.5" font-size="13" text-anchor="start" fill="#1a1d21" font-weight="600">⑤ 常驻</text>
+<text x="27" y="192" font-size="11" text-anchor="start" fill="#4a5158">request_page</text>
+<text x="27" y="209" font-size="11" text-anchor="start" fill="#4a5158">同页取更小优先级</text>
+<text x="202" y="192" font-size="11" text-anchor="start" fill="#4a5158">空槽或 LRU</text>
+<text x="202" y="209" font-size="11" text-anchor="start" fill="#4a5158">本帧请求页不淘汰</text>
+<text x="377" y="192" font-size="11" text-anchor="start" fill="#4a5158">页表仍指祖先</text>
+<text x="377" y="209" font-size="11" text-anchor="start" fill="#4a5158">槽被占用，不可淘汰</text>
+<text x="552" y="192" font-size="11" text-anchor="start" fill="#4a5158">texture_copy 后</text>
+<text x="552" y="209" font-size="11" text-anchor="start" fill="#4a5158">mark_rendered 写 entry</text>
+<text x="727" y="192" font-size="11" text-anchor="start" fill="#4a5158">texelFetch 命中</text>
+<text x="727" y="209" font-size="11" text-anchor="start" fill="#4a5158">可被 LRU 淘汰</text>
+<rect x="375" y="250" width="200" height="76" rx="9" fill="#fdf0ef" stroke="#e3b4ae" stroke-width="1.4"/>
+<text x="389" y="281.5" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">⑥ 失败 ×3</text>
+<text x="389" y="297.5" font-size="12" text-anchor="start" fill="#4a5158">读取错/文件被截断</text>
+<polyline points="540,166 540,250" fill="none" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)" stroke-dasharray="6 4"/>
+<text x="548" y="232" font-size="11" text-anchor="start" fill="#c0392b">tile 读取失败</text>
+<rect x="620" y="250" width="220" height="76" rx="9" fill="#fdf0ef" stroke="#e3b4ae" stroke-width="1.4"/>
+<text x="634" y="281.5" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">⑦ 拉黑 block_page</text>
+<text x="634" y="297.5" font-size="12" text-anchor="start" fill="#4a5158">丢弃页槽 + 不再请求</text>
+<line x1="575" y1="288" x2="620" y2="288" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="660" y="342" font-size="11" text-anchor="start" fill="#7a828a">采样回退到祖先页，画面只是更糊</text>
+<rect x="30" y="380" width="980" height="100" rx="9" fill="#eaf1fe" stroke="#b9cdf5" stroke-width="1.4"/>
+<text x="43" y="400" font-size="12.5" text-anchor="start" fill="#1a1d21" font-weight="600">两条不变量（SVT 特有）</text>
+<text x="43" y="417" font-size="12.5" text-anchor="start" fill="#4a5158">1. 页表里永远不会有「指向正在读的槽」的条目：只有 mark_rendered 之后才写 entry。</text>
+<text x="43" y="434" font-size="12.5" text-anchor="start" fill="#4a5158">2. 读失败的页最多重试 3 次，之后 block_page 丢槽并拉黑，避免一个坏 tile 永久占用物理槽。</text>
+<text x="30" y="512" font-size="11.5" text-anchor="start" fill="#7a828a">测试：tests/servers/rendering/test_runtime_virtual_texture_page_manager.cpp（blocked 页释放槽位、不再被请求、回退祖先）。</text>
+
+</svg>
+<div class="cap">SVT 页的六个状态与失败分支：加载中不写页表，失败后丢槽并拉黑。</div>
+</div>
+<ol>
+<li><b>请求</b>：<code>request_page(level, x, y, priority)</code>，同页取更小的优先级值；被拉黑的页直接忽略（<code>servers/rendering/runtime_virtual_texture_page_manager.cpp</code> 中的 <code>blocked</code> 集合）。</li>
+<li><b>分槽</b>：空闲槽优先，否则 LRU；本帧被请求过的页不会被淘汰（<code>take_pending</code> 先过滤再截断，<code>servers/rendering/runtime_virtual_texture_page_manager.cpp:299</code>）。</li>
+<li><b>加载中</b>：槽已占用、状态为 STATE_RENDERING，<b>页表不动</b>——采样仍读祖先，不会出现空洞。</li>
+<li><b>完成</b>：<code>upload_page</code> 写入池后调用 <code>mark_rendered</code>（<code>servers/rendering/runtime_virtual_texture_page_manager.cpp:400</code>），写本级 entry 并刷新「比它粗」的后代。</li>
+<li><b>常驻</b>：<code>texelFetch</code> 命中，可被后续 LRU 淘汰。</li>
+<li><b>失败</b>：worker 读出空数据时累加失败计数（<code>servers/rendering/renderer_scene_cull_rvt.cpp:549-556</code>），≥3 次调用 <code>block_page</code>（<code>servers/rendering/runtime_virtual_texture_page_manager.cpp:394</code>）：丢弃页面、释放槽、加入黑名单，页表回退到祖先。</li>
+</ol>
+<div class="callout note"><div class="h">为什么失败要拉黑而不是无限重试</div><p>读失败的页停在 RENDERING 状态：既不是常驻（不能被 LRU 淘汰），也不是「待渲染」（会一直留在请求集里）。不处理的话，一个坏 tile 会永久占住一个物理槽，并且每帧触发一次 IO。拉黑把它变成「这一页永远缺」，采样自动回退到更粗的祖先——画面更糊，但系统稳定。</p></div>
+<h2 id="s5"><span class="num">5</span>采样契约：两条来源，一次解码</h2>
+<p class="lead">RVT 和 SVT 都必须让池里放「sRGB 编码字节」，并在着色器里手动解码一次；这条契约是两者共用一份 include 的前提。</p>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 540" width="1040" height="540" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/></marker></defs>
+<rect x="0" y="0" width="1040" height="540" fill="#ffffff"/>
+<text x="30" y="26" font-size="15" text-anchor="start" fill="#1a1d21" font-weight="600">采样契约：两条来源都把 sRGB 编码字节放进池，采样端只解码一次</text>
+<rect x="40" y="60" width="300" height="80" rx="9" fill="#f3eefb" stroke="#d9c9ef" stroke-width="1.4"/>
+<text x="54" y="94" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">RVT：材质 pass</text>
+<text x="54" y="110" font-size="12" text-anchor="start" fill="#4a5158">输出线性 albedo</text>
+<rect x="40" y="170" width="300" height="80" rx="9" fill="#f3eefb" stroke="#d9c9ef" stroke-width="1.4"/>
+<text x="54" y="204" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">compose（compute）</text>
+<text x="54" y="220" font-size="12" text-anchor="start" fill="#4a5158">linear_to_srgb 后再写池</text>
+<line x1="190" y1="140" x2="190" y2="170" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="40" y="290" width="300" height="80" rx="9" fill="#e9f7ef" stroke="#bfe3cc" stroke-width="1.4"/>
+<text x="54" y="324" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">SVT：烘焙</text>
+<text x="54" y="340" font-size="12" text-anchor="start" fill="#4a5158">源图本身就是 sRGB 字节</text>
+<rect x="40" y="400" width="300" height="80" rx="9" fill="#e9f7ef" stroke="#bfe3cc" stroke-width="1.4"/>
+<text x="54" y="434" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">tile 直接入池</text>
+<text x="54" y="450" font-size="12" text-anchor="start" fill="#4a5158">不做颜色转换</text>
+<line x1="190" y1="370" x2="190" y2="400" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="430" y="170" width="260" height="200" rx="9" fill="#eaf1fe" stroke="#b9cdf5" stroke-width="1.4"/>
+<text x="444" y="246.75" font-size="14" text-anchor="start" fill="#1a1d21" font-weight="600">物理池</text>
+<text x="444" y="262.75" font-size="12" text-anchor="start" fill="#4a5158">UNORM 视图</text>
+<text x="444" y="280.25" font-size="12" text-anchor="start" fill="#4a5158">内容 = sRGB 编码字节</text>
+<text x="444" y="297.75" font-size="12" text-anchor="start" fill="#4a5158">一条路径写 RVT，一条写 SVT</text>
+<line x1="340" y1="210" x2="430" y2="240" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="385" y="195" font-size="11.5" text-anchor="middle" fill="#4a5158">imageStore</text>
+<line x1="340" y1="440" x2="430" y2="330" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="385" y="372" font-size="11.5" text-anchor="middle" fill="#4a5158">texture_copy</text>
+<rect x="760" y="170" width="250" height="90" rx="9" fill="#e9f7ef" stroke="#bfe3cc" stroke-width="1.4"/>
+<text x="774" y="200.25" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">材质采样</text>
+<text x="774" y="216.25" font-size="12" text-anchor="start" fill="#4a5158">rvt_srgb_to_linear()</text>
+<text x="774" y="233.75" font-size="12" text-anchor="start" fill="#4a5158">解码一次 → ALBEDO</text>
+<line x1="690" y1="270" x2="760" y2="230" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="725" y="262" font-size="11.5" text-anchor="middle" fill="#4a5158">texelFetch/lod</text>
+<rect x="760" y="320" width="250" height="110" rx="9" fill="#fdf0ef" stroke="#e3b4ae" stroke-width="1.4"/>
+<text x="774" y="351.5" font-size="13.5" text-anchor="start" fill="#1a1d21" font-weight="600">错误做法</text>
+<text x="774" y="367.5" font-size="12" text-anchor="start" fill="#4a5158">池绑 sRGB 视图</text>
+<text x="774" y="385" font-size="12" text-anchor="start" fill="#4a5158">硬件解码 + 手动解码 = 两次</text>
+<text x="774" y="402.5" font-size="12" text-anchor="start" fill="#4a5158">实测整体偏暗 0.19</text>
+<text x="30" y="520" font-size="12" text-anchor="start" fill="#7a828a">同一契约让 RVT 与 SVT 可以共用一份 include：换来源不需要改材质。</text>
+
+</svg>
+<div class="cap">两条来源汇入同一个池：RVT 由 compose 编码，SVT 直接存源字节；采样端统一解码一次。</div>
+</div>
+<p>RVT 路径：材质 pass 输出线性 albedo，compose 用 <code>linear_to_srgb</code> 编码后写 UNORM 池。SVT 路径：源图本身就是 sRGB 编码字节，烘焙直接入池，不做颜色转换。采样端（<code>misc/rvt_demo/rvt.gdshaderinc:153</code>）用 <code>rvt_srgb_to_linear</code> 解码一次，再交给 <code>ALBEDO</code>。</p>
+<div class="callout warn"><div class="h">踩过的坑：池不能绑 sRGB 视图</div><p>最初 SVT 池用 <code>R8G8B8A8_SRGB</code> / <code>BC7_SRGB</code>，而 include 里又手动解码，结果整体偏暗、与直贴图差 0.19。原因是硬件采样时已经解码过一次。修复方式是流式池一律 UNORM，只由着色器解码一次；同一处还暴露了参考材质缺 <code>: source_color</code>，导致对比基准偏亮——两者修好后近景差降到 0.0016。</p></div>
+<p>采样数学与 RVT 完全相同（页表间接 + 祖先回退 + 两层混合），这里只列与 SVT 相关的差别：</p>
+<table class="kv">
+<tr><th>项</th><th>RVT</th><th>SVT</th></tr>
+<tr><td>页内容来源</td><td>材质 pass + compose</td><td><code>.svt</code> tile 字节</td></tr>
+<tr><td>池格式</td><td>RGBA8 / R32F（UNORM）</td><td>RGBA8 / BC1 / BC7 / R32F（UNORM）</td></tr>
+<tr><td>池层数</td><td>1 或 2（BC+NR 两层）</td><td>1（页文件单层）</td></tr>
+<tr><td>页更新</td><td>视点 / 失效触发重渲染</td><td>只读；<code>invalidate</code> 等于重新读盘</td></tr>
+<tr><td>调试视图</td><td>同样可用</td><td>同样可用（页表/池/边框是同一份数据）</td></tr>
+</table>
+<h2 id="s6"><span class="num">6</span>调试：五种视图、选页锁定与 CVar 等价方案</h2>
+<p class="lead">调试信息全部从「采样端实际读到的那份页表」算出来，所以看到的间接关系就是材质真正解析的结果。</p>
+<p><code>RuntimeVirtualTexture.debug_mode</code> 有 6 档（0 关闭）：</p>
+<table class="kv">
+<tr><th>值</th><th>视图</th><th>看什么</th></tr>
+<tr><td>1</td><td>页表</td><td>每个池 tile 一种颜色，越粗的回退越暗，无效页洋红，页边白线</td></tr>
+<tr><td>2</td><td>逐层驻留</td><td>按实际命中的 level 上色，直接看出哪里在回退</td></tr>
+<tr><td>3</td><td>物理池</td><td>池 tile 身份 + 绿色 tile 边框带</td></tr>
+<tr><td>4</td><td>LOD 热力图</td><td>蓝 = 最细，红 = 最粗</td></tr>
+<tr><td>5</td><td>边框</td><td>红色页网格 + 绿色 tile 边框环</td></tr>
+</table>
+<p><code>debug_force_lod</code> 把采样层钉在指定值（-1 自动），用来肉眼比较「细页 vs 粗页」。选页调试三个 API：<code>pick_page(world_pos, level)</code> 返回 <code>Vector3i(level, x, y)</code>；<code>get_page_info()</code> 返回 resident/dirty/pool/<code>locked</code> 等；<code>lock_page(level, x, y, seconds)</code> 把页锁住（最多 6 页，按秒过期，期间每帧刷新、且不受 LRU 影响）。对应 UE 的 <code>r.VT.RVT.PickAtScreenCenter</code> + <code>MaxLockedPages</code> + <code>RefreshDuration</code>。</p>
+<h3>Godot 没有 CVar，怎么获得同样手感</h3>
+<p>工作区里另有一套引擎级 CVar（并行实现，<code>core/config/cvars.h:46</code>，注册为 <code>Engine.get_singleton(&quot;CVars&quot;)</code>），支持 <code>--cvar &lt;name&gt;=&lt;value&gt;</code>、<code>--cvar-exec</code>、<code>--cvar-file</code> 与 <code>con.AutoConsole</code>（<code>main/main.cpp:628-630</code>、<code>scene/main/scene_tree.cpp:603</code>）。把 RVT 命令挂上去只需要几行：</p>
+<pre><code>var cv := Engine.get_singleton(&quot;CVars&quot;)
+cv.register_variable(&quot;r.VT.RVT.DebugView&quot;, 0, &quot;RVT debug view 0..5&quot;)
+cv.set_changed_callback(&quot;r.VT.RVT.DebugView&quot;,
+        func(_name, value): rvt.debug_mode = clampi(int(value), 0, 5))
+cv.register_variable(&quot;r.VT.RVT.ForceLod&quot;, -1, &quot;-1 auto&quot;)
+cv.set_changed_callback(&quot;r.VT.RVT.ForceLod&quot;,
+        func(_name, value): rvt.debug_force_lod = clampi(int(value), -1, rvt.log2_tile_count))
+cv.register_command(&quot;r.VT.RVT.PickAtScreenCenter&quot;, func(args):
+    _lock_page_under_center(float(args[0]) if args.size() &gt; 0 else 5.0)
+    return &quot;picked&quot;, &quot;seconds&quot;)</code></pre>
+<p>demo 里另有一份 <code>misc/rvt_demo/cvars.gd</code>（autoload <code>CVars</code>），提供三个输入源：F1 控制台、监视文件（<code>--cvar-file=&lt;path&gt;</code>，改文件或 adb push 后 0.25 s 内生效）、启动命令（<code>--cvar-exec=&quot;a 1;b 2&quot;</code>）。命令名与 UE 一致：<code>r.VT.RVT.DebugView / ForceLod / PickAtScreenCenter / LockPage / PageInfo / UnlockAll / Stats</code>。它与引擎 CVar 参数同名，合并时二选一，别留两套（见第 10 章）。</p>
+<div class="callout note"><div class="h">调试视图为什么能代表真实采样</div><p>颜色由 <code>misc/rvt_demo/rvt.gdshaderinc</code> 里的 <code>rvt_debug_color</code> 用同一份 <code>rvt_page_table</code> 和同一套 uv/LOD 算出（<code>misc/rvt_demo/rvt.gdshaderinc:62-124</code>），不是另画一层。所以页表里写错了间接关系，调试视图一定先暴露；反过来调试视图正确，不代表页内容正确，内容正确性靠「与直贴图逐像素对比」（第 8 章）。</p></div>
+<h2 id="s7"><span class="num">7</span>代码审查：修掉的 7 个问题</h2>
+<p class="lead">这些是这轮专门做逻辑/效果/性能审查时找出来的，都有对应的单测或实测断言。</p>
+<table class="kv">
+<tr><th>#</th><th>问题</th><th>根因</th><th>修复</th></tr>
+<tr><td>1</td><td>远页饿死</td><td><code>take_pending</code> 先按池容量截断请求，再跳过常驻页；常驻页占满名额后远页排不进来</td><td>先过滤「真正需要产生内容」的页再截断；所有请求页打 <code>last_used = frame</code> 防当帧淘汰</td></tr>
+<tr><td>2</td><td>坏 tile 永久占槽</td><td>读失败页停在 RENDERING：不可淘汰、每帧重试</td><td>3 次失败后 <code>block_page</code>：丢槽 + 拉黑 + 页表回退祖先；单测覆盖</td></tr>
+<tr><td>3</td><td>索引重复解析</td><td>loader 每批 <code>open + 解析全索引</code>，页数大时 O(index)/批</td><td><code>configure()</code> 解析一次并缓存，worker 只按偏移读 tile</td></tr>
+<tr><td>4</td><td>烘焙峰值内存 3× 源图</td><td>每层 duplicate + 整层 padding 图</td><td>逐页从层像素做 clamped 采样，输出字节不变（6,289,740 / 787,180 一致）</td></tr>
+<tr><td>5</td><td>池可能超过 16384 纹理上限</td><td><code>pool_tiles × stride</code> 未校验</td><td>按 <code>16384 / stride</code> 钳制</td></tr>
+<tr><td>6</td><td>页文件层数超管理器上限</td><td>文件头允许 12 层，管理器最多 10 层</td><td>超限拒绝并告警一次</td></tr>
+<tr><td>7</td><td>烘焙虚拟尺寸无上限</td><td>1M×1M 会直接 OOM</td><td>虚拟边长 &gt; 32768 返回错误；同时清掉源 mipmap</td></tr>
+</table>
+<p>另外三个是 SVT 调试期发现的，已经写进代码注释与本文：sRGB 双重解码（第 5 章）、参考材质缺 <code>: source_color</code>、<code>Image::compress</code> 按 alpha 把 BC1 压成 BC3（改用 <code>compress_from_channels(COMPRESS_S3TC, USED_CHANNELS_RGB)</code>）。</p>
+<h2 id="s8"><span class="num">8</span>验证矩阵与实测</h2>
+<p class="lead">所有数字都来自可复现的命令；退出码即结论，日志里 0 条 ERROR。</p>
+<table class="kv">
+<tr><th>配置</th><th>结果</th><th>近景差</th><th>远景差</th></tr>
+<tr><td>Vulkan Forward+</td><td>PASS</td><td>0.0016</td><td>0.0039</td></tr>
+<tr><td>Vulkan Mobile</td><td>PASS</td><td>0.0017</td><td>0.0035</td></tr>
+<tr><td>D3D12</td><td>PASS</td><td>0.0016</td><td>0.0039</td></tr>
+<tr><td>运行时切 BC1 页文件</td><td>PASS</td><td>0.0043</td><td>—</td></tr>
+<tr><td>池缩到 3×3（9 页，请求截断）</td><td>PASS</td><td>0.0046</td><td>—</td></tr>
+</table>
+<p>其它断言：</p>
+<ul>
+<li>首帧只有常驻粗层 <code>levels=[0,0,4,1]</code>（5 页），第 11 帧收敛到 36 页。</li>
+<li>相机移动后淘汰 8–18 页、累计上传 137–152 页（BC1 与 RGBA8 各跑一轮）。</li>
+<li>调试页表视图改变画面 0.3451、强制最粗 LOD 改变 0.0760；选中的页 <code>resident=true / locked=true</code>，解锁后释放。</li>
+<li>RVT 回归：远景 0.0020 / 近景 0.0086。</li>
+<li>全量 doctest（含并行 CVar 系统的测试）：1447 例 / 426,374 断言，0 失败。</li>
+</ul>
+<pre><code># 构建（Git Bash 里必须先清 MSYSTEM）
+set MSYSTEM= &amp;&amp; set MINGW_PREFIX=
+call &quot;C:\Program Files\Microsoft Visual Studio\2022\Preview\VC\Auxiliary\Build\vcvars64.bat&quot;
+cd /d F:\godot &amp;&amp; scons platform=windows target=editor arch=x86_64 -j32 tests=yes
+
+# 单测
+bin\godot.windows.editor.x86_64.console.exe --headless --test --test-case=&quot;*RVTPageManager*,*SVTPageFile*&quot;
+
+# SVT demo（三后端）
+bin\godot.windows.editor.x86_64.console.exe --path misc/svt_demo -- --svt-test
+bin\godot.windows.editor.x86_64.console.exe --path misc/svt_demo --rendering-method mobile -- --svt-test
+bin\godot.windows.editor.x86_64.console.exe --path misc/svt_demo --rendering-driver d3d12 -- --svt-test</code></pre>
+<p>截图：<code>misc/svt_demo/out/</code> 下有 <code>ref_close.png</code>（直贴图基准）、<code>svt_close.png</code>、<code>svt_far.png</code>、<code>svt_bc1.png</code>；调试视图截图在 <code>misc/rvt_demo/out/debug_page_table.png / debug_pool.png / debug_borders.png</code>。</p>
+<h2 id="s9"><span class="num">9</span>与 UE 的对照</h2>
+<p class="lead">UE 的 SVT 是引擎级资产管线，我们做的是「够用的最小闭环」；页表、池、回退这些骨架是一致的。</p>
+<table class="kv">
+<tr><th>项</th><th>UE（Streaming Virtual Texture）</th><th>Godot（本实现）</th></tr>
+<tr><td>资产形式</td><td>UStreamableRenderAsset / VT 资产，编辑器导入</td><td><code>.svt</code> 文件 + <code>bake_page_file()</code> 显式烘焙</td></tr>
+<tr><td>页压缩</td><td>BC/ASTC，按平台</td><td>BC1 / BC7（无 ASTC）</td></tr>
+<tr><td>页表</td><td>引擎 VT 系统统一管理，编码池坐标与层</td><td>显式页表纹理，祖先回退靠 mip</td></tr>
+<tr><td>流送</td><td>引擎 VT 系统 + 磁盘/包体</td><td>WorkerThreadPool 读盘 + staging 区域拷贝</td></tr>
+<tr><td>调试</td><td>r.VT.RVT.DebugView / PickAtScreenCenter / ForceLod</td><td>debug_mode / pick+lock_page / debug_force_lod</td></tr>
+<tr><td>材质取用</td><td>VT 采样节点</td><td>gdshaderinc + 6 组 uniform</td></tr>
+</table>
+<h2 id="s10"><span class="num">10</span>已知限制与下一步</h2>
+<p class="lead">能用的闭环已经跑通；剩下的都是“多快、多省、多通用”的问题。</p>
+<ul>
+<li>无编辑器导入器：<code>.svt</code> 仍是运行时文件，烘焙靠显式调用（demo 首次运行自动生成并缓存）。</li>
+<li>无 ASTC：移动端 BC 不一定被硬件支持，要按平台选格式或改 tile 尺寸。</li>
+<li>每页一次 staging 拷贝：可合并成大 staging + 多次 <code>texture_copy</code>，减少 RD 命令数。</li>
+<li>两帧延迟固定：可改成「同帧提交、下帧上传」，但需要双缓冲结果队列。</li>
+<li>与并行 CVar 系统尚未合并：demo 的 <code>misc/rvt_demo/cvars.gd</code> 与引擎 <code>--cvar-file/--cvar-exec</code> 同名，必须二选一。</li>
+<li>换页文件/改池大小会重置页管理器（统计归零、全量重载）。</li>
+</ul>
+<p>下一步优先级：① 合并 CVar（删 demo autoload，把 <code>r.VT.RVT.*</code> 挂到引擎 CVars）→ ② <code>.svt</code> 导入器 → ③ 批量上传 → ④ ASTC/平台格式 → ⑤ 全局调试开关。交接细节见仓库根 <code>HANDOFF-RVT-SVT.md</code>；RVT 本身的完整设计（页渲染、compose、视点请求）见 <code>E:\AiDoc\Godot引擎-RuntimeVirtualTexture实现-页表物理池-视点驱动.html</code>。</p>
+<footer>Godot Engine · Streaming Virtual Texture · 2026-11-02 · 配套工程 misc/svt_demo，HTML 与 Markdown 同一份内容生成。</footer>
+</div>
+</body>
+</html>
