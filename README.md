@@ -4,7 +4,7 @@
 >
 > - **互链约定**：全部相对路径，文件不移动，与 git 自动备份兼容。
 > - **本页由 `generate_index.py` 自动生成**，新增文档后重跑脚本即可刷新。
-> - 文档总数：**224** · 更新：2026-11-01
+> - 文档总数：**225** · 更新：2026-11-02
 
 ---
 
@@ -19,7 +19,7 @@
 | 05 | [05 · 崩溃与稳定性](#05-崩溃与稳定性) | 6 | 崩溃定位与修复：VT / SkeletalMesh / UseAfterFree、帧率掉档排查 |
 | 06 | [06 · Profiling 工具与教程](#06-Profiling-工具与教程) | 11 | 高通 SDP / Adreno / Snapdragon Profiler、UE Insights、CPU Trace 工具链 |
 | 07 | [07 · 项目专项分析](#07-项目专项分析) | 2 | 具体项目（FateTrigger 等）的单帧 / 纹理 / 三角面分析、AO 实践报告 |
-| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 118 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
+| 99 | [99 · 其它与原始资料](#99-其它与原始资料) | 119 | 未归类资料、大体积归档报告、原始数据（docx/csv/pdf） |
 
 ---
 
@@ -184,6 +184,7 @@
 
 | 文档 | 类型 | 更新 |
 |------|:---:|:---:|
+| [Godot 接入可编辑地形与四叉树 GPU 驱动渲染：架构](./Godot接入地形-高度图编辑-VHM四叉树GPU驱动-架构.md) | MD | 11-01 |
 | [UE5-Android-UI纹理内存优化-非4对齐导致ASTC压缩失效-memreport与LLM定位](./UE5-Android-UI纹理内存优化-非4对齐导致ASTC压缩失效-memreport与LLM定位.html) | HTML | 10-31 |
 | [UE5 Android UI 纹理内存优化：非 4 对齐导致的压缩失效](./UE5-Android-UI纹理内存优化-非4对齐导致ASTC压缩失效-memreport与LLM定位.md) | MD | 10-31 |
 | [S1Game Android 机型分档：DeviceProfile CVar 生效层级与覆盖分析](./S1Game-Android机型分档-DeviceProfile-CVar生效层级与覆盖分析.md) | MD | 10-31 |
